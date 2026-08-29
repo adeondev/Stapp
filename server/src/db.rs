@@ -77,3 +77,33 @@ impl Db {
         Ok(msgs)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TestDir;
+
+    fn message(id: &str, ts: i64) -> Message {
+        Message {
+            id: id.into(),
+            channel: "geral".into(),
+            nick: "Daniel".into(),
+            text: id.into(),
+            ts,
+        }
+    }
+
+    #[test]
+    fn history_returns_the_latest_messages_in_chronological_order() {
+        let dir = TestDir::new();
+        let db = Db::open(&dir.database()).unwrap();
+
+        db.insert(&message("old", 100)).unwrap();
+        db.insert(&message("tie-first", 200)).unwrap();
+        db.insert(&message("tie-second", 200)).unwrap();
+
+        let history = db.history("geral", 2).unwrap();
+        let ids: Vec<_> = history.iter().map(|message| message.id.as_str()).collect();
+        assert_eq!(ids, ["tie-first", "tie-second"]);
+    }
+}

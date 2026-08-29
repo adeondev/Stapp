@@ -9,5 +9,8 @@ mod state;
 mod voice;
 mod ws;
 
+#[cfg(test)]
+mod test_support;
+
 pub use app::serve;
 pub use config::Config;

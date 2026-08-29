@@ -138,3 +138,15 @@ fn clean_nick(raw: &str) -> Option<String> {
     let nick = nick.trim().to_string();
     (!nick.is_empty()).then_some(nick)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::clean_nick;
+
+    #[test]
+    fn sanitizes_and_limits_nicknames() {
+        assert_eq!(clean_nick("  Da\0niel  "), Some("Daniel".into()));
+        assert_eq!(clean_nick(" \n\t\0 "), None);
+        assert_eq!(clean_nick(&"a".repeat(30)).unwrap().len(), 24);
+    }
+}

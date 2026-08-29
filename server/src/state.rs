@@ -53,6 +53,7 @@ pub struct VoiceJoin {
     pub peer: VoicePeer,
 }
 
+#[derive(Debug)]
 pub enum VoiceJoinError {
     PeerNotFound,
     Full,
@@ -209,4 +210,72 @@ fn voice_peer(id: &PeerId, user: &UserEntry) -> Option<VoicePeer> {
         muted: voice.muted,
         deafened: voice.deafened,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::TestServer;
+
+    #[tokio::test]
+    async fn enforces_the_user_limit() {
+        let server = TestServer::new(1, 4);
+        assert!(server.state.register("one", "One".into()).await.is_ok());
+
+        let error = server.state.register("two", "Two".into()).await.unwrap_err();
+        assert!(error.contains("servidor cheio"));
+        assert_eq!(server.state.snapshot().await.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn keeps_one_voice_membership_per_user() {
+        let server = TestServer::new(10, 2);
+        server.state.register("one", "One".into()).await.unwrap();
+        server.state.register("two", "Two".into()).await.unwrap();
+
+        let first = server.state.join_voice(&"one".into(), "voz-a").await.unwrap();
+        assert!(first.roster.is_empty());
+
+        let second = server.state.join_voice(&"two".into(), "voz-a").await.unwrap();
+        assert_eq!(second.roster.len(), 1);
+        assert!(server.state.shares_voice_channel(&"one".into(), &"two".into()).await);
+
+        server.state.join_voice(&"two".into(), "voz-b").await.unwrap();
+        assert!(!server.state.shares_voice_channel(&"one".into(), &"two".into()).await);
+
+        let memberships: Vec<_> = server
+            .state
+            .voice_peers()
+            .await
+            .into_iter()
+            .filter(|peer| peer.id == "two")
+            .collect();
+        assert_eq!(memberships.len(), 1);
+        assert_eq!(memberships[0].channel, "voz-b");
+    }
+
+    #[tokio::test]
+    async fn enforces_voice_limit_and_updates_voice_state() {
+        let server = TestServer::new(10, 1);
+        server.state.register("one", "One".into()).await.unwrap();
+        server.state.register("two", "Two".into()).await.unwrap();
+
+        server.state.join_voice(&"one".into(), "voz-a").await.unwrap();
+        let full = server.state.join_voice(&"two".into(), "voz-a").await;
+        assert!(matches!(full, Err(VoiceJoinError::Full)));
+
+        assert!(server.state.update_voice_state(&"one".into(), true, false).await);
+        let peer = server
+            .state
+            .voice_peers()
+            .await
+            .into_iter()
+            .find(|peer| peer.id == "one")
+            .unwrap();
+        assert!(peer.muted);
+        assert!(!peer.deafened);
+
+        assert!(server.state.leave_voice(&"one".into()).await);
+        assert!(!server.state.leave_voice(&"one".into()).await);
+    }
 }
