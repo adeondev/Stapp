@@ -6,8 +6,8 @@ use axum::response::Response;
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
-use crate::channel::ChannelKind;
-use crate::protocol::{ClientMsg, Message, ServerMsg, User, now_ms};
+use crate::chat;
+use crate::protocol::{ClientMsg, ServerMsg, User};
 use crate::state::{AppState, Target};
 use crate::voice;
 
@@ -109,18 +109,7 @@ async fn handle(state: &Arc<AppState>, peer_id: &str, registered: &mut bool, msg
                 },
             );
 
-            // Todo o historico de uma vez: sao poucos canais e poucas mensagens,
-            // e assim trocar de canal na UI nao custa ida ao servidor.
-            let limit = state.config.storage.history_limit;
-            for channel in state.config.text_channels() {
-                match state.db.history(&channel.id, limit) {
-                    Ok(msgs) => state.send_to(
-                        peer_id,
-                        ServerMsg::ChatHistory { channel: channel.id.clone(), msgs },
-                    ),
-                    Err(err) => tracing::error!(channel = %channel.id, %err, "falha lendo historico"),
-                }
-            }
+            chat::send_history(state, peer_id);
 
             state.publish(
                 Target::Except(peer_id.to_string()),
@@ -131,34 +120,7 @@ async fn handle(state: &Arc<AppState>, peer_id: &str, registered: &mut bool, msg
             tracing::info!(peer = %peer_id, %nick, "entrou");
         }
 
-        ClientMsg::ChatSend { channel, text } => {
-            match state.config.channel(&channel) {
-                Some(ch) if ch.kind == ChannelKind::Text => {}
-                _ => {
-                    state.send_to(peer_id, ServerMsg::Error {
-                        message: "canal de texto invalido".into(),
-                    });
-                    return;
-                }
-            }
-
-            let Some(text) = clean_text(&text) else { return };
-            let Some(nick) = state.nick_of(peer_id).await else { return };
-
-            let msg = Message {
-                id: Uuid::new_v4().to_string(),
-                channel: channel.clone(),
-                nick,
-                text,
-                ts: now_ms(),
-            };
-
-            // Se o disco falhar, a conversa continua — so o historico fica torto.
-            if let Err(err) = state.db.insert(&msg) {
-                tracing::error!(%err, "falha gravando mensagem");
-            }
-            state.broadcast(ServerMsg::ChatNew { channel, msg });
-        }
+        ClientMsg::ChatSend { channel, text } => chat::send(state, peer_id, channel, &text).await,
 
         ClientMsg::VoiceJoin { channel } => voice::join(state, &peer_id.to_string(), &channel).await,
         ClientMsg::VoiceLeave => voice::leave(state, &peer_id.to_string()).await,
@@ -175,10 +137,4 @@ fn clean_nick(raw: &str) -> Option<String> {
     let nick: String = raw.trim().chars().filter(|c| !c.is_control()).take(24).collect();
     let nick = nick.trim().to_string();
     (!nick.is_empty()).then_some(nick)
-}
-
-fn clean_text(raw: &str) -> Option<String> {
-    let text: String = raw.chars().filter(|c| *c == '\n' || !c.is_control()).take(2000).collect();
-    let text = text.trim().to_string();
-    (!text.is_empty()).then_some(text)
 }

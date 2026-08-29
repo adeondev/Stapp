@@ -2,6 +2,7 @@ pub mod app;
 pub mod channel;
 pub mod config;
 
+mod chat;
 mod db;
 mod protocol;
 mod state;
