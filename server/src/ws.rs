@@ -6,7 +6,7 @@ use axum::response::Response;
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
-use crate::config::ChannelKind;
+use crate::channel::ChannelKind;
 use crate::protocol::{ClientMsg, Message, ServerMsg, User, now_ms};
 use crate::state::{AppState, Target};
 use crate::voice;

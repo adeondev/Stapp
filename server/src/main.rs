@@ -1,3 +1,4 @@
+mod channel;
 mod config;
 mod db;
 mod protocol;
@@ -12,7 +13,8 @@ use axum::Router;
 use axum::routing::get;
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::config::{ChannelKind, Config};
+use crate::channel::ChannelKind;
+use crate::config::Config;
 use crate::db::Db;
 use crate::state::AppState;
 

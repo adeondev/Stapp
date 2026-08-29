@@ -2,7 +2,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+
+use crate::channel::{Channel, ChannelKind};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -29,21 +31,6 @@ pub struct ServerConfig {
     /// o app na mesma origem — e o que usamos em producao.
     #[serde(default)]
     pub static_dir: Option<PathBuf>,
-}
-
-/// Um canal. `kind` decide se e conversa ou call — nao existe canal que faz os dois.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Channel {
-    pub id: String,
-    pub name: String,
-    pub kind: ChannelKind,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ChannelKind {
-    Text,
-    Voice,
 }
 
 #[derive(Debug, Clone, Deserialize)]

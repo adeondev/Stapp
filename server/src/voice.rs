@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use crate::config::ChannelKind;
+use crate::channel::ChannelKind;
 use crate::protocol::{PeerId, ServerMsg, VoiceConfig, VoicePeer};
 use crate::state::{AppState, Target, VoiceMembership};
 
