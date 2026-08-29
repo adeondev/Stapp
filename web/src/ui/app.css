@@ -1,0 +1,30 @@
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  height: 100%;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-app);
+}
+
+/* Aviso do servidor ou do microfone. Sem borda: o tom de fundo ja separa. */
+.notice {
+  margin: 12px 20px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: var(--danger-quiet);
+  color: var(--danger);
+  font-size: 14px;
+}
+
+.placeholder {
+  display: grid;
+  place-items: center;
+  flex: 1;
+  color: var(--text-dim);
+}

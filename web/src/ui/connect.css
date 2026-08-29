@@ -1,0 +1,56 @@
+.connect {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 24px;
+}
+
+.connect__card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 340px;
+  padding: 28px;
+  border-radius: var(--radius);
+  background: var(--bg-sidebar);
+}
+
+.connect__title {
+  margin: 0;
+  color: var(--accent);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.connect__sub {
+  margin: 4px 0 24px;
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+.connect__label {
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.connect__field {
+  margin-bottom: 18px;
+  padding: 11px 12px;
+  background: var(--bg-input);
+}
+
+.connect__go {
+  margin-top: 6px;
+  padding: 12px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+.connect__go:hover:not(:disabled) {
+  background: var(--accent-hover);
+}

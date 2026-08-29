@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/protocol.ts","./src/store.ts","./src/net/connection.ts","./src/ui/chat.tsx","./src/ui/connect.tsx","./src/ui/icons.tsx","./src/ui/sidebar.tsx","./src/ui/voicebar.tsx","./src/voice/meshtransport.ts","./src/voice/voicetransport.ts","./vite.config.ts"],"version":"5.9.3"}

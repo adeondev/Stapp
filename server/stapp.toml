@@ -1,0 +1,37 @@
+# Config do servidor Stapp. E o "server.properties" daqui — edite e reinicie.
+
+[server]
+name      = "Stapp dos guri"
+bind      = "0.0.0.0"
+port      = 8787
+max_users = 20
+# Descomente em producao para o proprio servidor entregar o cliente ja buildado
+# (mesma origem, sem CORS). Caminho relativo a este arquivo.
+# static_dir = "../web/dist"
+
+[[channels]]
+id   = "geral"
+name = "geral"
+kind = "text"
+
+[[channels]]
+id   = "random"
+name = "random"
+kind = "text"
+
+[[channels]]
+id   = "sala"
+name = "Sala de voz"
+kind = "voice"
+
+[voice]
+# "mesh" = P2P direto, o servidor so repassa sinalizacao.
+# Quando migrar para SFU, isto vira "livekit" e o cliente troca de transporte sozinho.
+backend     = "mesh"
+ice_servers = ["stun:stun.l.google.com:19302"]
+# O mesh nao escala muito alem disso: cada pessoa sobe audio para todas as outras.
+max_peers   = 6
+
+[storage]
+database      = "data/stapp.db"
+history_limit = 200

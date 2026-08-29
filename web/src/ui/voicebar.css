@@ -1,0 +1,64 @@
+.voicebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.voicebar__where {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.voicebar__label {
+  color: var(--online);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.voicebar__channel {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.voicebar__actions {
+  display: flex;
+  gap: 2px;
+}
+
+.voicebar__btn {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--text-dim);
+}
+
+.voicebar__btn:hover:not(:disabled) {
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.voicebar__btn.is-off {
+  color: var(--danger);
+}
+
+.voicebar__btn.is-off:hover:not(:disabled) {
+  background: var(--danger-quiet);
+  color: var(--danger);
+}
+
+.voicebar__btn--leave:hover {
+  background: var(--danger-quiet);
+  color: var(--danger);
+}

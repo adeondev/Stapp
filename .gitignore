@@ -1,0 +1,23 @@
+# Rust
+/server/target/
+**/*.rs.bk
+
+# dados do servidor (banco, logs)
+/server/data/
+
+# Node / web
+node_modules/
+/web/dist/
+/web/.vite/
+*.local
+
+# Tauri
+/web/src-tauri/target/
+/web/src-tauri/gen/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
