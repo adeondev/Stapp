@@ -2,19 +2,22 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import stappLogo from '../assets/imgs/svg/stapp_logo.svg'
 import { AuthApi, AuthApiError } from './net/auth'
 import { Connection, type ConnectionStatus } from './net/connection'
+import { IncomingRequestTracker, notificationSound } from './net/notifications'
 import { hasPendingLogout, lastServer, loadServers, markLogoutPending, normalizeServerUrl,
   removeServer, saveServer, setPendingLogout, type SavedServer } from './net/servers'
 import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
 import { PROTOCOL_VERSION } from './protocol'
-import { directChannelPartner, initialState, reduce } from './store'
+import { directChannelPartner, initialState, profileOf, reduce } from './store'
 import { AccountBar } from './ui/AccountBar'
+import { ProfileProvider } from './ui/Avatar'
+import { ProfileEditor } from './ui/ProfileEditor'
 import { CallPanel } from './ui/CallPanel'
 import { Chat } from './ui/Chat'
 import { Connect, type AuthInfo } from './ui/Connect'
 import { FriendsHome, type SocialAction } from './ui/FriendsHome'
 import { MembersPanel } from './ui/MembersPanel'
 import { ServerRail } from './ui/ServerRail'
-import { Sidebar, type View } from './ui/Sidebar'
+import { Sidebar, sidebarModeFor, type View } from './ui/Sidebar'
 import { VoiceBar } from './ui/VoiceBar'
 import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import './ui/app.css'
@@ -53,6 +56,7 @@ export default function App() {
   viewRef.current = view
   const [call, setCall] = useState<CallState | null>(null)
   const [ringing, setRinging] = useState<Ringing | null>(null)
+  const [editingProfile, setEditingProfile] = useState(false)
 
   const connection = useRef<Connection | null>(null)
   const authApi = useRef<AuthApi | null>(null)
@@ -94,6 +98,7 @@ export default function App() {
     authApi.current = api
     let disposed = false
     let refreshing = false
+    const friendRequests = new IncomingRequestTracker()
 
     const attemptRefresh = async () => {
       if (refreshing || disposed) return
@@ -178,8 +183,12 @@ export default function App() {
           setView((current) => current ?? { kind: 'home' })
         }
 
+        if (msg.t === 'social.snapshot' && friendRequests.update(msg.members).length > 0) {
+          notificationSound.play()
+        }
         if (msg.t === 'dm.new') {
           const current = viewRef.current
+          if (msg.unread > 0 && msg.msg.kind === 'text') notificationSound.play()
           if (current?.kind === 'direct' && current.userId === msg.user_id && msg.unread > 0) {
             connection.current?.send({ t: 'dm.read', user_id: msg.user_id })
           }
@@ -369,19 +378,25 @@ export default function App() {
   const self = state.users.find((user) => user.user_id === state.selfUserId)
   const onlineIds = new Set(state.users.map((user) => user.user_id))
   const railServers = servers.some((server) => server.url === active.profile.url) ? servers : [active.profile, ...servers]
+  const sidebarMode = sidebarModeFor(view)
   const showMembers = view?.kind === 'channel'
+  const meuPerfil = profileOf(state, state.selfUserId ?? '', attemptedUsername.current)
 
+  // Sem isto todo avatar cai no provisorio: e daqui que qualquer tela alcanca
+  // o perfil de qualquer pessoa sem receber o estado por prop.
   return (
+    <ProfileProvider profiles={state.profiles}>
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
-      <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={view?.kind === 'home'}
+      <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
         onHome={() => setView({ kind: 'home' })} onSelect={selectServer} onAdd={backToServers} />
-      <Sidebar state={state} status={status} view={view} onSelectHome={() => setView({ kind: 'home' })}
+      <Sidebar state={state} status={status} view={view} mode={sidebarMode}
+        onSelectHome={() => setView({ kind: 'home' })}
         onSelectChannel={(id) => setView({ kind: 'channel', id })} onSelectDirect={selectDirect}
         callChannel={call?.channel ?? null} onJoinCall={joinCall} speaking={speaking}
         footer={<div className="sidebar__footer-stack">
           {call && <VoiceBar channelName={callName} muted={call.muted} deafened={call.deafened}
             onToggleMute={toggleMute} onToggleDeafen={toggleDeafen} onLeave={leaveCall} />}
-          <AccountBar username={self?.username ?? attemptedUsername.current} onLogout={logout}
+          <AccountBar onOpenProfile={() => setEditingProfile(true)} userId={state.selfUserId} username={self?.username ?? attemptedUsername.current} onLogout={logout}
             onRemoveServer={() => removeSaved(active.profile.url)} />
         </div>} />
 
@@ -389,8 +404,6 @@ export default function App() {
         {notice && <div className="notice" role="status">{notice}</div>}
         {view?.kind === 'home' ? (
           <FriendsHome members={state.socialMembers} onlineIds={onlineIds}
-            allowMemberDms={state.allowMemberDms}
-            onPrivacyChange={(value) => connection.current?.send({ t: 'privacy.update', allow_member_dms: value })}
             onOpenDirect={selectDirect} onAction={socialAction} />
         ) : channel ? (
           <Chat title={channel.name} kind="channel" messages={state.messages[channel.id] ?? []}
@@ -408,8 +421,13 @@ export default function App() {
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
         onMessage={selectDirect} onAction={socialAction} />}
-      {ringing && <CallPanel username={ringing.username} direction={ringing.direction}
+      <ProfileEditor isOpen={editingProfile} profile={meuPerfil}
+        onClose={() => setEditingProfile(false)}
+        onSave={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })} />
+
+      {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
         onAccept={acceptCall} onDecline={dismissCall} />}
     </div>
+    </ProfileProvider>
   )
 }

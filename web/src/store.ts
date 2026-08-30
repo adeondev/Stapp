@@ -6,6 +6,7 @@ import type {
   Message,
   OnlineUser,
   PeerId,
+  Profile,
   ServerMsg,
   SocialMember,
   UserId,
@@ -30,6 +31,12 @@ export interface StappState {
   directMessages: Record<UserId, DirectMessage[]>
   allowMemberDms: boolean
   socialMembers: SocialMember[]
+  /**
+   * Perfis por user_id. **Toda a UI resolve nome, cor e avatar por aqui** —
+   * nenhum payload carrega isso junto, senao trocar de avatar deixaria o que ja
+   * chegou com a foto velha.
+   */
+  profiles: Record<UserId, Profile>
 }
 
 export const initialState: StappState = {
@@ -46,6 +53,7 @@ export const initialState: StappState = {
   directMessages: {},
   allowMemberDms: true,
   socialMembers: [],
+  profiles: {},
 }
 
 const byUsername = (a: { username: string }, b: { username: string }) =>
@@ -68,6 +76,13 @@ export function reduce(state: StappState, msg: StappAction): StappState {
         voiceConfig: msg.voice,
         voicePeers: msg.voice_peers,
         directory: [...msg.directory].sort(byUsername),
+        profiles: Object.fromEntries(msg.profiles.map((profile) => [profile.user_id, profile])),
+      }
+
+    case 'user.profile':
+      return {
+        ...state,
+        profiles: { ...state.profiles, [msg.profile.user_id]: msg.profile },
       }
 
     case 'chat.history':
@@ -276,6 +291,48 @@ export function directChannelPartner(state: StappState, channel: string): string
     state.users.find((user) => user.user_id === outro)?.username ??
     null
   )
+}
+
+/**
+ * O perfil de alguem. Devolve um provisorio quando ainda nao chegou — assim
+ * nenhum componente precisa saber lidar com a ausencia, e a tela nunca fica
+ * com um buraco esperando o servidor.
+ */
+export function resolveProfile(
+  profiles: Record<UserId, Profile>,
+  userId: UserId,
+  fallbackName = '',
+): Profile {
+  const encontrado = profiles[userId]
+  if (encontrado) return encontrado
+
+  const nome = fallbackName || 'alguem'
+  return {
+    user_id: userId,
+    username: nome,
+    display_name: nome,
+    accent: 'blue',
+    bio: '',
+    has_avatar: false,
+    updated_at: 0,
+  }
+}
+
+/** Versao para quem ja tem o estado inteiro: sabe procurar o nome no diretorio. */
+export function profileOf(state: StappState, userId: UserId, fallbackName = ''): Profile {
+  return resolveProfile(
+    state.profiles,
+    userId,
+    fallbackName ||
+      state.directory.find((entry) => entry.user_id === userId)?.username ||
+      state.users.find((user) => user.user_id === userId)?.username ||
+      '',
+  )
+}
+
+/** O nome que deve aparecer na tela para esta conta. */
+export function displayNameOf(state: StappState, userId: UserId, fallbackName = ''): string {
+  return profileOf(state, userId, fallbackName).display_name
 }
 
 export function peersInChannel(state: StappState, channelId: string): VoicePeer[] {

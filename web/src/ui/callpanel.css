@@ -27,8 +27,8 @@
   height: 40px;
   flex: 0 0 auto;
   border-radius: 50%;
-  background: var(--accent-quiet);
-  color: var(--accent);
+  background: var(--avatar-accent, var(--accent));
+  color: var(--avatar-ink, var(--on-accent));
   font-size: 16px;
   font-weight: 600;
 }

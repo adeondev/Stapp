@@ -1,0 +1,145 @@
+.profile-editor {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.profile-editor__dialog {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 420px;
+  padding: 22px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-app);
+}
+
+.profile-editor__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+.profile-editor__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.profile-editor__close {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  color: var(--text-dim);
+}
+
+.profile-editor__close:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Previa: o que os outros vao ver, atualizando enquanto digita. */
+.profile-editor__preview {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 14px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.profile-editor__avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  border-radius: var(--radius-lg);
+  background: var(--avatar-accent, var(--accent));
+  color: var(--avatar-ink, var(--on-accent));
+  font-size: 19px;
+  font-weight: 700;
+}
+
+.profile-editor__identity {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.profile-editor__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-editor__handle {
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.profile-editor__label {
+  margin-bottom: 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-editor__field {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+}
+
+.profile-editor__bio {
+  resize: none;
+  font-family: inherit;
+}
+
+.profile-editor__hint {
+  margin: 6px 0 18px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.profile-editor__accents {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.profile-editor__accent {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+/* Selecionada: um anel do tom do fundo por dentro, sem borda nem sombra. */
+.profile-editor__accent.is-active {
+  outline: 3px solid var(--bg-app);
+  outline-offset: -6px;
+}
+
+.profile-editor__save {
+  padding: 11px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+
+.profile-editor__save:hover {
+  background: var(--accent-hover);
+}

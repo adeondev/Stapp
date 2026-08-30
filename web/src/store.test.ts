@@ -10,6 +10,7 @@ const welcome = {
   users: [{ user_id: 'user-1', username: 'Daniel' }],
   voice: { backend: 'mesh' as const, ice_servers: [], max_peers: 4 },
   voice_peers: [],
+  profiles: [],
   directory: [{ user_id: 'user-2', username: 'Alice' }],
 }
 
@@ -143,5 +144,55 @@ describe('lista lateral de diretas', () => {
     })
     expect(state.allowMemberDms).toBe(false)
     expect(state.socialMembers[0].relationship).toBe('incoming')
+  })
+})
+
+describe('perfis', () => {
+  const perfil = (id: string, nome: string, accent: 'blue' | 'green' = 'blue') => ({
+    user_id: id,
+    username: nome,
+    display_name: nome,
+    accent,
+    bio: '',
+    has_avatar: false,
+    updated_at: 0,
+  })
+
+  it('o welcome indexa os perfis por user_id', () => {
+    const state = reduce(initialState, {
+      ...welcome,
+      profiles: [perfil('user-1', 'Daniel'), perfil('user-2', 'Alice')],
+    })
+    expect(Object.keys(state.profiles).sort()).toEqual(['user-1', 'user-2'])
+    expect(state.profiles['user-2'].username).toBe('Alice')
+  })
+
+  it('user.profile troca so o perfil que mudou', async () => {
+    const { profileOf } = await import('./store')
+    let state = reduce(initialState, {
+      ...welcome,
+      profiles: [perfil('user-1', 'Daniel'), perfil('user-2', 'Alice')],
+    })
+    state = reduce(state, {
+      t: 'user.profile',
+      profile: { ...perfil('user-2', 'Alice', 'green'), display_name: 'Alice da Silva', bio: 'oi' },
+    })
+
+    expect(profileOf(state, 'user-2').display_name).toBe('Alice da Silva')
+    expect(profileOf(state, 'user-2').accent).toBe('green')
+    // O username continua sendo o login dela.
+    expect(profileOf(state, 'user-2').username).toBe('Alice')
+    // E o do daniel nao foi tocado.
+    expect(profileOf(state, 'user-1').display_name).toBe('Daniel')
+  })
+
+  it('perfil que ainda nao chegou vira um provisorio, nao um buraco', async () => {
+    const { profileOf } = await import('./store')
+    const state = reduce(initialState, { ...welcome, profiles: [] })
+
+    const provisorio = profileOf(state, 'user-9', 'fulano')
+    expect(provisorio.display_name).toBe('fulano')
+    expect(provisorio.accent).toBe('blue')
+    expect(provisorio.has_avatar).toBe(false)
   })
 })

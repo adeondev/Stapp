@@ -74,6 +74,30 @@ export interface DirectoryEntry {
   username: string
 }
 
+/**
+ * O perfil publico de uma conta.
+ *
+ * **Nao vem copiado dentro dos outros payloads de proposito.** Eles levam so
+ * `user_id`; o store guarda os perfis num mapa e a UI consulta por ali. Sem
+ * isso, trocar de avatar deixaria toda mensagem ja recebida com a foto velha.
+ */
+export interface Profile {
+  user_id: UserId
+  /** O identificador de login. Nao muda. */
+  username: string
+  /** Ja resolvido: cai no username quando a pessoa nao escolheu nenhum. */
+  display_name: string
+  /** Nome da cor na paleta, nao o hex — quem manda no valor e o tema. */
+  accent: AccentName
+  bio: string
+  has_avatar: boolean
+  updated_at: number
+}
+
+/** Tem que bater com `ACCENTS` em `server/src/services/profile/mod.rs`. */
+export const ACCENTS = ['blue', 'green', 'red', 'amber', 'purple', 'cyan'] as const
+export type AccentName = (typeof ACCENTS)[number]
+
 export type RelationshipState = 'none' | 'incoming' | 'outgoing' | 'friend' | 'blocked'
 
 export interface SocialMember {
@@ -139,6 +163,13 @@ export type ClientMsg =
   | { t: 'user.block'; user_id: UserId }
   | { t: 'user.unblock'; user_id: UserId }
   | { t: 'privacy.update'; allow_member_dms: boolean }
+  | {
+      /** Campo ausente = nao mexe; display_name vazio volta a usar o username. */
+      t: 'profile.update'
+      display_name?: string
+      accent?: AccentName
+      bio?: string
+    }
   | { t: 'call.start'; user_id: UserId }
   | { t: 'call.accept'; user_id: UserId }
   | { t: 'call.decline'; user_id: UserId }
@@ -168,6 +199,8 @@ export type ServerMsg =
       users: OnlineUser[]
       /** Todas as contas do servidor, online ou nao. */
       directory: DirectoryEntry[]
+      /** Os perfis de todo mundo, inclusive o seu. */
+      profiles: Profile[]
       voice: VoiceConfig
       voice_peers: VoicePeer[]
     }
@@ -189,6 +222,7 @@ export type ServerMsg =
     }
   | { t: 'dm.denied'; user_id: UserId }
   | { t: 'social.snapshot'; allow_member_dms: boolean; members: SocialMember[] }
+  | { t: 'user.profile'; profile: Profile }
   | { t: 'user.online'; user: OnlineUser }
   | { t: 'user.offline'; user_id: UserId }
   | { t: 'call.incoming'; user_id: UserId; username: string }

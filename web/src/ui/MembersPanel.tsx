@@ -1,3 +1,4 @@
+import { Avatar, ProfileName } from './Avatar'
 import { useState } from 'react'
 import type { SocialMember, UserId } from '../protocol'
 import './members.css'
@@ -21,8 +22,8 @@ export function MembersPanel({ members, onlineIds, onMessage, onAction }: Props)
           <div className="members__entry" key={member.user_id}>
             <button className="members__row" type="button" aria-expanded={selected === member.user_id}
               onClick={() => setSelected((current) => current === member.user_id ? null : member.user_id)}>
-              <span className={`members__avatar ${online ? 'is-online' : ''}`}>{member.username.slice(0, 1).toUpperCase()}</span>
-              <span className="members__name"><strong>{member.username}</strong><small>{online ? 'Online' : 'Offline'}</small></span>
+              <Avatar userId={member.user_id} className={`members__avatar ${online ? 'is-online' : ''}`} fallbackName={member.username} />
+              <span className="members__name"><strong><ProfileName userId={member.user_id} fallbackName={member.username} /></strong><small>{online ? 'Online' : 'Offline'}</small></span>
             </button>
             {selected === member.user_id && (
               <div className="members__profile">

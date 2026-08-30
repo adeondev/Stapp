@@ -4,15 +4,15 @@
   align-items: center;
   gap: 10px;
   min-height: 0;
-  padding: 12px 8px;
+  padding: 12px 0;
   background: var(--bg-rail);
-  backdrop-filter: blur(28px) saturate(135%);
 }
 
 .serverrail__servers {
   display: flex;
   flex: 1;
   flex-direction: column;
+  align-items: center;
   gap: 10px;
   min-height: 0;
   overflow-y: auto;
@@ -20,35 +20,44 @@
 }
 
 .serverrail__item {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
-  flex: 0 0 44px;
-  border-radius: 16px;
-  background: var(--glass-strong);
-  color: var(--text-dim);
-  font-size: 11px;
-  font-weight: 750;
-  transition: border-radius 160ms ease, background 160ms ease, color 160ms ease;
+  width: 48px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: var(--radius-pill);
+  background: var(--pill-surface);
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.serverrail__item:hover,
+.serverrail__item:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
 .serverrail__item.is-active {
-  border-radius: 12px;
   background: var(--accent);
   color: var(--on-accent);
 }
 
 .serverrail__home {
-  color: var(--accent);
+  color: var(--text-soft);
+}
+
+.serverrail__home:hover,
+.serverrail__home.is-active {
+  color: var(--on-accent);
 }
 
 .serverrail__separator {
-  width: 30px;
+  width: 32px;
   height: 2px;
-  border-radius: 1px;
-  background: var(--glass-highlight);
+  margin: 2px 0;
+  border-radius: var(--radius-pill);
+  background: var(--pill-hover);
 }
 
 .serverrail__add {
@@ -57,13 +66,5 @@
 
 .serverrail__add:hover {
   background: var(--online);
-}
-
-@media (max-width: 820px) {
-  .serverrail { padding-inline: 6px; }
-  .serverrail__item { width: 40px; height: 40px; flex-basis: 40px; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .serverrail__item { transition: none; }
+  color: var(--on-accent);
 }
