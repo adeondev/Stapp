@@ -42,6 +42,8 @@ export interface ChatEntry {
   author_username: string
   text: string
   ts: number
+  /** Ausente numa mensagem de canal; 'call' e o rastro de uma chamada. */
+  kind?: DirectMessageKind
 }
 
 export type DirectMessageKind = 'text' | 'call'
@@ -71,6 +73,15 @@ export interface DirectoryEntry {
   username: string
 }
 
+/** Por que uma chamada 1:1 terminou sem virar conversa. */
+export type CallEndReason =
+  | 'declined'
+  | 'canceled'
+  | 'missed'
+  | 'busy'
+  | 'offline'
+  | 'unavailable'
+
 export type VoiceConfig =
   | { backend: 'mesh'; ice_servers: string[]; max_peers: number }
   // | { backend: 'livekit'; url: string; token: string }
@@ -99,6 +110,10 @@ export type ClientMsg =
   | { t: 'dm.open'; user_id: UserId }
   | { t: 'dm.send'; user_id: UserId; text: string }
   | { t: 'dm.read'; user_id: UserId }
+  | { t: 'call.start'; user_id: UserId }
+  | { t: 'call.accept'; user_id: UserId }
+  | { t: 'call.decline'; user_id: UserId }
+  | { t: 'call.cancel'; user_id: UserId }
   | { t: 'voice.join'; channel: string }
   | { t: 'voice.leave' }
   | { t: 'voice.state'; muted: boolean; deafened: boolean }
@@ -143,6 +158,10 @@ export type ServerMsg =
     }
   | { t: 'user.online'; user: OnlineUser }
   | { t: 'user.offline'; user_id: UserId }
+  | { t: 'call.incoming'; user_id: UserId; username: string }
+  | { t: 'call.ringing'; user_id: UserId }
+  | { t: 'call.accepted'; user_id: UserId; channel: string }
+  | { t: 'call.ended'; user_id: UserId; reason: CallEndReason }
   | { t: 'voice.roster'; channel: string; peers: VoicePeer[] }
   | { t: 'voice.joined'; peer: VoicePeer }
   | { t: 'voice.left'; peer_id: PeerId }

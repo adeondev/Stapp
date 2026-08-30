@@ -6,6 +6,7 @@
 
 use std::sync::Arc;
 
+use crate::services::call;
 use crate::services::chat;
 use crate::services::direct;
 use crate::protocol::{ClientMsg, PeerId};
@@ -23,6 +24,11 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
         ClientMsg::DmOpen { user_id } => direct::open(state, peer_id, user_id).await,
         ClientMsg::DmSend { user_id, text } => direct::send(state, peer_id, user_id, &text).await,
         ClientMsg::DmRead { user_id } => direct::mark_read(state, peer_id, user_id).await,
+
+        ClientMsg::CallStart { user_id } => call::start(state, peer_id, user_id).await,
+        ClientMsg::CallAccept { user_id } => call::accept(state, peer_id, user_id).await,
+        ClientMsg::CallDecline { user_id } => call::decline(state, peer_id, user_id).await,
+        ClientMsg::CallCancel { user_id } => call::cancel(state, peer_id, user_id).await,
 
         ClientMsg::VoiceJoin { channel } => voice::join(state, peer_id, &channel).await,
         ClientMsg::VoiceLeave => voice::leave(state, peer_id).await,

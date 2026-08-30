@@ -78,6 +78,24 @@ pub struct DirectoryEntry {
     pub username: String,
 }
 
+/// Por que uma chamada 1:1 terminou sem virar conversa.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CallEndReason {
+    /// A pessoa recusou.
+    Declined,
+    /// Quem ligou desistiu antes de ser atendido.
+    Canceled,
+    /// Tocou ate o fim e ninguem atendeu.
+    Missed,
+    /// Uma das pontas ja estava com outra chamada tocando.
+    Busy,
+    /// A pessoa nao esta conectada.
+    Offline,
+    /// A conta nao existe, ou nao da para ligar para ela.
+    Unavailable,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "lowercase")]
 pub enum VoiceConfig {
@@ -127,6 +145,19 @@ pub enum ClientMsg {
     /// Marca lida ate agora. Usado quando chega mensagem com a conversa aberta.
     #[serde(rename = "dm.read")]
     DmRead { user_id: UserId },
+
+    #[serde(rename = "call.start")]
+    CallStart { user_id: UserId },
+
+    #[serde(rename = "call.accept")]
+    CallAccept { user_id: UserId },
+
+    #[serde(rename = "call.decline")]
+    CallDecline { user_id: UserId },
+
+    /// Quem ligou desistiu antes de ser atendido.
+    #[serde(rename = "call.cancel")]
+    CallCancel { user_id: UserId },
 
     #[serde(rename = "voice.join")]
     VoiceJoin { channel: String },
@@ -219,6 +250,25 @@ pub enum ServerMsg {
 
     #[serde(rename = "user.offline")]
     UserOffline { user_id: UserId },
+
+    /// Esta tocando para voce.
+    #[serde(rename = "call.incoming")]
+    CallIncoming { user_id: UserId, username: String },
+
+    /// Confirmacao para quem ligou: esta tocando do outro lado.
+    #[serde(rename = "call.ringing")]
+    CallRinging { user_id: UserId },
+
+    /// Atendeu. Os dois lados entram neste canal de voz.
+    #[serde(rename = "call.accepted")]
+    CallAccepted { user_id: UserId, channel: String },
+
+    /// Acabou sem virar conversa. Vale para os dois lados.
+    #[serde(rename = "call.ended")]
+    CallEnded {
+        user_id: UserId,
+        reason: CallEndReason,
+    },
 
     #[serde(rename = "voice.roster")]
     VoiceRoster {

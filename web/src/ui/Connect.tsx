@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import stappLogo from '../../assets/imgs/svg/stapp_logo.svg'
 import { defaultServerUrl, isSecureAuthUrl, type ConnectionStatus } from '../net/connection'
 import type { AuthMode } from '../protocol'
+import { CRTWarp } from './CRTWarp'
+import { IconCheck, IconStappLogo } from './Icons'
 import './connect.css'
 
 export interface AuthInfo {
@@ -41,6 +42,9 @@ export function Connect({
   const [confirmation, setConfirmation] = useState('')
   const [mode, setMode] = useState<AuthMode>('login')
   const [localError, setLocalError] = useState<string | null>(null)
+  const [rememberServer, setRememberServer] = useState(true)
+  const [rememberUser, setRememberUser] = useState(true)
+  const [showHelp, setShowHelp] = useState(false)
 
   useEffect(() => {
     if (!serverUrl) return
@@ -49,15 +53,18 @@ export function Connect({
     setConfirmation('')
     setMode('login')
     setLocalError(null)
+    setShowHelp(false)
   }, [serverUrl])
 
   function chooseServer(event: React.FormEvent) {
     event.preventDefault()
     const target = url.trim()
     if (!target) return
-    // Escolher o servidor nao manda senha nenhuma. Quem diz se a senha pode
-    // viajar sem TLS e o proprio servidor, na resposta auth.required.
-    localStorage.setItem(STORAGE_URL, target)
+    if (rememberServer) {
+      localStorage.setItem(STORAGE_URL, target)
+    } else {
+      localStorage.removeItem(STORAGE_URL)
+    }
     setLocalError(null)
     onChooseServer(target)
   }
@@ -74,29 +81,45 @@ export function Connect({
       setLocalError('a senha precisa ter pelo menos 12 caracteres')
       return
     }
+    if (!rememberUser && serverUrl) {
+      localStorage.removeItem(usernameStorageKey(serverUrl))
+    }
     setLocalError(null)
     onAuthenticate(mode, cleanUsername, password)
   }
 
   const shownError = localError ?? error
 
+  const title = !serverUrl
+    ? 'Boas-vindas de volta!'
+    : authInfo
+      ? mode === 'login'
+        ? 'Boas-vindas de volta!'
+        : 'Criar uma conta'
+      : 'Conectando...'
+
+  const subtitle = !serverUrl
+    ? 'Conecte-se a um servidor Stapp para começar a conversar.'
+    : authInfo
+      ? mode === 'login'
+        ? `Estamos felizes em ver você! Conectado a ${authInfo.serverName}.`
+        : `Informe seus dados para se cadastrar em ${authInfo.serverName}.`
+      : status === 'reconnecting'
+        ? 'Tentando restabelecer conexão com o servidor...'
+        : 'Conferindo informações do servidor...'
+
   return (
     <main className="connect">
+      <div className="connect__bg" aria-hidden="true">
+        <CRTWarp color="#6980b8" backgroundColor="#15181d" scanlineStrength={0} noise={0} rgbShift={0} />
+      </div>
       <section className="connect__card" aria-labelledby="connect-title">
         <header className="connect__header">
-          <img src={stappLogo} alt="Stapp" className="connect__logo" />
+          <IconStappLogo size={48} className="connect__logo" />
           <h1 id="connect-title" className="connect__title">
-            {authInfo?.serverName ?? 'Stapp'}
+            {title}
           </h1>
-          <p className="connect__sub">
-            {serverUrl
-              ? authInfo
-                ? 'sua conta pertence somente a este servidor'
-                : status === 'reconnecting'
-                  ? 'tentando alcançar este servidor novamente'
-                  : 'conferindo o servidor'
-              : 'conecte no servidor de quem você confia'}
-          </p>
+          <p className="connect__sub">{subtitle}</p>
         </header>
 
         {!serverUrl ? (
@@ -114,16 +137,68 @@ export function Connect({
               autoCapitalize="none"
               autoFocus
             />
+
+            <div className="connect__options">
+              <label className="connect__checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={rememberServer}
+                  onChange={(e) => setRememberServer(e.target.checked)}
+                  className="connect__checkbox-input"
+                />
+                <span
+                  className={`connect__checkbox-box ${rememberServer ? 'is-checked' : ''}`}
+                  aria-hidden="true"
+                >
+                  {rememberServer && <IconCheck size={11} />}
+                </span>
+                <span className="connect__checkbox-text">Lembrar servidor</span>
+              </label>
+
+              <button
+                type="button"
+                className="connect__link"
+                onClick={() => setShowHelp((prev) => !prev)}
+              >
+                Não consegue conectar?
+              </button>
+            </div>
+
+            {showHelp && (
+              <div className="connect__help-box" role="region" aria-label="Ajuda de conexão">
+                <div className="connect__help-title">Não consegue conectar?</div>
+                <ul className="connect__help-list">
+                  <li>Certifique-se de que o servidor Stapp está rodando na máquina destino.</li>
+                  <li>Em rede local, utilize o formato <code>ws://IP:8787/ws</code>.</li>
+                  <li>Na internet, use um proxy seguro com terminação TLS em <code>wss://</code>.</li>
+                  <li>Verifique se a porta <code>8787</code> não está bloqueada pelo firewall.</li>
+                </ul>
+                <button
+                  type="button"
+                  className="connect__help-close"
+                  onClick={() => setShowHelp(false)}
+                >
+                  fechar
+                </button>
+              </div>
+            )}
+
             {shownError && <p className="connect__error" role="alert">{shownError}</p>}
+
             <button className="connect__go" type="submit" disabled={!url.trim()}>
-              continuar
+              Conectar
             </button>
           </form>
         ) : authInfo && !authInfo.plaintextAuthAllowed && !isSecureAuthUrl(serverUrl) ? (
-          <p className="connect__error" role="alert">
-            este servidor nao aceita senha sem TLS vinda daqui. use um endereco
-            wss:// ou peca para quem administra liberar esta rede.
-          </p>
+          <div>
+            <p className="connect__error" role="alert">
+              este servidor nao aceita senha sem TLS vinda daqui. use um endereco
+              wss:// ou peca para quem administra liberar esta rede.
+            </p>
+            <button className="connect__back" type="button" onClick={onBack}>
+              trocar servidor
+            </button>
+          </div>
         ) : authInfo ? (
           <form onSubmit={authenticate} noValidate>
             <label className="connect__label" htmlFor="username">
@@ -134,7 +209,7 @@ export function Connect({
               className="connect__field"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              placeholder="como voce entra aqui"
+              placeholder="como você entra aqui"
               minLength={3}
               maxLength={24}
               autoComplete="username"
@@ -181,13 +256,53 @@ export function Connect({
               </p>
             )}
 
+            <div className="connect__options">
+              <label className="connect__checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={rememberUser}
+                  onChange={(e) => setRememberUser(e.target.checked)}
+                  className="connect__checkbox-input"
+                />
+                <span
+                  className={`connect__checkbox-box ${rememberUser ? 'is-checked' : ''}`}
+                  aria-hidden="true"
+                >
+                  {rememberUser && <IconCheck size={11} />}
+                </span>
+                <span className="connect__checkbox-text">Lembrar usuário</span>
+              </label>
+
+              <button
+                type="button"
+                className="connect__link"
+                onClick={() => setShowHelp((prev) => !prev)}
+              >
+                Não consegue conectar?
+              </button>
+            </div>
+
+            {showHelp && (
+              <div className="connect__help-box" role="region" aria-label="Ajuda de autenticação">
+                <div className="connect__help-title">Dificuldade para autenticar?</div>
+                <ul className="connect__help-list">
+                  <li>Verifique se o nome de usuário foi digitado corretamente.</li>
+                  <li>Contas pertencem unicamente a este servidor (não existe conta global).</li>
+                  <li>Se esqueceu a senha, solicite a redefinição a quem administra o servidor.</li>
+                </ul>
+                <button
+                  type="button"
+                  className="connect__help-close"
+                  onClick={() => setShowHelp(false)}
+                >
+                  fechar
+                </button>
+              </div>
+            )}
+
             {shownError && <p className="connect__error" role="alert">{shownError}</p>}
 
-            <button
-              className="connect__go"
-              type="submit"
-              disabled={busy}
-            >
+            <button className="connect__go" type="submit" disabled={busy}>
               {busy ? 'autenticando...' : mode === 'login' ? 'entrar' : 'criar e entrar'}
             </button>
 

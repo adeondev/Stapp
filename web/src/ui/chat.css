@@ -72,3 +72,31 @@
   background: var(--bg-input);
   resize: none;
 }
+
+.chat__title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__call {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--text-dim);
+}
+
+.chat__call:hover {
+  background: var(--bg-raised);
+  color: var(--accent);
+}
+
+/* Chamada perdida/recusada: informacao, nao conversa. */
+.chat__event {
+  margin: 14px 0 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  text-align: center;
+}

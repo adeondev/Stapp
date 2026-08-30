@@ -26,7 +26,7 @@ use uuid::Uuid;
 
 use crate::protocol::{AuthErrorCode, ClientMsg, PeerId, ServerMsg};
 use crate::session::AppState;
-use crate::services::voice;
+use crate::services::{call, voice};
 
 /// Em que ponto do protocolo esta esta conexao.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -110,6 +110,8 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
     voice::leave(&state, &peer_id).await;
     if let Some(removal) = state.remove_session(&peer_id).await {
         if removal.last_session {
+            // Ultima conexao da conta: nao da para deixar chamada tocando.
+            call::drop_for(&state, &removal.user_id).await;
             state.broadcast(ServerMsg::UserOffline {
                 user_id: removal.user_id,
             });

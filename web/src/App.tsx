@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import stappLogo from '../assets/imgs/svg/stapp_logo.svg'
 import { Connection, type ConnectionStatus } from './net/connection'
-import type { AuthMode, PeerId, UserId } from './protocol'
-import { initialState, reduce } from './store'
+import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
+import { directChannelPartner, initialState, reduce } from './store'
 import { AccountBar } from './ui/AccountBar'
+import { CallPanel } from './ui/CallPanel'
 import { Chat } from './ui/Chat'
 import { Connect, rememberUsername, type AuthInfo } from './ui/Connect'
 import { Sidebar, type View } from './ui/Sidebar'
@@ -15,6 +16,21 @@ interface CallState {
   channel: string
   muted: boolean
   deafened: boolean
+}
+
+interface Ringing {
+  userId: UserId
+  username: string
+  direction: 'incoming' | 'outgoing'
+}
+
+const MOTIVO_DA_CHAMADA: Record<CallEndReason, string> = {
+  declined: 'a chamada foi recusada',
+  canceled: 'a chamada foi cancelada',
+  missed: 'ninguem atendeu',
+  busy: 'essa pessoa ja esta com o telefone tocando',
+  offline: 'essa pessoa nao esta conectada',
+  unavailable: 'nao da para ligar para essa conta',
 }
 
 export default function App() {
@@ -34,6 +50,8 @@ export default function App() {
   const viewRef = useRef<View | null>(null)
   viewRef.current = view
   const [call, setCall] = useState<CallState | null>(null)
+  /** O telefone tocando: quem esta ligando, ou para quem ligamos. */
+  const [ringing, setRinging] = useState<Ringing | null>(null)
 
   const connection = useRef<Connection | null>(null)
   const voice = useRef<VoiceTransport | null>(null)
@@ -45,6 +63,7 @@ export default function App() {
     setAuthenticated(false)
     setView(null)
     setCall(null)
+    setRinging(null)
     setSpeaking(new Set())
     setNotice(null)
   }, [])
@@ -81,6 +100,7 @@ export default function App() {
         if (msg.t === 'welcome') {
           voice.current?.destroy()
           setCall(null)
+          setRinging(null)
           setSpeaking(new Set())
           setAuthBusy(false)
           setAuthError(null)
@@ -119,6 +139,23 @@ export default function App() {
           if (atual?.kind === 'direct' && atual.userId === msg.user_id && msg.unread > 0) {
             connection.current?.send({ t: 'dm.read', user_id: msg.user_id })
           }
+        }
+
+        if (msg.t === 'call.incoming') {
+          setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
+        }
+
+        if (msg.t === 'call.accepted') {
+          setRinging(null)
+          // Aceita virou canal de voz comum: o transporte cuida do resto.
+          void voice.current?.join(msg.channel).then((started) => {
+            if (started) setCall({ channel: msg.channel, muted: false, deafened: false })
+          })
+        }
+
+        if (msg.t === 'call.ended') {
+          setRinging(null)
+          setNotice(MOTIVO_DA_CHAMADA[msg.reason])
         }
 
         if (msg.t === 'error') setNotice(msg.message)
@@ -189,6 +226,32 @@ export default function App() {
     if (started) setCall({ channel: channelId, muted: false, deafened: false })
   }, [])
 
+  const startCall = useCallback((userId: UserId, username: string) => {
+    setRinging({ userId, username, direction: 'outgoing' })
+    connection.current?.send({ t: 'call.start', user_id: userId })
+  }, [])
+
+  const acceptCall = useCallback(() => {
+    setRinging((atual) => {
+      if (atual) connection.current?.send({ t: 'call.accept', user_id: atual.userId })
+      return atual
+    })
+  }, [])
+
+  /** Recusar (chegando) e desistir (saindo) sao o mesmo botao. */
+  const dismissCall = useCallback(() => {
+    setRinging((atual) => {
+      if (atual) {
+        connection.current?.send(
+          atual.direction === 'incoming'
+            ? { t: 'call.decline', user_id: atual.userId }
+            : { t: 'call.cancel', user_id: atual.userId },
+        )
+      }
+      return null
+    })
+  }, [])
+
   const leaveCall = useCallback(() => {
     voice.current?.leave()
     setCall(null)
@@ -234,6 +297,12 @@ export default function App() {
         null)
       : null
   const callChannel = call ? state.channels.find((item) => item.id === call.channel) : undefined
+  // Numa call de conversa o canal e sintetico (dm:<a>:<b>); quem nomeia a barra
+  // e a pessoa do outro lado, tirada do proprio canal — quem atendeu pode nem
+  // estar com a conversa aberta.
+  const nomeDaCall = call
+    ? (callChannel?.name ?? directChannelPartner(state, call.channel) ?? call.channel)
+    : ''
   const self = state.users.find((user) => user.user_id === state.selfUserId)
 
   return (
@@ -251,7 +320,7 @@ export default function App() {
           <div className="sidebar__footer-stack">
             {call && (
               <VoiceBar
-                channelName={callChannel?.name ?? call.channel}
+                channelName={nomeDaCall}
                 muted={call.muted}
                 deafened={call.deafened}
                 onToggleMute={toggleMute}
@@ -281,6 +350,7 @@ export default function App() {
             messages={state.directMessages[conversa.user_id] ?? []}
             canSend={status === 'online'}
             onSend={sendMessage}
+            onCall={() => startCall(conversa.user_id, conversa.username)}
           />
         ) : (
           <div className="placeholder">
@@ -289,6 +359,15 @@ export default function App() {
           </div>
         )}
       </main>
+
+      {ringing && (
+        <CallPanel
+          username={ringing.username}
+          direction={ringing.direction}
+          onAccept={acceptCall}
+          onDecline={dismissCall}
+        />
+      )}
     </div>
   )
 }

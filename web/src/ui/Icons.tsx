@@ -88,10 +88,51 @@ export function IconHeadphonesOff(props: IconProps) {
   )
 }
 
+export function IconPhone(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5.4 2.5 3 3.4c-.7.3-1 1-.8 1.7a12 12 0 0 0 8.7 8.7c.7.2 1.4-.1 1.7-.8l.9-2.4-3.2-1.4-1.2 1.4a9 9 0 0 1-3-3l1.4-1.2L5.4 2.5Z" />
+    </Svg>
+  )
+}
+
 export function IconLeave(props: IconProps) {
   return (
     <Svg {...props}>
       <path d="M6.5 2.5H3.5v11h3M9 5.5 12 8l-3 2.5M12 8H6" />
     </Svg>
+  )
+}
+
+export function IconStappLogo({ size = 48, className }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={Math.round(size * (220 / 239))}
+      viewBox="0 0 239 220"
+      fill="currentColor"
+      aria-hidden="true"
+      className={className}
+    >
+      <path d="M126.31 0C-30.1899 0 -28.6903 219.5 62.3097 219.5C153.31 219.5 161.31 102.5 126.31 102.5C91.3096 102.5 95.9784 131.704 65.81 127C35.6415 122.295 64.8985 45.7406 132.31 53.4998C214.31 70.4998 154.31 191 197.31 191C258.31 191 263.31 0 126.31 0Z" />
+    </svg>
+  )
+}
+
+export function IconCheck({ size = 12 }: IconProps) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M2.5 6.5 5 9l4.5-5.5" />
+    </svg>
   )
 }

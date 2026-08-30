@@ -91,8 +91,25 @@ Duas coisas que não são óbvias e já quebraram uma vez:
 - **Ler avisa todas as suas sessões** (`ServerMsg::DmRead`). Sem isso a aba que já estava com a
   conversa aberta continuava com o badge, porque nada dizia a ela que a contagem zerou.
 
-`kind` em `dm_messages` já existe (`text` | `call`) para a chamada 1:1 deixar rastro na conversa
-sem precisar de outra migração.
+`kind` em `dm_messages` (`text` | `call`) é o que deixa a chamada perdida virar linha na conversa.
+
+### Chamada 1:1
+
+`services/call` cuida **só do toque** — ligar, tocar, atender, recusar, desistir, expirar (30s).
+Assim que é aceita, a chamada deixa de existir lá e vira um canal de voz comum, `dm:<a>:<b>`,
+tratado pelo `services/voice` como qualquer sala: mesmo mesh, mesma sinalização, mesmo
+`MeshTransport` no cliente. **Não existe caminho de áudio separado para DM.**
+
+- **Toca mesmo se a pessoa já estiver numa sala de voz.** Quem decide sair é ela, ao atender —
+  o `voice::join` já tira de uma call antes de entrar em outra. Não recuse por estar ocupado.
+- **Evento de voz em canal `dm:` não vai por broadcast.** Numa sala, entrar e sair são públicos;
+  numa conversa, contar para o servidor inteiro revelaria quem está falando com quem. Quem
+  escolhe a audiência é `anunciar()` em `services/voice` — se você adicionar um evento de voz
+  novo, ele passa por lá, não por `state.broadcast`.
+- **Só os dois donos entram no canal `dm:`.** Sem essa guarda, bastaria adivinhar o nome do canal
+  para entrar na conversa dos outros.
+- O timer de expiração carrega o id da tentativa, senão um timer velho derrubaria uma chamada
+  nova entre as mesmas duas pessoas.
 
 ### Regra dura: os dois `protocol` andam juntos
 

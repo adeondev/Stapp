@@ -8,26 +8,27 @@
  */
 
 :root {
-  --accent: #7c9cff;
-  --accent-hover: #96afff;
-  --accent-quiet: #2a3050;
-  /* Texto escuro sobre o acento: branco em cima de #7c9cff fica ilegivel. */
-  --on-accent: #10131c;
+  --accent: #52a3ff;
+  --accent-hover: #70b4ff;
+  --accent-quiet: #162a42;
+  /* Texto escuro sobre o acento: branco em cima de #52a3ff da ~2.4:1 de contraste e fica ilegivel. */
+  --on-accent: #091422;
 
-  --bg-sidebar: #16171c;
-  --bg-app: #1e2027;
-  --bg-raised: #2a2d36;
-  --bg-input: #24262e;
+  --bg-sidebar: #15181d;
+  --bg-app: #1c2026;
+  --bg-raised: #252a32;
+  --bg-input: #171b21;
 
-  --text: #e6e8ee;
-  --text-dim: #9aa0ae;
+  --text: #eaf0f5;
+  --text-dim: #909baa;
 
   --danger: #e4676b;
-  --danger-quiet: #3a2429;
+  --danger-quiet: #341d22;
   --online: #57c98a;
 
   --radius: 8px;
   --radius-lg: 12px;
+  --radius-xl: 48px;
   --sidebar-width: 240px;
 
   --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;

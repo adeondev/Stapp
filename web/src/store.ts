@@ -180,8 +180,14 @@ export function reduce(state: StappState, msg: StappAction): StappState {
       }
     }
 
+    // Sinalizacao, autenticacao e o telefone tocando nao mexem no estado da
+    // sala — o toque e efemero e vive no App.
     case 'auth.required':
     case 'auth.error':
+    case 'call.incoming':
+    case 'call.ringing':
+    case 'call.accepted':
+    case 'call.ended':
     case 'rtc.signal':
     case 'error':
       return state
@@ -239,6 +245,29 @@ export function directList(state: StappState): DirectSummary[] {
 
 export function totalUnread(state: StappState): number {
   return Object.values(state.conversations).reduce((sum, item) => sum + item.unread, 0)
+}
+
+/**
+ * O nome de quem esta do outro lado de uma call de conversa (`dm:<a>:<b>`).
+ * Sai do canal, nao da tela aberta — quem atendeu uma chamada pode nem ter a
+ * conversa aberta.
+ */
+export function directChannelPartner(state: StappState, channel: string): string | null {
+  const resto = channel.startsWith('dm:') ? channel.slice(3) : null
+  if (!resto) return null
+
+  const partes = resto.split(':')
+  if (partes.length !== 2) return null
+
+  const outro = partes.find((id) => id !== state.selfUserId)
+  if (!outro) return null
+
+  return (
+    state.conversations[outro]?.username ??
+    state.directory.find((entry) => entry.user_id === outro)?.username ??
+    state.users.find((user) => user.user_id === outro)?.username ??
+    null
+  )
 }
 
 export function peersInChannel(state: StappState, channelId: string): VoicePeer[] {

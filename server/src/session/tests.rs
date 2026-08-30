@@ -73,11 +73,11 @@ async fn keeps_one_voice_session_per_account() {
 
     server
         .state
-        .join_voice(&"one".into(), "voz-a")
+        .join_voice(&"one".into(), "voz-a", 4)
         .await
         .unwrap();
     assert!(matches!(
-        server.state.join_voice(&"two".into(), "voz-a").await,
+        server.state.join_voice(&"two".into(), "voz-a", 4).await,
         Err(VoiceJoinError::AccountAlreadyInVoice)
     ));
 }
@@ -117,6 +117,8 @@ async fn removes_presence_only_with_the_last_session() {
 
 #[tokio::test]
 async fn a_call_lotada_recusa_mais_um() {
+    // O limite agora vem por chamada, entao ele e o proprio caso de teste.
+    const CABE_UM: usize = 1;
     let server = TestServer::new(10, 1);
     let daniel = server.account("Daniel");
     let alice = server.account("Alice");
@@ -125,11 +127,11 @@ async fn a_call_lotada_recusa_mais_um() {
 
     server
         .state
-        .join_voice(&"one".into(), "voz-a")
+        .join_voice(&"one".into(), "voz-a", CABE_UM)
         .await
         .unwrap();
     assert!(matches!(
-        server.state.join_voice(&"two".into(), "voz-a").await,
+        server.state.join_voice(&"two".into(), "voz-a", CABE_UM).await,
         Err(VoiceJoinError::Full)
     ));
 }
@@ -144,14 +146,14 @@ async fn o_roster_nao_inclui_quem_esta_chegando() {
 
     let primeiro = server
         .state
-        .join_voice(&"one".into(), "voz-a")
+        .join_voice(&"one".into(), "voz-a", 4)
         .await
         .unwrap();
     assert!(primeiro.roster.is_empty());
 
     let segundo = server
         .state
-        .join_voice(&"two".into(), "voz-a")
+        .join_voice(&"two".into(), "voz-a", 4)
         .await
         .unwrap();
     assert_eq!(segundo.roster.len(), 1);

@@ -7,6 +7,7 @@
 //! **Funcionalidade nova entra aqui**, como um arquivo novo, e ganha uma linha
 //! em `ws::dispatch`.
 
+pub mod call;
 pub mod chat;
 pub mod direct;
 pub mod voice;

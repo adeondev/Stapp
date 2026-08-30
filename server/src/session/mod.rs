@@ -8,6 +8,7 @@
 //! - [`membership`] — quem esta em qual call.
 
 mod bus;
+mod calls;
 mod membership;
 mod registry;
 
@@ -22,6 +23,7 @@ use crate::protocol::{PeerId, UserId};
 use crate::storage::Db;
 
 pub use bus::{Envelope, Target};
+pub use calls::{CallStartError, PendingCall};
 pub use membership::VoiceJoinError;
 pub use registry::SessionError;
 
@@ -38,6 +40,7 @@ pub struct AppState {
     pub db: Db,
     pub auth: AuthService,
     sessions: RwLock<HashMap<PeerId, SessionEntry>>,
+    calls: RwLock<calls::Calls>,
     tx: broadcast::Sender<Envelope>,
 }
 
@@ -49,6 +52,7 @@ impl AppState {
             db,
             auth: AuthService::new()?,
             sessions: RwLock::new(HashMap::new()),
+            calls: RwLock::new(calls::Calls::default()),
             tx,
         }))
     }

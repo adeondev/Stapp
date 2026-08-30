@@ -34,10 +34,13 @@ impl AppState {
             .collect()
     }
 
+    /// `max_peers` vem de fora porque o limite depende do canal: uma sala usa o
+    /// do stapp.toml, uma conversa direta e sempre 2.
     pub async fn join_voice(
         &self,
         peer_id: &PeerId,
         channel: &str,
+        max_peers: usize,
     ) -> Result<VoiceJoin, VoiceJoinError> {
         let mut sessions = self.sessions.write().await;
 
@@ -59,7 +62,7 @@ impl AppState {
             .values()
             .filter(|entry| entry.is_in(channel))
             .count();
-        if occupied >= self.config.voice.max_peers {
+        if occupied >= max_peers {
             return Err(VoiceJoinError::Full);
         }
 
@@ -83,26 +86,42 @@ impl AppState {
         Ok(VoiceJoin { roster, peer })
     }
 
-    pub async fn leave_voice(&self, peer_id: &PeerId) -> bool {
+    /// Devolve o canal de onde a pessoa saiu — quem avisa precisa saber para
+    /// escolher a quem contar.
+    pub async fn leave_voice(&self, peer_id: &PeerId) -> Option<String> {
         let mut sessions = self.sessions.write().await;
         sessions
-            .get_mut(peer_id)
-            .is_some_and(|entry| entry.voice.take().is_some())
+            .get_mut(peer_id)?
+            .voice
+            .take()
+            .map(|voice| voice.channel)
     }
 
-    pub async fn update_voice_state(&self, peer_id: &PeerId, muted: bool, deafened: bool) -> bool {
+    /// Devolve o canal onde o estado mudou, pelo mesmo motivo.
+    pub async fn update_voice_state(
+        &self,
+        peer_id: &PeerId,
+        muted: bool,
+        deafened: bool,
+    ) -> Option<String> {
         let mut sessions = self.sessions.write().await;
-        match sessions
-            .get_mut(peer_id)
-            .and_then(|entry| entry.voice.as_mut())
-        {
-            Some(voice) => {
-                voice.muted = muted;
-                voice.deafened = deafened;
-                true
-            }
-            None => false,
-        }
+        let voice = sessions.get_mut(peer_id)?.voice.as_mut()?;
+        voice.muted = muted;
+        voice.deafened = deafened;
+        Some(voice.channel.clone())
+    }
+
+    /// Todas as conexoes que estao neste canal de voz agora.
+    /// Existe para os testes conferirem o roster sem depender de eventos.
+    #[cfg(test)]
+    pub async fn peers_in_voice(&self, channel: &str) -> Vec<PeerId> {
+        self.sessions
+            .read()
+            .await
+            .iter()
+            .filter(|(_, entry)| entry.is_in(channel))
+            .map(|(peer_id, _)| peer_id.clone())
+            .collect()
     }
 
     pub async fn shares_voice_channel(&self, first: &PeerId, second: &PeerId) -> bool {

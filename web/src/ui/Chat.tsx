@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatEntry } from '../protocol'
-import { IconAt, IconHash } from './Icons'
+import { IconAt, IconHash, IconPhone } from './Icons'
 import './chat.css'
 
 /** Mensagens seguidas da mesma pessoa dentro disso viram um bloco so. */
@@ -16,9 +16,11 @@ interface Props {
   messages: ChatEntry[]
   canSend: boolean
   onSend(text: string): void
+  /** So existe em conversa direta: o botao de ligar. */
+  onCall?: () => void
 }
 
-export function Chat({ title, kind, messages, canSend, onSend }: Props) {
+export function Chat({ title, kind, messages, canSend, onSend, onCall }: Props) {
   const [draft, setDraft] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
@@ -61,7 +63,12 @@ export function Chat({ title, kind, messages, canSend, onSend }: Props) {
     <section className="chat">
       <header className="chat__head">
         {kind === 'direct' ? <IconAt /> : <IconHash />}
-        <span>{title}</span>
+        <span className="chat__title">{title}</span>
+        {onCall && (
+          <button className="chat__call" type="button" onClick={onCall} title={`ligar para ${title}`}>
+            <IconPhone />
+          </button>
+        )}
       </header>
 
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
@@ -69,9 +76,19 @@ export function Chat({ title, kind, messages, canSend, onSend }: Props) {
           <p className="chat__empty">ninguem falou nada aqui ainda.</p>
         )}
         {messages.map((msg, i) => {
+          // Rastro de chamada nao e conversa: vira uma linha discreta, sem autor.
+          if (msg.kind === 'call') {
+            return (
+              <p key={msg.id} className="chat__event">
+                {msg.text} · {time(msg.ts)}
+              </p>
+            )
+          }
+
           const previous = messages[i - 1]
           const grouped =
             previous !== undefined &&
+            previous.kind !== 'call' &&
             previous.author_id === msg.author_id &&
             msg.ts - previous.ts < GROUP_WINDOW_MS
 
