@@ -1,18 +1,28 @@
-import type { Channel, Message, PeerId, ServerMsg, User, VoiceConfig, VoicePeer } from './protocol'
+import type {
+  Channel,
+  Message,
+  OnlineUser,
+  PeerId,
+  ServerMsg,
+  UserId,
+  VoiceConfig,
+  VoicePeer,
+} from './protocol'
 
 export interface StappState {
-  selfId: PeerId | null
+  selfPeerId: PeerId | null
+  selfUserId: UserId | null
   serverName: string
   channels: Channel[]
-  users: User[]
+  users: OnlineUser[]
   voiceConfig: VoiceConfig | null
-  /** Quem esta em call, em qualquer canal. Vem do servidor — vale para qualquer backend. */
   voicePeers: VoicePeer[]
   messages: Record<string, Message[]>
 }
 
 export const initialState: StappState = {
-  selfId: null,
+  selfPeerId: null,
+  selfUserId: null,
   serverName: 'Stapp',
   channels: [],
   users: [],
@@ -21,20 +31,23 @@ export const initialState: StappState = {
   messages: {},
 }
 
-const byNick = (a: { nick: string }, b: { nick: string }) =>
-  a.nick.localeCompare(b.nick, 'pt-BR', { sensitivity: 'base' })
+const byUsername = (a: { username: string }, b: { username: string }) =>
+  a.username.localeCompare(b.username, 'pt-BR', { sensitivity: 'base' })
 
-export function reduce(state: StappState, msg: ServerMsg): StappState {
+export type StappAction = ServerMsg | { t: 'app.reset' }
+
+export function reduce(state: StappState, msg: StappAction): StappState {
   switch (msg.t) {
-    // Chega uma vez por conexao — inclusive depois de reconectar, quando serve
-    // para jogar fora o estado velho.
+    case 'app.reset':
+      return initialState
     case 'welcome':
       return {
         ...initialState,
-        selfId: msg.self_id,
+        selfPeerId: msg.self_peer_id,
+        selfUserId: msg.self_user_id,
         serverName: msg.server_name,
         channels: msg.channels,
-        users: [...msg.users].sort(byNick),
+        users: [...msg.users].sort(byUsername),
         voiceConfig: msg.voice,
         voicePeers: msg.voice_peers,
       }
@@ -44,32 +57,39 @@ export function reduce(state: StappState, msg: ServerMsg): StappState {
 
     case 'chat.new': {
       const current = state.messages[msg.channel] ?? []
-      if (current.some((m) => m.id === msg.msg.id)) return state
+      if (current.some((message) => message.id === msg.msg.id)) return state
       return { ...state, messages: { ...state.messages, [msg.channel]: [...current, msg.msg] } }
     }
 
-    case 'user.joined': {
-      if (state.users.some((u) => u.id === msg.user.id)) return state
-      return { ...state, users: [...state.users, msg.user].sort(byNick) }
+    case 'user.online': {
+      if (state.users.some((user) => user.user_id === msg.user.user_id)) return state
+      return { ...state, users: [...state.users, msg.user].sort(byUsername) }
     }
 
-    case 'user.left':
+    case 'user.offline':
       return {
         ...state,
-        users: state.users.filter((u) => u.id !== msg.user_id),
-        voicePeers: state.voicePeers.filter((p) => p.id !== msg.user_id),
+        users: state.users.filter((user) => user.user_id !== msg.user_id),
+        voicePeers: state.voicePeers.filter((peer) => peer.user_id !== msg.user_id),
       }
 
-    // Verdade completa sobre este canal de voz, e chega so para quem acabou de
-    // entrar. Como o servidor omite quem pediu (o transporte precisa assim),
-    // nos mesmos nos acrescentamos aqui.
     case 'voice.roster': {
-      const me = state.users.find((u) => u.id === state.selfId)
-      const self: VoicePeer[] = me
-        ? [{ id: me.id, nick: me.nick, channel: msg.channel, muted: false, deafened: false }]
-        : []
+      const me = state.users.find((user) => user.user_id === state.selfUserId)
+      const self: VoicePeer[] =
+        me && state.selfPeerId
+          ? [
+              {
+                peer_id: state.selfPeerId,
+                user_id: me.user_id,
+                username: me.username,
+                channel: msg.channel,
+                muted: false,
+                deafened: false,
+              },
+            ]
+          : []
       const others = state.voicePeers.filter(
-        (p) => p.channel !== msg.channel && p.id !== state.selfId,
+        (peer) => peer.channel !== msg.channel && peer.peer_id !== state.selfPeerId,
       )
       return { ...state, voicePeers: [...others, ...msg.peers, ...self] }
     }
@@ -77,28 +97,36 @@ export function reduce(state: StappState, msg: ServerMsg): StappState {
     case 'voice.joined':
       return {
         ...state,
-        voicePeers: [...state.voicePeers.filter((p) => p.id !== msg.peer.id), msg.peer],
+        voicePeers: [
+          ...state.voicePeers.filter((peer) => peer.peer_id !== msg.peer.peer_id),
+          msg.peer,
+        ],
       }
 
     case 'voice.left':
-      return { ...state, voicePeers: state.voicePeers.filter((p) => p.id !== msg.peer_id) }
+      return {
+        ...state,
+        voicePeers: state.voicePeers.filter((peer) => peer.peer_id !== msg.peer_id),
+      }
 
     case 'voice.state':
       return {
         ...state,
-        voicePeers: state.voicePeers.map((p) =>
-          p.id === msg.peer_id ? { ...p, muted: msg.muted, deafened: msg.deafened } : p,
+        voicePeers: state.voicePeers.map((peer) =>
+          peer.peer_id === msg.peer_id
+            ? { ...peer, muted: msg.muted, deafened: msg.deafened }
+            : peer,
         ),
       }
 
-    // Sinalizacao e erro nao mexem no estado da tela.
+    case 'auth.required':
+    case 'auth.error':
     case 'rtc.signal':
     case 'error':
       return state
   }
 }
 
-/** Quem esta na call deste canal, em ordem alfabetica. */
 export function peersInChannel(state: StappState, channelId: string): VoicePeer[] {
-  return state.voicePeers.filter((p) => p.channel === channelId).sort(byNick)
+  return state.voicePeers.filter((peer) => peer.channel === channelId).sort(byUsername)
 }

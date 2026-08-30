@@ -43,10 +43,20 @@ pub async fn join(state: &Arc<AppState>, peer_id: &PeerId, channel: &str) {
             return error(
                 state,
                 peer_id,
-                &format!("a call ja esta com {} pessoas", state.config.voice.max_peers),
-            )
+                &format!(
+                    "a call ja esta com {} pessoas",
+                    state.config.voice.max_peers
+                ),
+            );
         }
         Err(VoiceJoinError::PeerNotFound) => return,
+        Err(VoiceJoinError::AccountAlreadyInVoice) => {
+            return error(
+                state,
+                peer_id,
+                "sua conta ja esta em uma call em outra sessao",
+            );
+        }
     };
 
     // Quem chega recebe a lista e e quem cria as offers; quem ja estava so
@@ -66,7 +76,9 @@ pub async fn join(state: &Arc<AppState>, peer_id: &PeerId, channel: &str) {
 
 pub async fn leave(state: &Arc<AppState>, peer_id: &PeerId) {
     if state.leave_voice(peer_id).await {
-        state.broadcast(ServerMsg::VoiceLeft { peer_id: peer_id.clone() });
+        state.broadcast(ServerMsg::VoiceLeft {
+            peer_id: peer_id.clone(),
+        });
     }
 }
 
@@ -81,21 +93,27 @@ pub async fn set_state(state: &Arc<AppState>, peer_id: &PeerId, muted: bool, dea
 }
 
 /// Repassa offer/answer/ICE. O servidor nao le o `payload`.
-pub async fn relay(
-    state: &Arc<AppState>,
-    from: &PeerId,
-    to: &PeerId,
-    payload: serde_json::Value,
-) {
+pub async fn relay(state: &Arc<AppState>, from: &PeerId, to: &PeerId, payload: serde_json::Value) {
     // So entrega entre duas pessoas na mesma call — sem isso um cliente podia
     // disparar sinalizacao para qualquer um conectado.
     if state.shares_voice_channel(from, to).await {
-        state.send_to(to, ServerMsg::RtcSignal { from: from.clone(), payload });
+        state.send_to(
+            to,
+            ServerMsg::RtcSignal {
+                from: from.clone(),
+                payload,
+            },
+        );
     }
 }
 
 fn error(state: &AppState, peer_id: &PeerId, message: &str) {
-    state.send_to(peer_id, ServerMsg::Error { message: message.to_string() });
+    state.send_to(
+        peer_id,
+        ServerMsg::Error {
+            message: message.to_string(),
+        },
+    );
 }
 
 #[cfg(test)]
@@ -111,8 +129,18 @@ mod tests {
         let server = TestServer::new(10, 4);
         let first = "first".to_string();
         let second = "second".to_string();
-        server.state.register(&first, "First".into()).await.unwrap();
-        server.state.register(&second, "Second".into()).await.unwrap();
+        let first_account = server.account("First");
+        let second_account = server.account("Second");
+        server
+            .state
+            .register_session(&first, &first_account)
+            .await
+            .unwrap();
+        server
+            .state
+            .register_session(&second, &second_account)
+            .await
+            .unwrap();
         let mut events = server.state.subscribe();
 
         join(&server.state, &first, "voz-a").await;
@@ -126,7 +154,7 @@ mod tests {
         assert!(matches!(first_joined.target, Target::Except(ref id) if id == &first));
         assert!(matches!(
             first_joined.msg,
-            ServerMsg::VoiceJoined { ref peer } if peer.id == first
+            ServerMsg::VoiceJoined { ref peer } if peer.peer_id == first
         ));
 
         join(&server.state, &second, "voz-a").await;
@@ -135,12 +163,12 @@ mod tests {
         assert!(matches!(
             second_roster.msg,
             ServerMsg::VoiceRoster { ref peers, .. }
-                if peers.len() == 1 && peers[0].id == first
+                if peers.len() == 1 && peers[0].peer_id == first
         ));
         assert!(matches!(second_joined.target, Target::Except(ref id) if id == &second));
         assert!(matches!(
             second_joined.msg,
-            ServerMsg::VoiceJoined { ref peer } if peer.id == second
+            ServerMsg::VoiceJoined { ref peer } if peer.peer_id == second
         ));
     }
 
@@ -149,17 +177,39 @@ mod tests {
         let server = TestServer::new(10, 4);
         let first = "first".to_string();
         let second = "second".to_string();
-        server.state.register(&first, "First".into()).await.unwrap();
-        server.state.register(&second, "Second".into()).await.unwrap();
+        let first_account = server.account("First");
+        let second_account = server.account("Second");
+        server
+            .state
+            .register_session(&first, &first_account)
+            .await
+            .unwrap();
+        server
+            .state
+            .register_session(&second, &second_account)
+            .await
+            .unwrap();
         server.state.join_voice(&first, "voz-a").await.unwrap();
         server.state.join_voice(&second, "voz-b").await.unwrap();
         let mut events = server.state.subscribe();
 
-        relay(&server.state, &first, &second, serde_json::json!({ "kind": "blocked" })).await;
+        relay(
+            &server.state,
+            &first,
+            &second,
+            serde_json::json!({ "kind": "blocked" }),
+        )
+        .await;
         assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
 
         server.state.join_voice(&second, "voz-a").await.unwrap();
-        relay(&server.state, &first, &second, serde_json::json!({ "kind": "allowed" })).await;
+        relay(
+            &server.state,
+            &first,
+            &second,
+            serde_json::json!({ "kind": "allowed" }),
+        )
+        .await;
 
         let event = events.try_recv().unwrap();
         assert!(matches!(event.target, Target::Peer(ref id) if id == &second));

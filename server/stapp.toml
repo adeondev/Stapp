@@ -9,6 +9,12 @@ max_users = 20
 # (mesma origem, sem CORS). Caminho relativo a este arquivo.
 # static_dir = "../web/dist"
 
+[auth]
+# Quando false, apenas o dono do host cria contas com `stapp-server user add`.
+allow_registration = false
+# Uma conta aparece uma vez na lista online, mas pode manter algumas conexoes.
+max_sessions_per_user = 3
+
 [[channels]]
 id   = "geral"
 name = "geral"

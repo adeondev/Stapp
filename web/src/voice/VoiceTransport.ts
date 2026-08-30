@@ -22,7 +22,7 @@ export interface VoiceTransport {
 }
 
 export interface VoiceTransportOptions {
-  selfId: PeerId
+  selfPeerId: PeerId
   send(msg: ClientMsg): void
   onSpeaking(peerId: PeerId, speaking: boolean): void
   onError(message: string): void

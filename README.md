@@ -3,7 +3,8 @@
 Um Discord só nosso. Servidor auto-hospedado + aplicação que conecta nele — no espírito de um
 servidor de Minecraft: alguém sobe o servidor, o resto entra.
 
-Protótipo: **chat de texto** e **call de voz**. Sem cadastro — você escolhe um apelido e entra.
+Protótipo: **chat de texto**, **call de voz** e contas locais por servidor. Cada host controla
+seus próprios usernames; não existe conta Stapp global.
 
 ## Requisitos
 
@@ -17,10 +18,39 @@ cd server
 cargo run
 ```
 
-Sobe em `http://localhost:8787`. Na primeira execução ele cria o `data/stapp.db`.
+Sobe em `http://localhost:8787`. Na primeira execução ele cria o `data/stapp.db`. Se encontrar o
+esquema antigo, que guardava somente apelidos, o servidor para e mostra o caminho do arquivo:
+faça backup ou remova o banco conscientemente e inicie novamente.
 
 As configurações ficam em [`server/stapp.toml`](server/stapp.toml) — é o `server.properties` daqui.
-Dá pra mudar nome do servidor, porta, canais, limite de gente na call e servidores de ICE.
+Dá pra mudar nome, porta, canais, limites, registro público e servidores de ICE.
+
+Por padrão o registro pelo aplicativo vem fechado. Crie a primeira conta no terminal; a senha é
+solicitada sem aparecer na tela ou no histórico do shell:
+
+```bash
+cd server
+cargo run -- user add daniel
+cargo run -- user list
+cargo run -- user passwd daniel
+cargo run -- user disable daniel
+cargo run -- user enable daniel
+```
+
+Para outro arquivo, use `--config caminho/stapp.toml`. O formato antigo
+`stapp-server caminho/stapp.toml` continua aceito temporariamente para iniciar o servidor.
+
+Para permitir que qualquer pessoa alcançando o servidor crie a própria conta:
+
+```toml
+[auth]
+allow_registration = true
+max_sessions_per_user = 3
+```
+
+Usernames têm de 3 a 24 letras ASCII, números, ponto, hífen ou sublinhado e não diferenciam
+maiúsculas de minúsculas para unicidade. Senhas têm de 12 a 128 caracteres e são guardadas como
+hashes Argon2id com salt individual.
 
 ## Subindo o cliente
 
@@ -30,13 +60,29 @@ pnpm install
 pnpm dev
 ```
 
-Abre em `http://localhost:5173`. Digite o endereço do servidor e um apelido.
+Abre em `http://localhost:5173`. Escolha o servidor e entre com a conta criada nele.
 
-Para testar de verdade, abra **duas abas** com apelidos diferentes.
+Para testar de verdade, abra **duas abas** com contas diferentes. A mesma conta pode manter até
+três sessões, mas aparece uma vez na lista online e apenas uma delas entra em voz.
 
 > **Microfone:** o navegador só libera microfone em `localhost` ou HTTPS. Acessar o cliente pelo
 > IP da rede local (`http://192.168.x.x`) faz o texto funcionar mas a voz não. Para usar na LAN,
 > use o app desktop (Tauri) ou coloque HTTPS.
+
+## WSS e senhas na rede
+
+O servidor não termina TLS. O cliente só envia credenciais por `wss://` ou por `ws://` em
+localhost, e o backend recusa autenticação vinda diretamente de um endereço remoto. Em produção,
+coloque Caddy ou Nginx **no mesmo host**, exponha HTTPS/WSS e encaminhe `/ws` para
+`127.0.0.1:8787`. Não publique a porta 8787 diretamente na rede.
+
+Exemplo mínimo de Caddyfile:
+
+```caddyfile
+stapp.exemplo.com {
+    reverse_proxy 127.0.0.1:8787
+}
+```
 
 ## App de desktop
 

@@ -4,6 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::routing::get;
+use std::net::SocketAddr;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::channel::ChannelKind;
@@ -16,7 +17,7 @@ use crate::ws;
 pub fn build(config: Config) -> Result<Router> {
     let static_dir = config.server.static_dir.clone();
     let db = Db::open(&config.storage.database)?;
-    let state = AppState::new(config, db);
+    let state = AppState::new(config, db)?;
 
     let mut app = Router::new()
         .route("/health", get(|| async { "ok" }))
@@ -51,10 +52,13 @@ pub async fn serve(config: Config) -> Result<()> {
         }
     }
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown())
-        .await
-        .context("servidor caiu")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await
+    .context("servidor caiu")?;
 
     tracing::info!("ate mais");
     Ok(())

@@ -1,0 +1,52 @@
+.accountbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg-input);
+}
+
+.accountbar__identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 9px;
+}
+
+.accountbar__avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--accent-quiet);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.accountbar__username {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountbar__logout {
+  padding: 6px 8px;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.accountbar__logout:hover {
+  background: var(--danger-quiet);
+  color: var(--danger);
+}
+
+.sidebar__footer-stack {
+  display: flex;
+  flex-direction: column;
+}

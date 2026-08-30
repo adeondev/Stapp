@@ -1,4 +1,4 @@
-import type { ClientMsg, ServerMsg } from '../protocol'
+import type { AuthMode, ClientMsg, ServerMsg } from '../protocol'
 
 export type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline'
 
@@ -7,25 +7,46 @@ interface Handlers {
   onStatus(status: ConnectionStatus, detail?: string): void
 }
 
-/**
- * Um WebSocket com reconexao. O `hello` e reenviado sozinho a cada reconexao —
- * quem usa esta classe nao precisa saber que a conexao caiu.
- */
+interface Credentials {
+  mode: AuthMode
+  username: string
+  password: string
+}
+
+/** WebSocket unico, com autenticacao explicita e reconexao automatica. */
 export class Connection {
   private ws: WebSocket | null = null
   private closedByUs = false
   private attempt = 0
   private timer: ReturnType<typeof setTimeout> | null = null
+  private authReady = false
+  private authSent = false
+
+  // PROTOTYPE: a senha fica somente nesta instancia para refazer login depois de
+  // uma queda. FUTURE: trocar por token efemero sem persistir sessao em disco.
+  private credentials: Credentials | null = null
 
   constructor(
     private readonly url: string,
-    private readonly nick: string,
     private readonly handlers: Handlers,
   ) {
     this.open()
   }
 
+  authenticate(mode: AuthMode, username: string, password: string) {
+    this.credentials = { mode, username, password }
+    this.authSent = false
+    this.sendCredentials()
+  }
+
+  clearCredentials() {
+    this.credentials = null
+    this.authSent = false
+  }
+
   private open() {
+    this.authReady = false
+    this.authSent = false
     this.handlers.onStatus(this.attempt === 0 ? 'connecting' : 'reconnecting')
 
     let ws: WebSocket
@@ -39,15 +60,22 @@ export class Connection {
 
     ws.addEventListener('open', () => {
       this.attempt = 0
-      this.send({ t: 'hello', nick: this.nick })
-      this.handlers.onStatus('online')
     })
 
     ws.addEventListener('message', (event) => {
       try {
-        this.handlers.onMessage(JSON.parse(event.data as string) as ServerMsg)
+        const msg = JSON.parse(event.data as string) as ServerMsg
+        if (msg.t === 'auth.required') {
+          this.authReady = true
+          this.sendCredentials()
+        } else if (msg.t === 'auth.error') {
+          this.authSent = false
+        } else if (msg.t === 'welcome') {
+          this.handlers.onStatus('online')
+        }
+        this.handlers.onMessage(msg)
       } catch {
-        // Frame que nao e do protocolo: ignora em vez de derrubar a sessao.
+        // Frame fora do protocolo nao derruba a sessao.
       }
     })
 
@@ -55,14 +83,18 @@ export class Connection {
       if (this.closedByUs) return
       this.retry()
     })
-
-    // O 'error' sempre vem seguido de 'close', entao a reconexao e tratada la.
     ws.addEventListener('error', () => {})
+  }
+
+  private sendCredentials() {
+    if (!this.authReady || this.authSent || !this.credentials) return
+    const { mode, username, password } = this.credentials
+    this.send({ t: mode === 'login' ? 'auth.login' : 'auth.register', username, password })
+    this.authSent = true
   }
 
   private retry() {
     this.attempt++
-    // 0,5s, 1s, 2s, 4s... ate 10s.
     const delay = Math.min(500 * 2 ** (this.attempt - 1), 10_000)
     this.handlers.onStatus('reconnecting', `tentando de novo em ${Math.round(delay / 1000)}s`)
     this.timer = setTimeout(() => this.open(), delay)
@@ -76,9 +108,24 @@ export class Connection {
 
   close() {
     this.closedByUs = true
+    this.clearCredentials()
     if (this.timer) clearTimeout(this.timer)
     this.ws?.close()
     this.handlers.onStatus('offline')
+  }
+}
+
+export function isSecureAuthUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw)
+    if (url.protocol === 'wss:') return true
+    const hostname = url.hostname.toLowerCase()
+    return (
+      url.protocol === 'ws:' &&
+      (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1')
+    )
+  } catch {
+    return false
   }
 }
 

@@ -1,21 +1,14 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { Connection, type ConnectionStatus } from './net/connection'
-import type { PeerId } from './protocol'
+import type { AuthMode, PeerId } from './protocol'
 import { initialState, reduce } from './store'
+import { AccountBar } from './ui/AccountBar'
 import { Chat } from './ui/Chat'
-import { Connect, type Session } from './ui/Connect'
+import { Connect, rememberUsername, type AuthInfo } from './ui/Connect'
 import { Sidebar } from './ui/Sidebar'
 import { VoiceBar } from './ui/VoiceBar'
 import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import './ui/app.css'
-
-export default function App() {
-  const [session, setSession] = useState<Session | null>(null)
-
-  if (!session) return <Connect onConnect={setSession} />
-  // A key remonta tudo quando o servidor ou o apelido mudam.
-  return <Room key={`${session.url}|${session.nick}`} session={session} />
-}
 
 interface CallState {
   channel: string
@@ -23,9 +16,16 @@ interface CallState {
   deafened: boolean
 }
 
-function Room({ session }: { session: Session }) {
+export default function App() {
+  const [serverUrl, setServerUrl] = useState<string | null>(null)
+  const [authInfo, setAuthInfo] = useState<AuthInfo | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [authBusy, setAuthBusy] = useState(false)
+  const [authenticated, setAuthenticated] = useState(false)
+  const attemptedUsername = useRef('')
+
   const [state, dispatch] = useReducer(reduce, initialState)
-  const [status, setStatus] = useState<ConnectionStatus>('connecting')
+  const [status, setStatus] = useState<ConnectionStatus>('offline')
   const [notice, setNotice] = useState<string | null>(null)
   const [speaking, setSpeaking] = useState<ReadonlySet<PeerId>>(() => new Set())
   const [activeChannel, setActiveChannel] = useState<string | null>(null)
@@ -34,18 +34,58 @@ function Room({ session }: { session: Session }) {
   const connection = useRef<Connection | null>(null)
   const voice = useRef<VoiceTransport | null>(null)
 
+  const resetRoom = useCallback(() => {
+    voice.current?.destroy()
+    voice.current = null
+    dispatch({ t: 'app.reset' })
+    setAuthenticated(false)
+    setActiveChannel(null)
+    setCall(null)
+    setSpeaking(new Set())
+    setNotice(null)
+  }, [])
+
   useEffect(() => {
-    const conn = new Connection(session.url, session.nick, {
+    if (!serverUrl) return
+    setAuthInfo(null)
+    setAuthError(null)
+    setAuthBusy(false)
+    setStatus('connecting')
+
+    const conn = new Connection(serverUrl, {
       onMessage(msg) {
+        if (msg.t === 'auth.required') {
+          setAuthInfo({
+            serverName: msg.server_name,
+            registrationEnabled: msg.registration_enabled,
+          })
+          return
+        }
+
+        if (msg.t === 'auth.error') {
+          resetRoom()
+          setAuthBusy(false)
+          setAuthError(
+            msg.retry_after_ms
+              ? `${msg.message} — tente novamente em ${Math.max(1, Math.ceil(msg.retry_after_ms / 1000))}s`
+              : msg.message,
+          )
+          return
+        }
+
         if (msg.t === 'welcome') {
-          // Tambem cai aqui depois de reconectar: os pares antigos morreram
-          // junto com o socket, entao o transporte comeca do zero.
           voice.current?.destroy()
           setCall(null)
           setSpeaking(new Set())
+          setAuthBusy(false)
+          setAuthError(null)
+          setAuthenticated(true)
+          if (attemptedUsername.current) {
+            rememberUsername(serverUrl, attemptedUsername.current)
+          }
 
           voice.current = createVoiceTransport(msg.voice, {
-            selfId: msg.self_id,
+            selfPeerId: msg.self_peer_id,
             send: (out) => connection.current?.send(out),
             onSpeaking(peerId, isSpeaking) {
               setSpeaking((previous) => {
@@ -60,18 +100,18 @@ function Room({ session }: { session: Session }) {
           })
 
           setActiveChannel(
-            (current) => current ?? msg.channels.find((c) => c.kind === 'text')?.id ?? null,
+            (current) => current ?? msg.channels.find((channel) => channel.kind === 'text')?.id ?? null,
           )
         }
 
         if (msg.t === 'error') setNotice(msg.message)
-
         dispatch(msg)
         voice.current?.handleServerMessage(msg)
       },
       onStatus(next, detail) {
         setStatus(next)
         if (next === 'reconnecting' && detail) setNotice(`conexao caiu — ${detail}`)
+        if (next === 'offline' && detail) setAuthError(detail)
       },
     })
 
@@ -80,15 +120,31 @@ function Room({ session }: { session: Session }) {
       voice.current?.destroy()
       voice.current = null
       conn.close()
-      connection.current = null
+      if (connection.current === conn) connection.current = null
     }
-  }, [session.url, session.nick])
+  }, [resetRoom, serverUrl])
 
   useEffect(() => {
     if (!notice) return
     const timer = setTimeout(() => setNotice(null), 6000)
     return () => clearTimeout(timer)
   }, [notice])
+
+  const authenticate = useCallback((mode: AuthMode, username: string, password: string) => {
+    attemptedUsername.current = username
+    setAuthBusy(true)
+    setAuthError(null)
+    connection.current?.authenticate(mode, username, password)
+  }, [])
+
+  const leaveServer = useCallback(() => {
+    connection.current?.clearCredentials()
+    resetRoom()
+    setAuthInfo(null)
+    setAuthError(null)
+    setAuthBusy(false)
+    setServerUrl(null)
+  }, [resetRoom])
 
   const sendMessage = useCallback(
     (text: string) => {
@@ -124,8 +180,24 @@ function Room({ session }: { session: Session }) {
     })
   }, [])
 
-  const channel = state.channels.find((c) => c.id === activeChannel) ?? null
-  const callChannel = call ? state.channels.find((c) => c.id === call.channel) : undefined
+  if (!serverUrl || !authenticated) {
+    return (
+      <Connect
+        serverUrl={serverUrl}
+        authInfo={authInfo}
+        status={status}
+        busy={authBusy}
+        error={authError}
+        onChooseServer={setServerUrl}
+        onAuthenticate={authenticate}
+        onBack={leaveServer}
+      />
+    )
+  }
+
+  const channel = state.channels.find((item) => item.id === activeChannel) ?? null
+  const callChannel = call ? state.channels.find((item) => item.id === call.channel) : undefined
+  const self = state.users.find((user) => user.user_id === state.selfUserId)
 
   return (
     <div className="app">
@@ -138,16 +210,19 @@ function Room({ session }: { session: Session }) {
         onJoinCall={joinCall}
         speaking={speaking}
         footer={
-          call && (
-            <VoiceBar
-              channelName={callChannel?.name ?? call.channel}
-              muted={call.muted}
-              deafened={call.deafened}
-              onToggleMute={toggleMute}
-              onToggleDeafen={toggleDeafen}
-              onLeave={leaveCall}
-            />
-          )
+          <div className="sidebar__footer-stack">
+            {call && (
+              <VoiceBar
+                channelName={callChannel?.name ?? call.channel}
+                muted={call.muted}
+                deafened={call.deafened}
+                onToggleMute={toggleMute}
+                onToggleDeafen={toggleDeafen}
+                onLeave={leaveCall}
+              />
+            )}
+            <AccountBar username={self?.username ?? attemptedUsername.current} onLogout={leaveServer} />
+          </div>
         }
       />
 
@@ -161,7 +236,7 @@ function Room({ session }: { session: Session }) {
             onSend={sendMessage}
           />
         ) : (
-          <div className="placeholder">conectando em {session.url}</div>
+          <div className="placeholder">conectando em {serverUrl}</div>
         )}
       </main>
     </div>

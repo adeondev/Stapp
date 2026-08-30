@@ -4,9 +4,15 @@ Discord privado auto-hospedado para um grupo pequeno de amigos. Modelo mental: *
 Minecraft**. O `server/` é o "servidor" que alguém sobe; o `web/` é o "jogo" que conecta nele.
 A aplicação só fala com esse servidor — não existe backend na nuvem, não existe serviço terceiro.
 
-Escopo atual é **protótipo**: chat de texto + call de voz. **Não existe conta de usuário** — a
-pessoa digita um apelido na tela de conexão e pronto. Não adicione login, OAuth, e-mail ou senha
-sem que seja pedido.
+Escopo atual é **protótipo**: chat de texto + call de voz. Cada servidor possui suas proprias
+contas locais (username + senha Argon2id); nao existe identidade global, OAuth, e-mail, servico
+terceiro ou recuperacao automatica.
+
+### Costuras de prototipo precisam estar escritas
+
+Use `PROTOTYPE:` quando o comportamento atual e uma concessao deliberada e `FUTURE:` quando ja
+existe uma costura concreta para a proxima direcao. O comentario precisa dizer a limitacao, o
+invariante que nao pode ser quebrado e como a costura deve evoluir. Nao deixe `TODO` vago.
 
 ---
 
@@ -45,7 +51,8 @@ server/   Rust — axum + tokio. Binário único, config em stapp.toml, SQLite e
 web/      Vite + React + TS. Roda no navegador hoje, empacotado em Tauri depois.
 ```
 
-Os dois se falam por **um** WebSocket em `/ws`, JSON, enum com tag interna `t`.
+Os dois se falam por **um** WebSocket em `/ws`, JSON, enum com tag interna `t`. A conexao recebe
+`auth.required`, autentica e so entao passa a enxergar eventos da sala.
 
 ### Regra dura: os dois `protocol` andam juntos
 
@@ -89,7 +96,8 @@ cd web && pnpm dev          # :5173  (navegador)
 cd web && pnpm app          # app desktop (Tauri), usa o mesmo dev server
 ```
 
-Testar de verdade = **duas abas** em `http://localhost:5173` com apelidos diferentes.
+Antes da primeira entrada, crie uma conta com `cargo run -- user add <username>` ou habilite
+`auth.allow_registration` no `stapp.toml`. Testar de verdade = duas contas em duas abas.
 
 ---
 
@@ -113,3 +121,6 @@ Testar de verdade = **duas abas** em `http://localhost:5173` com apelidos difere
   o grafo de audio praticamente nao roda, e o microfone falso do Chrome so emite bipes muito
   curtos. O caminho de audio (RTP nos dois sentidos) **da** para testar; o medidor de voz
   precisa de conferencia manual com microfone de verdade.
+- **Senha exige transporte seguro.** `ws://` so autentica em loopback. Fora da propria maquina,
+  termine TLS em um proxy no mesmo host e conecte por `wss://`; nunca afrouxe essa validacao para
+  fazer a LAN funcionar.

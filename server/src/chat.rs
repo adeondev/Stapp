@@ -40,14 +40,15 @@ pub async fn send(state: &AppState, peer_id: &str, channel: String, raw_text: &s
     let Some(text) = clean_text(raw_text) else {
         return;
     };
-    let Some(nick) = state.nick_of(peer_id).await else {
+    let Some(author) = state.identity_of(peer_id).await else {
         return;
     };
 
     let msg = Message {
         id: Uuid::new_v4().to_string(),
         channel: channel.clone(),
-        nick,
+        author_id: author.user_id,
+        author_username: author.username,
         text,
         ts: now_ms(),
     };
@@ -78,7 +79,12 @@ mod tests {
     #[tokio::test]
     async fn sanitizes_persists_and_broadcasts_a_message() {
         let server = TestServer::new(10, 4);
-        server.state.register("peer", "Daniel".into()).await.unwrap();
+        let account = server.account("Daniel");
+        server
+            .state
+            .register_session("peer", &account)
+            .await
+            .unwrap();
         let mut events = server.state.subscribe();
 
         send(&server.state, "peer", "geral".into(), "  oi\0\nmundo  ").await;
@@ -88,7 +94,8 @@ mod tests {
         match event.msg {
             ServerMsg::ChatNew { channel, msg } => {
                 assert_eq!(channel, "geral");
-                assert_eq!(msg.nick, "Daniel");
+                assert_eq!(msg.author_id, account.id);
+                assert_eq!(msg.author_username, "Daniel");
                 assert_eq!(msg.text, "oi\nmundo");
             }
             other => panic!("evento inesperado: {other:?}"),
@@ -102,7 +109,12 @@ mod tests {
     #[tokio::test]
     async fn rejects_non_text_channels() {
         let server = TestServer::new(10, 4);
-        server.state.register("peer", "Daniel".into()).await.unwrap();
+        let account = server.account("Daniel");
+        server
+            .state
+            .register_session("peer", &account)
+            .await
+            .unwrap();
         let mut events = server.state.subscribe();
 
         send(&server.state, "peer", "voz-a".into(), "nao deveria entrar").await;
@@ -116,7 +128,12 @@ mod tests {
     #[tokio::test]
     async fn sends_history_only_to_the_requested_peer() {
         let server = TestServer::new(10, 4);
-        server.state.register("peer", "Daniel".into()).await.unwrap();
+        let account = server.account("Daniel");
+        server
+            .state
+            .register_session("peer", &account)
+            .await
+            .unwrap();
         send(&server.state, "peer", "geral".into(), "mensagem").await;
         let mut events = server.state.subscribe();
 

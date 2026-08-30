@@ -1,71 +1,213 @@
-import { useState } from 'react'
-import { defaultServerUrl } from '../net/connection'
+import { useEffect, useState } from 'react'
+import { defaultServerUrl, isSecureAuthUrl, type ConnectionStatus } from '../net/connection'
+import type { AuthMode } from '../protocol'
 import './connect.css'
 
-export interface Session {
-  url: string
-  nick: string
+export interface AuthInfo {
+  serverName: string
+  registrationEnabled: boolean
 }
 
 const STORAGE_URL = 'stapp.url'
-const STORAGE_NICK = 'stapp.nick'
+const usernameStorageKey = (url: string) => `stapp.username:${url}`
 
 interface Props {
-  onConnect(session: Session): void
+  serverUrl: string | null
+  authInfo: AuthInfo | null
+  status: ConnectionStatus
+  busy: boolean
+  error: string | null
+  onChooseServer(url: string): void
+  onAuthenticate(mode: AuthMode, username: string, password: string): void
+  onBack(): void
 }
 
-/** Tela de entrada: endereco do servidor e apelido. Nao existe cadastro. */
-export function Connect({ onConnect }: Props) {
+export function Connect({
+  serverUrl,
+  authInfo,
+  status,
+  busy,
+  error,
+  onChooseServer,
+  onAuthenticate,
+  onBack,
+}: Props) {
   const [url, setUrl] = useState(() => localStorage.getItem(STORAGE_URL) ?? defaultServerUrl())
-  const [nick, setNick] = useState(() => localStorage.getItem(STORAGE_NICK) ?? '')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [mode, setMode] = useState<AuthMode>('login')
+  const [localError, setLocalError] = useState<string | null>(null)
 
-  const trimmedNick = nick.trim()
-  const trimmedUrl = url.trim()
-  const ready = trimmedNick.length > 0 && trimmedUrl.length > 0
+  useEffect(() => {
+    if (!serverUrl) return
+    setUsername(localStorage.getItem(usernameStorageKey(serverUrl)) ?? '')
+    setPassword('')
+    setConfirmation('')
+    setMode('login')
+    setLocalError(null)
+  }, [serverUrl])
 
-  function submit(event: React.FormEvent) {
+  function chooseServer(event: React.FormEvent) {
     event.preventDefault()
-    if (!ready) return
-    localStorage.setItem(STORAGE_URL, trimmedUrl)
-    localStorage.setItem(STORAGE_NICK, trimmedNick)
-    onConnect({ url: trimmedUrl, nick: trimmedNick })
+    const target = url.trim()
+    if (!target) return
+    if (!isSecureAuthUrl(target)) {
+      setLocalError('use wss:// ou ws://localhost para proteger sua senha')
+      return
+    }
+    localStorage.setItem(STORAGE_URL, target)
+    setLocalError(null)
+    onChooseServer(target)
   }
 
+  function authenticate(event: React.FormEvent) {
+    event.preventDefault()
+    const cleanUsername = username.trim()
+    if (!cleanUsername || !password) return
+    if (mode === 'register' && password !== confirmation) {
+      setLocalError('as senhas nao conferem')
+      return
+    }
+    if (mode === 'register' && password.length < 12) {
+      setLocalError('a senha precisa ter pelo menos 12 caracteres')
+      return
+    }
+    setLocalError(null)
+    onAuthenticate(mode, cleanUsername, password)
+  }
+
+  const shownError = localError ?? error
+
   return (
-    <div className="connect">
-      <form className="connect__card" onSubmit={submit}>
-        <h1 className="connect__title">Stapp</h1>
-        <p className="connect__sub">entra no servidor e escolhe um apelido</p>
+    <main className="connect">
+      <section className="connect__card" aria-labelledby="connect-title">
+        <h1 id="connect-title" className="connect__title">
+          {authInfo?.serverName ?? 'Stapp'}
+        </h1>
+        <p className="connect__sub">
+          {serverUrl
+            ? authInfo
+              ? 'sua conta pertence somente a este servidor'
+              : status === 'reconnecting'
+                ? 'tentando alcançar este servidor novamente'
+                : 'conferindo o servidor'
+            : 'conecte no servidor de quem voce confia'}
+        </p>
 
-        <label className="connect__label" htmlFor="nick">
-          apelido
-        </label>
-        <input
-          id="nick"
-          className="connect__field"
-          value={nick}
-          onChange={(e) => setNick(e.target.value)}
-          placeholder="como te chamam"
-          maxLength={24}
-          autoFocus
-        />
+        {!serverUrl ? (
+          <form onSubmit={chooseServer} noValidate>
+            <label className="connect__label" htmlFor="server-url">
+              servidor
+            </label>
+            <input
+              id="server-url"
+              className="connect__field"
+              value={url}
+              onChange={(event) => setUrl(event.target.value)}
+              placeholder="wss://stapp.exemplo.com/ws"
+              spellCheck={false}
+              autoCapitalize="none"
+              autoFocus
+            />
+            {shownError && <p className="connect__error" role="alert">{shownError}</p>}
+            <button className="connect__go" type="submit" disabled={!url.trim()}>
+              continuar
+            </button>
+          </form>
+        ) : authInfo ? (
+          <form onSubmit={authenticate} noValidate>
+            <label className="connect__label" htmlFor="username">
+              username
+            </label>
+            <input
+              id="username"
+              className="connect__field"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              placeholder="como voce entra aqui"
+              minLength={3}
+              maxLength={24}
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              autoFocus
+            />
 
-        <label className="connect__label" htmlFor="url">
-          servidor
-        </label>
-        <input
-          id="url"
-          className="connect__field"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="ws://localhost:8787/ws"
-          spellCheck={false}
-        />
+            <label className="connect__label" htmlFor="password">
+              senha
+            </label>
+            <input
+              id="password"
+              className="connect__field"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              maxLength={128}
+              autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+            />
 
-        <button className="connect__go" type="submit" disabled={!ready}>
-          entrar
-        </button>
-      </form>
-    </div>
+            {mode === 'register' && (
+              <>
+                <label className="connect__label" htmlFor="password-confirmation">
+                  repita a senha
+                </label>
+                <input
+                  id="password-confirmation"
+                  className="connect__field"
+                  type="password"
+                  value={confirmation}
+                  onChange={(event) => setConfirmation(event.target.value)}
+                  maxLength={128}
+                  autoComplete="new-password"
+                />
+                <p className="connect__hint">12 a 128 caracteres, sem regras de simbolos.</p>
+              </>
+            )}
+
+            {shownError && <p className="connect__error" role="alert">{shownError}</p>}
+
+            <button
+              className="connect__go"
+              type="submit"
+              disabled={busy}
+            >
+              {busy ? 'autenticando...' : mode === 'login' ? 'entrar' : 'criar e entrar'}
+            </button>
+
+            {authInfo.registrationEnabled && (
+              <button
+                className="connect__switch"
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  setMode((current) => (current === 'login' ? 'register' : 'login'))
+                  setPassword('')
+                  setConfirmation('')
+                  setLocalError(null)
+                }}
+              >
+                {mode === 'login' ? 'criar uma conta neste servidor' : 'ja tenho uma conta'}
+              </button>
+            )}
+          </form>
+        ) : (
+          <div className="connect__waiting" role="status">
+            <span className="connect__pulse" />
+            aguardando resposta
+          </div>
+        )}
+
+        {serverUrl && (
+          <button className="connect__back" type="button" onClick={onBack}>
+            trocar servidor
+          </button>
+        )}
+      </section>
+    </main>
   )
+}
+
+export function rememberUsername(url: string, username: string) {
+  localStorage.setItem(usernameStorageKey(url), username)
 }

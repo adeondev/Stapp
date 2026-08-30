@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
+use crate::auth::hash_password_sync;
 use crate::channel::{Channel, ChannelKind};
-use crate::config::{Config, ServerConfig, StorageConfig, VoiceSettings};
-use crate::db::Db;
+use crate::config::{AuthConfig, Config, ServerConfig, StorageConfig, VoiceSettings};
+use crate::db::{Account, Db};
 use crate::state::AppState;
 
 pub struct TestDir {
@@ -44,8 +45,19 @@ impl TestServer {
         let dir = TestDir::new();
         let config = config(dir.database(), max_users, max_peers);
         let db = Db::open(&config.storage.database).expect("abrir banco temporario");
-        let state = AppState::new(config, db);
+        let state = AppState::new(config, db).unwrap();
         Self { state, _dir: dir }
+    }
+
+    pub fn account(&self, username: &str) -> Account {
+        self.state
+            .db
+            .create_account(
+                username.into(),
+                username.to_ascii_lowercase(),
+                hash_password_sync("senha de teste segura").unwrap(),
+            )
+            .unwrap()
     }
 }
 
@@ -57,6 +69,10 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
             port: 0,
             max_users,
             static_dir: None,
+        },
+        auth: AuthConfig {
+            allow_registration: false,
+            max_sessions_per_user: 3,
         },
         channels: vec![
             Channel {

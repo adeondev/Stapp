@@ -78,7 +78,7 @@ export class MeshTransport implements VoiceTransport {
 
     this.channel = channel
     this.applyLocalState()
-    this.watch(this.options.selfId, this.local)
+    this.watch(this.options.selfPeerId, this.local)
     this.options.send({ t: 'voice.join', channel })
     return true
   }
@@ -91,7 +91,7 @@ export class MeshTransport implements VoiceTransport {
       // Quem estava so responde. E isso que evita glare — ver CLAUDE.md.
       case 'voice.roster':
         if (msg.channel === this.channel) {
-          for (const peer of msg.peers) void this.offerTo(peer.id)
+          for (const peer of msg.peers) void this.offerTo(peer.peer_id)
         }
         break
 
@@ -133,7 +133,7 @@ export class MeshTransport implements VoiceTransport {
 
     for (const id of [...this.peers.keys()]) this.dropPeer(id)
 
-    this.stopWatching(this.options.selfId)
+    this.stopWatching(this.options.selfPeerId)
     this.local?.getTracks().forEach((track) => track.stop())
     this.local = null
     this.channel = null

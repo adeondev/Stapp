@@ -70,14 +70,14 @@ export function Chat({ channel, messages, canSend, onSend }: Props) {
           const previous = messages[i - 1]
           const grouped =
             previous !== undefined &&
-            previous.nick === msg.nick &&
+            previous.author_id === msg.author_id &&
             msg.ts - previous.ts < GROUP_WINDOW_MS
 
           return (
             <article key={msg.id} className={`chat__msg ${grouped ? 'is-grouped' : ''}`}>
               {!grouped && (
                 <div className="chat__meta">
-                  <span className="chat__nick">{msg.nick}</span>
+                  <span className="chat__nick">{msg.author_username}</span>
                   <span className="chat__time">{time(msg.ts)}</span>
                 </div>
               )}

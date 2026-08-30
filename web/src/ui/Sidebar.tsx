@@ -76,11 +76,11 @@ export function Sidebar({
 
                 {peers.map((peer) => (
                   <div
-                    key={peer.id}
-                    className={`sidebar__peer ${speaking.has(peer.id) ? 'is-speaking' : ''}`}
+                    key={peer.peer_id}
+                    className={`sidebar__peer ${speaking.has(peer.peer_id) ? 'is-speaking' : ''}`}
                   >
-                    <span className="sidebar__avatar">{peer.nick.slice(0, 1).toUpperCase()}</span>
-                    <span className="sidebar__peer-name">{peer.nick}</span>
+                    <span className="sidebar__avatar">{peer.username.slice(0, 1).toUpperCase()}</span>
+                    <span className="sidebar__peer-name">{peer.username}</span>
                     {(peer.muted || peer.deafened) && (
                       <span className="sidebar__peer-muted">
                         <IconMicOff size={13} />
@@ -94,11 +94,11 @@ export function Sidebar({
 
         <h2 className="sidebar__section">online — {state.users.length}</h2>
         {state.users.map((user) => (
-          <div key={user.id} className="sidebar__user">
+          <div key={user.user_id} className="sidebar__user">
             <span className="sidebar__dot" />
             <span className="sidebar__peer-name">
-              {user.nick}
-              {user.id === state.selfId && <span className="sidebar__you"> voce</span>}
+              {user.username}
+              {user.user_id === state.selfUserId && <span className="sidebar__you"> voce</span>}
             </span>
           </div>
         ))}

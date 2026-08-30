@@ -1,19 +1,16 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tokio::sync::{RwLock, broadcast};
 
+use crate::auth::AuthService;
 use crate::config::Config;
-use crate::db::Db;
-use crate::protocol::{PeerId, ServerMsg, User, VoicePeer};
+use crate::db::{Account, Db};
+use crate::protocol::{OnlineUser, PeerId, ServerMsg, UserId, VoicePeer};
 
-/// Para quem vai a mensagem. Todo mundo recebe o envelope pelo broadcast e
-/// descarta o que nao e seu — com um grupo de amigos isso sai de graca e evita
-/// um canal por conexao.
 #[derive(Debug, Clone)]
 pub enum Target {
     All,
-    /// Todo mundo menos este.
     Except(PeerId),
     Peer(PeerId),
 }
@@ -42,10 +39,26 @@ struct VoiceMembership {
 }
 
 #[derive(Debug, Clone)]
-struct UserEntry {
-    nick: String,
-    /// `None` = conectado mas fora de call.
+struct SessionEntry {
+    user_id: UserId,
+    username: String,
     voice: Option<VoiceMembership>,
+}
+
+pub struct SessionRegistration {
+    pub first_session: bool,
+    pub user: OnlineUser,
+}
+
+pub struct SessionRemoval {
+    pub user_id: UserId,
+    pub last_session: bool,
+}
+
+#[derive(Debug)]
+pub enum SessionError {
+    ServerFull,
+    TooManySessions,
 }
 
 pub struct VoiceJoin {
@@ -57,26 +70,33 @@ pub struct VoiceJoin {
 pub enum VoiceJoinError {
     PeerNotFound,
     Full,
+    AccountAlreadyInVoice,
 }
 
 pub struct AppState {
     pub config: Config,
     pub db: Db,
-    users: RwLock<HashMap<PeerId, UserEntry>>,
+    pub auth: AuthService,
+    sessions: RwLock<HashMap<PeerId, SessionEntry>>,
     tx: broadcast::Sender<Envelope>,
 }
 
 impl AppState {
-    pub fn new(config: Config, db: Db) -> Arc<Self> {
+    pub fn new(config: Config, db: Db) -> anyhow::Result<Arc<Self>> {
         let (tx, _) = broadcast::channel(512);
-        Arc::new(Self { config, db, users: RwLock::new(HashMap::new()), tx })
+        Ok(Arc::new(Self {
+            config,
+            db,
+            auth: AuthService::new()?,
+            sessions: RwLock::new(HashMap::new()),
+            tx,
+        }))
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Envelope> {
         self.tx.subscribe()
     }
 
-    /// Erro aqui so acontece quando nao ha nenhum ouvinte — nada a fazer.
     pub fn publish(&self, target: Target, msg: ServerMsg) {
         let _ = self.tx.send(Envelope { target, msg });
     }
@@ -89,36 +109,96 @@ impl AppState {
         self.publish(Target::All, msg);
     }
 
-    pub async fn register(&self, id: &str, nick: String) -> Result<(), String> {
-        let mut users = self.users.write().await;
-        if users.len() >= self.config.server.max_users {
-            return Err(format!("servidor cheio ({} pessoas)", self.config.server.max_users));
+    pub async fn register_session(
+        &self,
+        peer_id: &str,
+        account: &Account,
+    ) -> Result<SessionRegistration, SessionError> {
+        let mut sessions = self.sessions.write().await;
+        let session_count = sessions
+            .values()
+            .filter(|entry| entry.user_id == account.id)
+            .count();
+        if session_count >= self.config.auth.max_sessions_per_user {
+            return Err(SessionError::TooManySessions);
         }
-        users.insert(id.to_string(), UserEntry { nick, voice: None });
-        Ok(())
+
+        let first_session = session_count == 0;
+        if first_session {
+            let online_accounts: HashSet<&str> = sessions
+                .values()
+                .map(|entry| entry.user_id.as_str())
+                .collect();
+            if online_accounts.len() >= self.config.server.max_users {
+                return Err(SessionError::ServerFull);
+            }
+        }
+
+        let user = OnlineUser {
+            user_id: account.id.clone(),
+            username: account.username.clone(),
+        };
+        sessions.insert(
+            peer_id.to_string(),
+            SessionEntry {
+                user_id: account.id.clone(),
+                username: account.username.clone(),
+                voice: None,
+            },
+        );
+        Ok(SessionRegistration {
+            first_session,
+            user,
+        })
     }
 
-    pub async fn remove(&self, id: &str) -> bool {
-        self.users.write().await.remove(id).is_some()
+    pub async fn remove_session(&self, peer_id: &str) -> Option<SessionRemoval> {
+        let mut sessions = self.sessions.write().await;
+        let removed = sessions.remove(peer_id)?;
+        let last_session = !sessions
+            .values()
+            .any(|entry| entry.user_id == removed.user_id);
+        Some(SessionRemoval {
+            user_id: removed.user_id,
+            last_session,
+        })
     }
 
-    pub async fn snapshot(&self) -> Vec<User> {
-        let users = self.users.read().await;
-        let mut list: Vec<User> =
-            users.iter().map(|(id, u)| User { id: id.clone(), nick: u.nick.clone() }).collect();
-        list.sort_by_key(|user| user.nick.to_lowercase());
+    pub async fn snapshot(&self) -> Vec<OnlineUser> {
+        let sessions = self.sessions.read().await;
+        // PROTOTYPE: presenca e agregada por conta mesmo com varias conexoes. A voz ja
+        // conserva peer_id separado para permitir expor sessoes individuais no futuro.
+        let mut by_user = HashMap::<&str, &str>::new();
+        for entry in sessions.values() {
+            by_user.entry(&entry.user_id).or_insert(&entry.username);
+        }
+        let mut list: Vec<_> = by_user
+            .into_iter()
+            .map(|(user_id, username)| OnlineUser {
+                user_id: user_id.to_string(),
+                username: username.to_string(),
+            })
+            .collect();
+        list.sort_by_key(|user| user.username.to_ascii_lowercase());
         list
     }
 
-    pub async fn nick_of(&self, id: &str) -> Option<String> {
-        self.users.read().await.get(id).map(|u| u.nick.clone())
+    pub async fn identity_of(&self, peer_id: &str) -> Option<OnlineUser> {
+        self.sessions
+            .read()
+            .await
+            .get(peer_id)
+            .map(|entry| OnlineUser {
+                user_id: entry.user_id.clone(),
+                username: entry.username.clone(),
+            })
     }
 
     pub async fn voice_peers(&self) -> Vec<VoicePeer> {
-        let users = self.users.read().await;
-        users
+        let sessions = self.sessions.read().await;
+        sessions
             .iter()
-            .filter_map(|(id, u)| voice_peer(id, u))
+            .filter_map(|(id, entry)| voice_peer(id, entry))
             .collect()
     }
 
@@ -127,59 +207,70 @@ impl AppState {
         peer_id: &PeerId,
         channel: &str,
     ) -> Result<VoiceJoin, VoiceJoinError> {
-        let mut users = self.users.write().await;
+        let mut sessions = self.sessions.write().await;
+        let user_id = sessions
+            .get(peer_id)
+            .map(|entry| entry.user_id.clone())
+            .ok_or(VoiceJoinError::PeerNotFound)?;
 
-        let occupied = users
+        // PROTOTYPE: so uma sessao da conta participa de voz. FUTURE: remova apenas
+        // esta guarda para permitir peers visiveis por sessao; o protocolo ja leva os dois IDs.
+        if sessions
+            .iter()
+            .any(|(id, entry)| id != peer_id && entry.user_id == user_id && entry.voice.is_some())
+        {
+            return Err(VoiceJoinError::AccountAlreadyInVoice);
+        }
+
+        let occupied = sessions
             .values()
-            .filter(|u| u.voice.as_ref().is_some_and(|v| v.channel == channel))
+            .filter(|entry| {
+                entry
+                    .voice
+                    .as_ref()
+                    .is_some_and(|voice| voice.channel == channel)
+            })
             .count();
         if occupied >= self.config.voice.max_peers {
             return Err(VoiceJoinError::Full);
         }
 
-        // Montado antes de entrar, entao nunca inclui quem esta chegando.
-        let roster = users
+        let roster = sessions
             .iter()
-            .filter_map(|(id, u)| {
-                u.voice.as_ref().filter(|v| v.channel == channel)?;
-                voice_peer(id, u)
+            .filter_map(|(id, entry)| {
+                entry
+                    .voice
+                    .as_ref()
+                    .filter(|voice| voice.channel == channel)?;
+                voice_peer(id, entry)
             })
             .collect();
 
-        let entry = users.get_mut(peer_id).ok_or(VoiceJoinError::PeerNotFound)?;
+        let entry = sessions
+            .get_mut(peer_id)
+            .ok_or(VoiceJoinError::PeerNotFound)?;
         entry.voice = Some(VoiceMembership {
             channel: channel.to_string(),
             muted: false,
             deafened: false,
         });
-
-        let peer = VoicePeer {
-            id: peer_id.clone(),
-            nick: entry.nick.clone(),
-            channel: channel.to_string(),
-            muted: false,
-            deafened: false,
-        };
-
+        let peer = voice_peer(peer_id, entry).expect("membership acabou de ser criada");
         Ok(VoiceJoin { roster, peer })
     }
 
     pub async fn leave_voice(&self, peer_id: &PeerId) -> bool {
-        let mut users = self.users.write().await;
-        match users.get_mut(peer_id) {
-            Some(entry) => entry.voice.take().is_some(),
-            None => false,
-        }
+        let mut sessions = self.sessions.write().await;
+        sessions
+            .get_mut(peer_id)
+            .is_some_and(|entry| entry.voice.take().is_some())
     }
 
-    pub async fn update_voice_state(
-        &self,
-        peer_id: &PeerId,
-        muted: bool,
-        deafened: bool,
-    ) -> bool {
-        let mut users = self.users.write().await;
-        match users.get_mut(peer_id).and_then(|u| u.voice.as_mut()) {
+    pub async fn update_voice_state(&self, peer_id: &PeerId, muted: bool, deafened: bool) -> bool {
+        let mut sessions = self.sessions.write().await;
+        match sessions
+            .get_mut(peer_id)
+            .and_then(|entry| entry.voice.as_mut())
+        {
             Some(voice) => {
                 voice.muted = muted;
                 voice.deafened = deafened;
@@ -190,10 +281,10 @@ impl AppState {
     }
 
     pub async fn shares_voice_channel(&self, first: &PeerId, second: &PeerId) -> bool {
-        let users = self.users.read().await;
-        match (users.get(first), users.get(second)) {
-            (Some(a), Some(b)) => match (&a.voice, &b.voice) {
-                (Some(a), Some(b)) => a.channel == b.channel,
+        let sessions = self.sessions.read().await;
+        match (sessions.get(first), sessions.get(second)) {
+            (Some(first), Some(second)) => match (&first.voice, &second.voice) {
+                (Some(first), Some(second)) => first.channel == second.channel,
                 _ => false,
             },
             _ => false,
@@ -201,11 +292,12 @@ impl AppState {
     }
 }
 
-fn voice_peer(id: &PeerId, user: &UserEntry) -> Option<VoicePeer> {
-    let voice = user.voice.as_ref()?;
+fn voice_peer(peer_id: &PeerId, session: &SessionEntry) -> Option<VoicePeer> {
+    let voice = session.voice.as_ref()?;
     Some(VoicePeer {
-        id: id.clone(),
-        nick: user.nick.clone(),
+        peer_id: peer_id.clone(),
+        user_id: session.user_id.clone(),
+        username: session.username.clone(),
         channel: voice.channel.clone(),
         muted: voice.muted,
         deafened: voice.deafened,
@@ -218,64 +310,112 @@ mod tests {
     use crate::test_support::TestServer;
 
     #[tokio::test]
-    async fn enforces_the_user_limit() {
+    async fn aggregates_presence_and_enforces_limits() {
         let server = TestServer::new(1, 4);
-        assert!(server.state.register("one", "One".into()).await.is_ok());
-
-        let error = server.state.register("two", "Two".into()).await.unwrap_err();
-        assert!(error.contains("servidor cheio"));
+        let first = server.account("Daniel");
+        let second = server.account("Alice");
+        assert!(
+            server
+                .state
+                .register_session("one", &first)
+                .await
+                .unwrap()
+                .first_session
+        );
+        assert!(
+            !server
+                .state
+                .register_session("two", &first)
+                .await
+                .unwrap()
+                .first_session
+        );
         assert_eq!(server.state.snapshot().await.len(), 1);
+        assert!(matches!(
+            server.state.register_session("other", &second).await,
+            Err(SessionError::ServerFull)
+        ));
     }
 
     #[tokio::test]
-    async fn keeps_one_voice_membership_per_user() {
-        let server = TestServer::new(10, 2);
-        server.state.register("one", "One".into()).await.unwrap();
-        server.state.register("two", "Two".into()).await.unwrap();
-
-        let first = server.state.join_voice(&"one".into(), "voz-a").await.unwrap();
-        assert!(first.roster.is_empty());
-
-        let second = server.state.join_voice(&"two".into(), "voz-a").await.unwrap();
-        assert_eq!(second.roster.len(), 1);
-        assert!(server.state.shares_voice_channel(&"one".into(), &"two".into()).await);
-
-        server.state.join_voice(&"two".into(), "voz-b").await.unwrap();
-        assert!(!server.state.shares_voice_channel(&"one".into(), &"two".into()).await);
-
-        let memberships: Vec<_> = server
+    async fn limits_sessions_per_account() {
+        let mut server = TestServer::new(10, 4);
+        Arc::get_mut(&mut server.state)
+            .unwrap()
+            .config
+            .auth
+            .max_sessions_per_user = 2;
+        let account = server.account("Daniel");
+        server
             .state
-            .voice_peers()
+            .register_session("one", &account)
             .await
-            .into_iter()
-            .filter(|peer| peer.id == "two")
-            .collect();
-        assert_eq!(memberships.len(), 1);
-        assert_eq!(memberships[0].channel, "voz-b");
-    }
-
-    #[tokio::test]
-    async fn enforces_voice_limit_and_updates_voice_state() {
-        let server = TestServer::new(10, 1);
-        server.state.register("one", "One".into()).await.unwrap();
-        server.state.register("two", "Two".into()).await.unwrap();
-
-        server.state.join_voice(&"one".into(), "voz-a").await.unwrap();
-        let full = server.state.join_voice(&"two".into(), "voz-a").await;
-        assert!(matches!(full, Err(VoiceJoinError::Full)));
-
-        assert!(server.state.update_voice_state(&"one".into(), true, false).await);
-        let peer = server
-            .state
-            .voice_peers()
-            .await
-            .into_iter()
-            .find(|peer| peer.id == "one")
             .unwrap();
-        assert!(peer.muted);
-        assert!(!peer.deafened);
+        server
+            .state
+            .register_session("two", &account)
+            .await
+            .unwrap();
+        assert!(matches!(
+            server.state.register_session("three", &account).await,
+            Err(SessionError::TooManySessions)
+        ));
+    }
 
-        assert!(server.state.leave_voice(&"one".into()).await);
-        assert!(!server.state.leave_voice(&"one".into()).await);
+    #[tokio::test]
+    async fn keeps_one_voice_session_per_account() {
+        let server = TestServer::new(10, 2);
+        let account = server.account("Daniel");
+        server
+            .state
+            .register_session("one", &account)
+            .await
+            .unwrap();
+        server
+            .state
+            .register_session("two", &account)
+            .await
+            .unwrap();
+        server
+            .state
+            .join_voice(&"one".into(), "voz-a")
+            .await
+            .unwrap();
+        assert!(matches!(
+            server.state.join_voice(&"two".into(), "voz-a").await,
+            Err(VoiceJoinError::AccountAlreadyInVoice)
+        ));
+    }
+
+    #[tokio::test]
+    async fn removes_presence_only_with_the_last_session() {
+        let server = TestServer::new(10, 2);
+        let account = server.account("Daniel");
+        server
+            .state
+            .register_session("one", &account)
+            .await
+            .unwrap();
+        server
+            .state
+            .register_session("two", &account)
+            .await
+            .unwrap();
+        assert!(
+            !server
+                .state
+                .remove_session("one")
+                .await
+                .unwrap()
+                .last_session
+        );
+        assert!(
+            server
+                .state
+                .remove_session("two")
+                .await
+                .unwrap()
+                .last_session
+        );
     }
 }

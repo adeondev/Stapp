@@ -8,19 +8,20 @@ use serde::{Deserialize, Serialize};
 use crate::channel::Channel;
 
 pub type PeerId = String;
+pub type UserId = String;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: PeerId,
-    pub nick: String,
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OnlineUser {
+    pub user_id: UserId,
+    pub username: String,
 }
 
-/// Alguem dentro de uma call. Carrega o estado de mute para a UI nao precisar
-/// perguntar depois.
+/// Uma conexao dentro de uma call. `peer_id` e efemero; `user_id` e a conta.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoicePeer {
-    pub id: PeerId,
-    pub nick: String,
+    pub peer_id: PeerId,
+    pub user_id: UserId,
+    pub username: String,
     pub channel: String,
     pub muted: bool,
     pub deafened: bool,
@@ -30,30 +31,48 @@ pub struct VoicePeer {
 pub struct Message {
     pub id: String,
     pub channel: String,
-    pub nick: String,
+    pub author_id: UserId,
+    pub author_username: String,
     pub text: String,
     /// Milissegundos desde o epoch.
     pub ts: i64,
 }
 
-/// O que o cliente precisa saber para falar audio. O campo `backend` e o que
-/// permite trocar mesh -> SFU sem tocar na UI: o cliente le isso em runtime e
-/// escolhe o transporte.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "lowercase")]
 pub enum VoiceConfig {
-    Mesh { ice_servers: Vec<String>, max_peers: usize },
+    Mesh {
+        ice_servers: Vec<String>,
+        max_peers: usize,
+    },
     // Livekit { url: String, token: String },  <- proximo passo
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthErrorCode {
+    InvalidCredentials,
+    RegistrationDisabled,
+    UsernameUnavailable,
+    InvalidUsername,
+    InvalidPassword,
+    RateLimited,
+    ServerFull,
+    TooManySessions,
+    SecureTransportRequired,
 }
 
 // ---------------------------------------------------------------- cliente -> servidor
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Nao derive `Debug`: as variantes de autenticacao carregam senha em texto na memoria.
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "t")]
 pub enum ClientMsg {
-    /// Sempre a primeira mensagem. Ate ela chegar a conexao nao existe para ninguem.
-    #[serde(rename = "hello")]
-    Hello { nick: String },
+    #[serde(rename = "auth.login")]
+    AuthLogin { username: String, password: String },
+
+    #[serde(rename = "auth.register")]
+    AuthRegister { username: String, password: String },
 
     #[serde(rename = "chat.send")]
     ChatSend { channel: String, text: String },
@@ -69,7 +88,10 @@ pub enum ClientMsg {
 
     /// Offer, answer ou candidato ICE. O servidor nao le o conteudo, so entrega.
     #[serde(rename = "rtc.signal")]
-    RtcSignal { to: PeerId, payload: serde_json::Value },
+    RtcSignal {
+        to: PeerId,
+        payload: serde_json::Value,
+    },
 }
 
 // ---------------------------------------------------------------- servidor -> cliente
@@ -77,34 +99,49 @@ pub enum ClientMsg {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "t")]
 pub enum ServerMsg {
+    /// Primeiro frame de toda conexao; ainda nao concede acesso a sala.
+    #[serde(rename = "auth.required")]
+    AuthRequired {
+        server_name: String,
+        registration_enabled: bool,
+    },
+
+    #[serde(rename = "auth.error")]
+    AuthError {
+        code: AuthErrorCode,
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        retry_after_ms: Option<u64>,
+    },
+
     #[serde(rename = "welcome")]
     Welcome {
-        self_id: PeerId,
+        self_peer_id: PeerId,
+        self_user_id: UserId,
         server_name: String,
         channels: Vec<Channel>,
-        users: Vec<User>,
+        users: Vec<OnlineUser>,
         voice: VoiceConfig,
-        /// Quem ja esta em call, de todos os canais de voz.
         voice_peers: Vec<VoicePeer>,
     },
 
-    /// Mandado uma vez por canal de texto logo depois do welcome.
     #[serde(rename = "chat.history")]
     ChatHistory { channel: String, msgs: Vec<Message> },
 
     #[serde(rename = "chat.new")]
     ChatNew { channel: String, msg: Message },
 
-    #[serde(rename = "user.joined")]
-    UserJoined { user: User },
+    #[serde(rename = "user.online")]
+    UserOnline { user: OnlineUser },
 
-    #[serde(rename = "user.left")]
-    UserLeft { user_id: PeerId },
+    #[serde(rename = "user.offline")]
+    UserOffline { user_id: UserId },
 
-    /// Quem ja estava na call, entregue so a quem acabou de entrar.
-    /// E este lado que cria as offers — ver a regra anti-glare no CLAUDE.md.
     #[serde(rename = "voice.roster")]
-    VoiceRoster { channel: String, peers: Vec<VoicePeer> },
+    VoiceRoster {
+        channel: String,
+        peers: Vec<VoicePeer>,
+    },
 
     #[serde(rename = "voice.joined")]
     VoiceJoined { peer: VoicePeer },
@@ -113,10 +150,17 @@ pub enum ServerMsg {
     VoiceLeft { peer_id: PeerId },
 
     #[serde(rename = "voice.state")]
-    VoiceStateChanged { peer_id: PeerId, muted: bool, deafened: bool },
+    VoiceStateChanged {
+        peer_id: PeerId,
+        muted: bool,
+        deafened: bool,
+    },
 
     #[serde(rename = "rtc.signal")]
-    RtcSignal { from: PeerId, payload: serde_json::Value },
+    RtcSignal {
+        from: PeerId,
+        payload: serde_json::Value,
+    },
 
     #[serde(rename = "error")]
     Error { message: String },

@@ -10,11 +10,21 @@ use crate::channel::{Channel, ChannelKind};
 pub struct Config {
     pub server: ServerConfig,
     #[serde(default)]
+    pub auth: AuthConfig,
+    #[serde(default)]
     pub channels: Vec<Channel>,
     #[serde(default)]
     pub voice: VoiceSettings,
     #[serde(default)]
     pub storage: StorageConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuthConfig {
+    #[serde(default)]
+    pub allow_registration: bool,
+    #[serde(default = "default_max_sessions_per_user")]
+    pub max_sessions_per_user: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -69,7 +79,10 @@ impl Config {
     }
 
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(!self.channels.is_empty(), "stapp.toml nao declara nenhum canal");
+        anyhow::ensure!(
+            !self.channels.is_empty(),
+            "stapp.toml nao declara nenhum canal"
+        );
 
         let mut seen = std::collections::HashSet::new();
         for ch in &self.channels {
@@ -80,6 +93,10 @@ impl Config {
             "precisa de pelo menos um canal de texto"
         );
         anyhow::ensure!(self.server.max_users > 0, "max_users precisa ser > 0");
+        anyhow::ensure!(
+            self.auth.max_sessions_per_user > 0,
+            "auth.max_sessions_per_user precisa ser > 0"
+        );
         anyhow::ensure!(self.voice.max_peers > 0, "voice.max_peers precisa ser > 0");
         anyhow::ensure!(
             self.voice.backend == "mesh",
@@ -102,27 +119,64 @@ impl Config {
     }
 }
 
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            allow_registration: false,
+            max_sessions_per_user: default_max_sessions_per_user(),
+        }
+    }
+}
+
 impl Default for VoiceSettings {
     fn default() -> Self {
-        Self { backend: default_backend(), ice_servers: default_ice(), max_peers: default_max_peers() }
+        Self {
+            backend: default_backend(),
+            ice_servers: default_ice(),
+            max_peers: default_max_peers(),
+        }
     }
 }
 
 impl Default for StorageConfig {
     fn default() -> Self {
-        Self { database: default_database(), history_limit: default_history_limit() }
+        Self {
+            database: default_database(),
+            history_limit: default_history_limit(),
+        }
     }
 }
 
-fn default_name() -> String { "Stapp".into() }
-fn default_bind() -> IpAddr { IpAddr::from([0, 0, 0, 0]) }
-fn default_port() -> u16 { 8787 }
-fn default_max_users() -> usize { 20 }
-fn default_backend() -> String { "mesh".into() }
-fn default_ice() -> Vec<String> { vec!["stun:stun.l.google.com:19302".into()] }
-fn default_max_peers() -> usize { 6 }
-fn default_database() -> PathBuf { PathBuf::from("data/stapp.db") }
-fn default_history_limit() -> usize { 200 }
+fn default_name() -> String {
+    "Stapp".into()
+}
+fn default_bind() -> IpAddr {
+    IpAddr::from([0, 0, 0, 0])
+}
+fn default_port() -> u16 {
+    8787
+}
+fn default_max_users() -> usize {
+    20
+}
+fn default_max_sessions_per_user() -> usize {
+    3
+}
+fn default_backend() -> String {
+    "mesh".into()
+}
+fn default_ice() -> Vec<String> {
+    vec!["stun:stun.l.google.com:19302".into()]
+}
+fn default_max_peers() -> usize {
+    6
+}
+fn default_database() -> PathBuf {
+    PathBuf::from("data/stapp.db")
+}
+fn default_history_limit() -> usize {
+    200
+}
 
 #[cfg(test)]
 mod tests {
@@ -140,7 +194,13 @@ mod tests {
     fn rejects_duplicate_channels_and_missing_text_channel() {
         let mut duplicate = test_config(PathBuf::from("test.db"), 20, 6);
         duplicate.channels[1].id = duplicate.channels[0].id.clone();
-        assert!(duplicate.validate().unwrap_err().to_string().contains("canal duplicado"));
+        assert!(
+            duplicate
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("canal duplicado")
+        );
 
         let mut voice_only = test_config(PathBuf::from("test.db"), 20, 6);
         for channel in &mut voice_only.channels {
@@ -158,15 +218,43 @@ mod tests {
     #[test]
     fn rejects_invalid_limits_and_voice_backend() {
         let mut no_users = test_config(PathBuf::from("test.db"), 0, 6);
-        assert!(no_users.validate().unwrap_err().to_string().contains("max_users"));
+        assert!(
+            no_users
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("max_users")
+        );
 
         no_users.server.max_users = 20;
+        no_users.auth.max_sessions_per_user = 0;
+        assert!(
+            no_users
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("max_sessions_per_user")
+        );
+
+        no_users.auth.max_sessions_per_user = 3;
         no_users.voice.max_peers = 0;
-        assert!(no_users.validate().unwrap_err().to_string().contains("max_peers"));
+        assert!(
+            no_users
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("max_peers")
+        );
 
         no_users.voice.max_peers = 6;
         no_users.voice.backend = "livekit".into();
-        assert!(no_users.validate().unwrap_err().to_string().contains("nao existe ainda"));
+        assert!(
+            no_users
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("nao existe ainda")
+        );
     }
 
     #[test]
