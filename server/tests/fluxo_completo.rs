@@ -549,6 +549,72 @@ async fn privacidade_amizade_conversa_existente_e_bloqueio_sao_autorizados_no_se
     daniel.close().await;
 }
 
+#[tokio::test]
+async fn o_perfil_editado_chega_nos_outros_sem_reconectar() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let mut daniel = entrar(addr, "daniel").await;
+    let welcome = daniel.wait_for("welcome").await;
+    let eu = welcome["self_user_id"].as_str().unwrap().to_string();
+
+    // O welcome ja traz o perfil de quem entrou, com o padrao.
+    let meu = welcome["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["user_id"] == eu.as_str())
+        .expect("o proprio perfil vem no welcome");
+    assert_eq!(meu["display_name"], "daniel");
+    assert_eq!(meu["accent"], "blue");
+    assert_eq!(meu["has_avatar"], false);
+
+    let mut alice = entrar(addr, "alice").await;
+    alice.wait_for("welcome").await;
+
+    // Alice edita; daniel recebe sem pedir nada.
+    alice
+        .send(json!({
+            "t": "profile.update",
+            "display_name": "Alice do Stapp",
+            "accent": "purple",
+            "bio": "bio de teste"
+        }))
+        .await;
+
+    let evento = daniel.wait_for("user.profile").await;
+    assert_eq!(evento["profile"]["display_name"], "Alice do Stapp");
+    assert_eq!(evento["profile"]["accent"], "purple");
+    assert_eq!(evento["profile"]["bio"], "bio de teste");
+    // O username continua sendo o login dela.
+    assert_eq!(evento["profile"]["username"], "alice");
+
+    alice.close().await;
+    daniel.close().await;
+}
+
+#[tokio::test]
+async fn cor_invalida_e_recusada_e_nao_anuncia_perfil() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let mut daniel = entrar(addr, "daniel").await;
+    daniel.wait_for("welcome").await;
+
+    daniel
+        .send(json!({ "t": "profile.update", "accent": "rosa-choque" }))
+        .await;
+
+    let erro = daniel.wait_for("error").await;
+    assert!(
+        erro["message"].as_str().unwrap().contains("cor"),
+        "{:?}",
+        erro["message"]
+    );
+
+    daniel.close().await;
+}
+
 const SENHA: &str = "uma senha bem seguraa";
 
 /// Conecta, cria a conta e devolve o cliente logo apos o `auth.required`.

@@ -10,6 +10,7 @@ use crate::protocol::{ClientMsg, PeerId};
 use crate::services::call;
 use crate::services::chat;
 use crate::services::direct;
+use crate::services::profile;
 use crate::services::social;
 use crate::services::voice;
 use crate::session::AppState;
@@ -33,6 +34,12 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
         ClientMsg::FriendRemove { user_id } => social::remove(state, peer_id, user_id).await,
         ClientMsg::UserBlock { user_id } => social::block(state, peer_id, user_id).await,
         ClientMsg::UserUnblock { user_id } => social::unblock(state, peer_id, user_id).await,
+        ClientMsg::ProfileUpdate {
+            display_name,
+            accent,
+            bio,
+        } => profile::update(state, peer_id, display_name, accent, bio).await,
+
         ClientMsg::PrivacyUpdate { allow_member_dms } => {
             social::update_privacy(state, peer_id, allow_member_dms).await
         }

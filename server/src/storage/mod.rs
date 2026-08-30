@@ -9,6 +9,7 @@ mod accounts;
 mod auth_sessions;
 mod direct;
 mod messages;
+mod profiles;
 mod schema;
 mod social;
 

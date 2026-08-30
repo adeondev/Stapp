@@ -102,6 +102,28 @@ pub struct DirectoryEntry {
     pub username: String,
 }
 
+/// O perfil publico de uma conta.
+///
+/// **Isto nao e copiado para dentro dos outros payloads de proposito.** Eles
+/// levam so `user_id`; o cliente guarda os perfis num mapa e consulta por ali.
+/// Sem isso, trocar de avatar exigiria reescrever toda mensagem ja entregue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Profile {
+    pub user_id: UserId,
+    /// O identificador de login. Nao muda.
+    pub username: String,
+    /// Ja resolvido: cai no `username` quando a pessoa nao escolheu nenhum.
+    pub display_name: String,
+    /// Nome da cor na paleta, nao o hex — quem manda no valor e o tema.
+    pub accent: String,
+    pub bio: String,
+    /// FUTURE: vira `true` quando a pessoa subir uma imagem. Ate la o avatar e
+    /// a inicial na cor escolhida.
+    pub has_avatar: bool,
+    /// Muda a cada edicao; serve de cache-buster da imagem.
+    pub updated_at: i64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RelationshipState {
@@ -212,6 +234,18 @@ pub enum ClientMsg {
     #[serde(rename = "privacy.update")]
     PrivacyUpdate { allow_member_dms: bool },
 
+    /// Edita o proprio perfil. Campo ausente = nao mexe; `display_name: ""`
+    /// limpa e volta a usar o username.
+    #[serde(rename = "profile.update")]
+    ProfileUpdate {
+        #[serde(default)]
+        display_name: Option<String>,
+        #[serde(default)]
+        accent: Option<String>,
+        #[serde(default)]
+        bio: Option<String>,
+    },
+
     #[serde(rename = "call.start")]
     CallStart { user_id: UserId },
 
@@ -277,6 +311,9 @@ pub enum ServerMsg {
         /// Todas as contas do servidor, online ou nao — e com quem da para
         /// abrir uma conversa.
         directory: Vec<DirectoryEntry>,
+        /// Os perfis de todo mundo, inclusive o seu. O cliente indexa por
+        /// `user_id` e resolve nome/cor/avatar a partir daqui.
+        profiles: Vec<Profile>,
         voice: VoiceConfig,
         voice_peers: Vec<VoicePeer>,
     },
@@ -323,6 +360,11 @@ pub enum ServerMsg {
 
     #[serde(rename = "user.online")]
     UserOnline { user: OnlineUser },
+
+    /// Alguem editou o perfil. Vai por broadcast: perfil e publico dentro do
+    /// servidor, e todo mundo precisa redesenhar o nome e o avatar na hora.
+    #[serde(rename = "user.profile")]
+    UserProfile { profile: Profile },
 
     #[serde(rename = "user.offline")]
     UserOffline { user_id: UserId },

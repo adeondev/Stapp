@@ -10,5 +10,6 @@
 pub mod call;
 pub mod chat;
 pub mod direct;
+pub mod profile;
 pub mod social;
 pub mod voice;

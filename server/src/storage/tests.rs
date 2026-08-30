@@ -136,3 +136,59 @@ fn username_key_is_unique_and_accounts_can_be_disabled() {
             .is_none()
     );
 }
+
+#[test]
+fn a_migracao_v3_para_v4_preserva_a_conta_e_da_perfil_padrao() {
+    let dir = TestDir::new();
+    let path = dir.database();
+
+    // Um banco na versao anterior, com uma conta ja criada — o caso de quem ja
+    // esta usando o servidor.
+    {
+        let conn = Connection::open(&path).unwrap();
+        super::schema::migrate_to(&conn, 3).unwrap();
+        conn.execute(
+            "INSERT INTO users (id, username, username_key, password_hash, created_at)
+             VALUES ('u1', 'Daniel', 'daniel', '$argon2id$x', 100)",
+            [],
+        )
+        .unwrap();
+        let versao: i64 = conn
+            .pragma_query_value(None, "user_version", |row| row.get(0))
+            .unwrap();
+        assert_eq!(versao, 3, "o banco tinha que estar em v3 antes");
+    }
+
+    // Abrir com o servidor de hoje sobe para v4 sozinho.
+    let db = Db::open(&path).unwrap();
+
+    let conta = db.account_by_key("daniel").unwrap().unwrap();
+    assert_eq!(conta.username, "Daniel", "a conta nao pode se perder");
+
+    let perfil = db.profile_of(&conta.id).unwrap().unwrap();
+    assert_eq!(perfil.display_name, "Daniel", "sem escolha, usa o username");
+    assert_eq!(perfil.accent, "blue");
+    assert_eq!(perfil.bio, "");
+    assert!(!perfil.has_avatar);
+}
+
+#[test]
+fn perfil_editado_sobrevive_a_reabertura_do_banco() {
+    let dir = TestDir::new();
+    let path = dir.database();
+    let id = {
+        let db = Db::open(&path).unwrap();
+        let conta = db
+            .create_account("Daniel".into(), "daniel".into(), "hash".into())
+            .unwrap();
+        db.update_profile(&conta.id, Some("Deon"), Some("purple"), Some("oi"), 777)
+            .unwrap();
+        conta.id
+    };
+
+    let db = Db::open(&path).unwrap();
+    let perfil = db.profile_of(&id).unwrap().unwrap();
+    assert_eq!(perfil.display_name, "Deon");
+    assert_eq!(perfil.accent, "purple");
+    assert_eq!(perfil.updated_at, 777);
+}

@@ -9,7 +9,7 @@ use anyhow::{Result, bail};
 use rusqlite::Connection;
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 3;
+pub const SCHEMA_VERSION: i64 = 4;
 
 const V1: &str = "BEGIN IMMEDIATE;
      CREATE TABLE users (
@@ -108,6 +108,27 @@ const V3: &str = "BEGIN IMMEDIATE;
      PRAGMA user_version = 3;
      COMMIT;";
 
+/// Perfil publico da conta. Tabela separada de `users` pelo mesmo motivo de
+/// `user_privacy`: conta que ja existe ganha o default sem reescrever nada.
+///
+/// `display_name` NULL de proposito — significa "usa o username", e nao "vazio".
+/// `accent` guarda o NOME da cor, nao o hex: assim o tema manda no valor e trocar
+/// os tokens nao quebra nenhuma linha do banco.
+/// `avatar_ext` ja fica pronto para a imagem da etapa seguinte; NULL = avatar gerado.
+const V4: &str = "BEGIN IMMEDIATE;
+     CREATE TABLE user_profiles (
+         user_id      TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+         display_name TEXT,
+         accent       TEXT NOT NULL DEFAULT 'blue',
+         bio          TEXT NOT NULL DEFAULT '',
+         avatar_ext   TEXT,
+         updated_at   INTEGER NOT NULL DEFAULT 0
+     );
+     INSERT INTO user_profiles (user_id, accent, bio, updated_at)
+          SELECT id, 'blue', '', 0 FROM users;
+     PRAGMA user_version = 4;
+     COMMIT;";
+
 pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -134,6 +155,9 @@ pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
     if version < 3 {
         conn.execute_batch(V3)?;
     }
+    if version < 4 {
+        conn.execute_batch(V4)?;
+    }
 
     ensure_server_id(conn)?;
 
@@ -151,6 +175,18 @@ fn ensure_server_id(conn: &Connection) -> Result<()> {
             "INSERT INTO server_meta (key, value) VALUES ('server_id', ?1)",
             [Uuid::new_v4().to_string()],
         )?;
+    }
+    Ok(())
+}
+
+/// Aplica as migracoes ate a versao pedida. Existe para o teste conseguir
+/// montar um banco de versao antiga de verdade, em vez de fingir um.
+#[cfg(test)]
+pub(super) fn migrate_to(conn: &Connection, version: i64) -> Result<()> {
+    for (alvo, passo) in [(1, V1), (2, V2), (3, V3), (4, V4)] {
+        if version >= alvo {
+            conn.execute_batch(passo)?;
+        }
     }
     Ok(())
 }

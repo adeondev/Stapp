@@ -112,6 +112,26 @@ tratado pelo `services/voice` como qualquer sala: mesmo mesh, mesma sinalizaçã
 - O timer de expiração carrega o id da tentativa, senão um timer velho derrubaria uma chamada
   nova entre as mesmas duas pessoas.
 
+### Regra dura: perfil se busca, não se copia
+
+`username` é copiado para dentro de quase todo payload (`OnlineUser`, `VoicePeer`,
+`Message.author_username`, `SocialMember`...). **Nome de exibição, cor e avatar não são.**
+
+O servidor manda os perfis uma vez no `welcome` e um `user.profile` quando algum muda; os outros
+payloads continuam levando só `user_id`. O cliente guarda `profiles: Record<UserId, Profile>` e
+toda tela resolve por ali — [`web/src/ui/Avatar.tsx`](web/src/ui/Avatar.tsx) tem o `<Avatar>` e o
+`<ProfileName>` que fazem isso.
+
+Se você copiar o perfil para dentro de um payload, trocar de avatar vai exigir reescrever tudo
+que já foi entregue, e o histórico fica com a foto velha para sempre.
+
+`messages.author_username` e `dm_messages.author_username` **continuam existindo** e não são
+bug: ali é registro histórico de quem escreveu. O que aparece na tela vem do perfil vivo.
+
+A cor é guardada pelo **nome** (`"green"`), nunca pelo hex — a lista canônica está em
+`ACCENTS`, em [`server/src/services/profile/mod.rs`](server/src/services/profile/mod.rs), e
+precisa bater com os tokens `--accent-<nome>` do `theme.css`.
+
 ### Regra dura: os dois `protocol` andam juntos
 
 [`server/src/protocol.rs`](server/src/protocol.rs) é a fonte da verdade.
