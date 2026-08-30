@@ -341,9 +341,14 @@ export function Connect({
             </div>
           </form>
         ) : (
-          <div className="connect__waiting" role="status">
-            <span className="connect__pulse" />
-            Aguardando resposta
+          <div className="connect__waiting-panel">
+            <div className="connect__waiting" role="status">
+              <span className="connect__pulse" />
+              Aguardando resposta
+            </div>
+            <button className="connect__back" type="button" onClick={onBack}>
+              Cancelar
+            </button>
           </div>
         )}
       </section>

@@ -61,6 +61,17 @@ describe('Connect', () => {
     expect(screen.getByRole('button', { name: /entrar/i })).toBeTruthy()
   })
 
+  it('permite cancelar enquanto aguarda o servidor', async () => {
+    const user = userEvent.setup()
+    const onBack = vi.fn()
+    render(<Connect {...baseProps} authInfo={null} onBack={onBack} />)
+
+    expect(screen.getByText(/aguardando resposta/i)).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: /cancelar/i }))
+
+    expect(onBack).toHaveBeenCalledOnce()
+  })
+
   it('pede confirmacao no cadastro e nunca grava a senha digitada', async () => {
     const user = userEvent.setup()
     render(
