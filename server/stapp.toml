@@ -22,7 +22,13 @@ trusted_networks = ["26.0.0.0/8"]
 # Se o cliente web for hospedado em outra origem, declare cada origem exata.
 # Nunca use curingas. Tauri e a mesma origem do servidor ja sao reconhecidos.
 # Esta origem e a usada por `pnpm app` durante o desenvolvimento local.
-allowed_origins = ["http://localhost:5173"]
+allowed_origins = [
+  "http://localhost:5173",
+  # O amigo abre o cliente pelo IP do Radmin desta maquina; sem esta linha o
+  # login dele volta 403 antes mesmo de conferir a senha. Se o IP do Radmin
+  # mudar, esta linha muda junto.
+  "http://26.220.166.121:5173",
+]
 
 [[channels]]
 id   = "geral"
@@ -40,12 +46,16 @@ name = "Sala de voz"
 kind = "voice"
 
 [voice]
-# "mesh" = P2P direto, o servidor so repassa sinalizacao.
-# Quando migrar para SFU, isto vira "livekit" e o cliente troca de transporte sozinho.
+# "mesh" e contingencia. O script infra/livekit/Start-LiveKit.ps1 gera uma
+# copia local com "livekit" sem colocar segredos neste arquivo.
 backend     = "mesh"
 ice_servers = ["stun:stun.l.google.com:19302"]
-# O mesh nao escala muito alem disso: cada pessoa sobe audio para todas as outras.
 max_peers   = 6
+# Enderecos sem segredo. O script troca public_url pelo IP Radmin escolhido.
+public_url  = "ws://127.0.0.1:7880"
+api_url     = "http://127.0.0.1:7880"
+api_key_env = "STAPP_LIVEKIT_API_KEY"
+api_secret_env = "STAPP_LIVEKIT_API_SECRET"
 
 [storage]
 database      = "data/stapp.db"
