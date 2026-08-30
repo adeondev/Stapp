@@ -4,7 +4,7 @@
 export type PeerId = string
 export type UserId = string
 export type ChannelKind = 'text' | 'voice'
-export const PROTOCOL_VERSION = 2
+export const PROTOCOL_VERSION = 3
 
 export interface Channel {
   id: string
@@ -24,6 +24,8 @@ export interface VoicePeer {
   channel: string
   muted: boolean
   deafened: boolean
+  camera_enabled: boolean
+  screen_sharing: boolean
 }
 
 export interface Message {
@@ -130,7 +132,21 @@ export type CallEndReason =
 
 export type VoiceConfig =
   | { backend: 'mesh'; ice_servers: string[]; max_peers: number }
-  // | { backend: 'livekit'; url: string; token: string }
+  | {
+      backend: 'livekit'
+      max_peers: number
+      camera: boolean
+      screen_share: boolean
+      screen_audio: boolean
+    }
+
+export type VoiceDeniedCode =
+  | 'unavailable'
+  | 'full'
+  | 'forbidden'
+  | 'media_failure'
+  | 'already_connected'
+  | 'grant_expired'
 
 export type RtcPayload =
   | { kind: 'offer'; sdp: RTCSessionDescriptionInit }
@@ -176,7 +192,14 @@ export type ClientMsg =
   | { t: 'call.cancel'; user_id: UserId }
   | { t: 'voice.join'; channel: string }
   | { t: 'voice.leave' }
-  | { t: 'voice.state'; muted: boolean; deafened: boolean }
+  | { t: 'voice.connected'; channel: string }
+  | {
+      t: 'voice.state'
+      muted: boolean
+      deafened: boolean
+      camera_enabled: boolean
+      screen_sharing: boolean
+    }
   | { t: 'rtc.signal'; to: PeerId; payload: RtcPayload }
 
 export type ServerMsg =
@@ -230,8 +253,17 @@ export type ServerMsg =
   | { t: 'call.accepted'; user_id: UserId; channel: string }
   | { t: 'call.ended'; user_id: UserId; reason: CallEndReason }
   | { t: 'voice.roster'; channel: string; peers: VoicePeer[] }
+  | { t: 'voice.grant'; channel: string; url: string; token: string; expires_at: number }
+  | { t: 'voice.denied'; channel: string; code: VoiceDeniedCode; message: string }
   | { t: 'voice.joined'; peer: VoicePeer }
   | { t: 'voice.left'; peer_id: PeerId }
-  | { t: 'voice.state'; peer_id: PeerId; muted: boolean; deafened: boolean }
+  | {
+      t: 'voice.state'
+      peer_id: PeerId
+      muted: boolean
+      deafened: boolean
+      camera_enabled: boolean
+      screen_sharing: boolean
+    }
   | { t: 'rtc.signal'; from: PeerId; payload: RtcPayload }
   | { t: 'error'; message: string }

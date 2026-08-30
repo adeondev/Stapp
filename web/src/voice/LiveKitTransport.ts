@@ -1,0 +1,943 @@
+import type {
+  LocalAudioTrack,
+  Participant,
+  RemoteTrackPublication,
+  Room,
+  TrackPublication,
+} from 'livekit-client'
+import {
+  captureScreenSourceThumbnail,
+  isTauriRuntime,
+  listScreenSources,
+  startNativeScreenCapture,
+  type NativeScreenCapture,
+  type ScreenSource,
+} from '../platform/screenCapture'
+import type { PeerId, ServerMsg, VoiceConfig } from '../protocol'
+import type {
+  DiagnosticReport,
+  MediaDeviceLists,
+  VoiceParticipantState,
+  VoiceSnapshot,
+  VoiceTransport,
+  VoiceTransportOptions,
+} from './VoiceTransport'
+import {
+  loadVoicePreferences,
+  saveVoicePreferences,
+  type ScreenPreset,
+  type StreamQuality,
+  type VoicePreferences,
+} from './preferences'
+import { RnnoiseTrackProcessor } from './RnnoiseTrackProcessor'
+import {
+  VoiceAudioProcessor,
+  type ConfigurableAudioProcessor,
+  type VoiceProcessorSettings,
+} from './VoiceAudioProcessor'
+
+type LiveKitModule = typeof import('livekit-client')
+
+const SCREEN_PRESETS = {
+  economy: { width: 1280, height: 720, frameRate: 15, maxBitrate: 1_200_000 },
+  balanced: { width: 1920, height: 1080, frameRate: 30, maxBitrate: 3_500_000 },
+  fluid: { width: 1280, height: 720, frameRate: 60, maxBitrate: 4_500_000 },
+  original: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 8_000_000 },
+} as const
+
+export class LiveKitTransport implements VoiceTransport {
+  private room: Room | null = null
+  private sdk: LiveKitModule | null = null
+  private requestedChannel: string | null = null
+  private sessionGeneration = 0
+  private audioPlaybackWarningShown = false
+  private preferences = loadVoicePreferences()
+  private audioProcessor: ConfigurableAudioProcessor | null = null
+  private nativeScreenCapture: NativeScreenCapture | null = null
+  private readonly listeners = new Set<(snapshot: VoiceSnapshot) => void>()
+  private readonly audioElements = new Map<string, HTMLAudioElement>()
+  private readonly publicationOwners = new Map<string, PeerId>()
+  private readonly participantVolumes = new Map<PeerId, number>()
+  private readonly publicationVolumes = new Map<string, number>()
+  private state: VoiceSnapshot = {
+    status: 'idle', channel: null, muted: false, deafened: false,
+    cameraEnabled: false, screenSharing: false, screenHasAudio: null,
+    participants: [], media: [], error: null,
+  }
+
+  constructor(
+    private readonly config: Extract<VoiceConfig, { backend: 'livekit' }>,
+    private readonly options: VoiceTransportOptions,
+  ) {}
+
+  async join(channel: string): Promise<boolean> {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      this.fail('No Radmin, voz e captura exigem o aplicativo Stapp; navegador remoto por HTTP nao tem permissao segura.')
+      return false
+    }
+    if (this.requestedChannel === channel && this.state.status !== 'idle') return true
+    if (this.requestedChannel || this.room) this.endSession(true)
+    this.sessionGeneration += 1
+    this.requestedChannel = channel
+    this.audioPlaybackWarningShown = false
+    this.state = { ...this.state, status: 'requesting', channel, error: null }
+    this.emit()
+    this.options.send({ t: 'voice.join', channel })
+    return true
+  }
+
+  handleServerMessage(msg: ServerMsg) {
+    if (msg.t === 'voice.grant' && msg.channel === this.requestedChannel) {
+      void this.connect(msg.url, msg.token, msg.expires_at, msg.channel, this.sessionGeneration)
+      return
+    }
+    if (msg.t === 'voice.denied' && msg.channel === this.requestedChannel) {
+      this.endSession(false)
+      this.state = { ...this.state, status: 'idle', channel: null, error: msg.message }
+      this.emit()
+      this.options.onError(msg.message)
+      return
+    }
+    if (msg.t === 'voice.state') this.syncStappState(msg)
+  }
+
+  setMuted(muted: boolean) {
+    void this.resumeAudio()
+    this.state = { ...this.state, muted }
+    void this.applyMicrophoneState()
+    this.publishState()
+    this.sync()
+  }
+
+  setDeafened(deafened: boolean) {
+    void this.resumeAudio()
+    this.state = { ...this.state, deafened }
+    for (const audio of this.audioElements.values()) audio.muted = deafened
+    void this.applyMicrophoneState()
+    this.publishState()
+    this.sync()
+  }
+
+  async setCameraEnabled(enabled: boolean): Promise<boolean> {
+    const room = this.room
+    if (!room || !this.config.camera) return false
+    try {
+      await room.localParticipant.setCameraEnabled(
+        enabled,
+        enabled
+          ? {
+              deviceId: this.preferences.cameraDeviceId || undefined,
+              resolution: this.preferences.cameraQuality === '1080p'
+                ? { width: 1920, height: 1080, frameRate: 30 }
+                : { width: 1280, height: 720, frameRate: 30 },
+            }
+          : undefined,
+        { videoCodec: 'vp9', backupCodec: { codec: 'vp8' }, simulcast: true },
+      )
+      this.state = { ...this.state, cameraEnabled: enabled }
+      this.publishState()
+      this.sync()
+      return true
+    } catch (error) {
+      this.fail(mediaError(error, 'Nao consegui abrir a camera.'))
+      return false
+    }
+  }
+
+  async setScreenShareEnabled(
+    enabled: boolean,
+    preset: ScreenPreset = this.preferences.screenPreset,
+    sourceId?: string,
+  ): Promise<boolean> {
+    const room = this.room
+    const sdk = this.sdk
+    if (!room || !sdk || !this.config.screen_share) return false
+    try {
+      if (!enabled) {
+        await this.stopScreenShare(room)
+        this.state = { ...this.state, screenSharing: false, screenHasAudio: null }
+        this.publishState()
+        this.sync()
+        return true
+      }
+
+      if (this.state.screenSharing) {
+        await this.stopScreenShare(room)
+      }
+
+      const quality = SCREEN_PRESETS[preset]
+      if (isTauriRuntime()) {
+        if (!sourceId) {
+          this.fail('Escolha uma tela ou janela no seletor do Stapp.')
+          return false
+        }
+        const capture = await startNativeScreenCapture({
+          sourceId,
+          maxWidth: quality.width,
+          maxHeight: quality.height,
+          fps: quality.frameRate,
+        })
+        this.nativeScreenCapture = capture
+        try {
+          await room.localParticipant.publishTrack(capture.track, {
+            source: sdk.Track.Source.ScreenShare,
+            name: 'stapp-screen',
+            videoCodec: 'vp9',
+            backupCodec: { codec: 'vp8' },
+            simulcast: true,
+            screenShareEncoding: {
+              maxBitrate: quality.maxBitrate,
+              maxFramerate: Math.min(quality.frameRate, 30),
+            },
+          })
+        } catch (error) {
+          this.nativeScreenCapture = null
+          await capture.stop()
+          throw error
+        }
+        void capture.ended.then((reason) => {
+          if (this.nativeScreenCapture !== capture) return
+          this.options.onError(`O compartilhamento terminou: ${reason}.`)
+          void this.setScreenShareEnabled(false)
+        })
+        this.finishScreenShareStart(preset, false)
+        return true
+      }
+
+      // No navegador puro a pagina continua funcional e usa o picker seguro
+      // da propria plataforma. O executavel nunca passa por este ramo.
+      await room.localParticipant.setScreenShareEnabled(
+        true,
+        {
+          audio: this.config.screen_audio,
+          video: true,
+          resolution: preset === 'original' ? undefined : {
+            width: quality.width,
+            height: quality.height,
+            frameRate: quality.frameRate,
+          },
+          systemAudio: this.config.screen_audio ? 'include' : 'exclude',
+          surfaceSwitching: 'include',
+          selfBrowserSurface: 'exclude',
+          contentHint: preset === 'fluid' ? 'motion' : 'detail',
+        },
+        {
+          source: sdk.Track.Source.ScreenShare,
+          videoCodec: 'vp9',
+          backupCodec: { codec: 'vp8' },
+          simulcast: true,
+          screenShareEncoding: {
+            maxBitrate: quality.maxBitrate,
+            maxFramerate: quality.frameRate,
+          },
+        },
+      )
+      const hasAudio = Boolean(
+        room.localParticipant.getTrackPublication(sdk.Track.Source.ScreenShareAudio),
+      )
+      this.finishScreenShareStart(preset, hasAudio)
+      if (this.config.screen_audio && !hasAudio) {
+        this.options.onError('A fonte escolhida nao forneceu audio; a tela continua ao vivo sem som.')
+      }
+      return true
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'NotAllowedError') return false
+      this.fail(mediaError(error, 'Nao consegui iniciar o compartilhamento.'))
+      return false
+    }
+  }
+
+  listScreenSources(): Promise<ScreenSource[]> {
+    return listScreenSources()
+  }
+
+  captureScreenSourceThumbnail(sourceId: string) {
+    return captureScreenSourceThumbnail(sourceId)
+  }
+
+  async setInputDevice(deviceId: string) {
+    this.preferences = { ...this.preferences, inputDeviceId: deviceId }
+    saveVoicePreferences(this.preferences)
+    if (this.room && deviceId) await this.room.switchActiveDevice('audioinput', deviceId, true)
+  }
+
+  async setOutputDevice(deviceId: string) {
+    this.preferences = { ...this.preferences, outputDeviceId: deviceId }
+    saveVoicePreferences(this.preferences)
+    if (this.room && deviceId) await this.room.switchActiveDevice('audiooutput', deviceId, true)
+  }
+
+  async setCameraDevice(deviceId: string) {
+    this.preferences = { ...this.preferences, cameraDeviceId: deviceId }
+    saveVoicePreferences(this.preferences)
+    if (this.room && deviceId && this.state.cameraEnabled) {
+      await this.room.switchActiveDevice('videoinput', deviceId, true)
+    }
+  }
+
+  async enumerateDevices(): Promise<MediaDeviceLists> {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    return {
+      inputs: devices.filter((device) => device.kind === 'audioinput'),
+      outputs: devices.filter((device) => device.kind === 'audiooutput'),
+      cameras: devices.filter((device) => device.kind === 'videoinput'),
+    }
+  }
+
+  async startMicrophoneTest(onLevel: (level: number) => void) {
+    const { startMicrophoneTest } = await import('./testMicrophone')
+    return startMicrophoneTest(this.audioCaptureOptions(), onLevel)
+  }
+
+  async startCameraPreview(element: HTMLVideoElement) {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        deviceId: this.preferences.cameraDeviceId || undefined,
+        width: this.preferences.cameraQuality === '1080p' ? 1920 : 1280,
+        height: this.preferences.cameraQuality === '1080p' ? 1080 : 720,
+        frameRate: 30,
+      },
+    })
+    element.srcObject = stream
+    await element.play().catch(() => {})
+    return () => {
+      for (const track of stream.getTracks()) track.stop()
+      if (element.srcObject === stream) element.srcObject = null
+    }
+  }
+
+  setPublicationSubscribed(publicationId: string, subscribed: boolean) {
+    const publication = this.findRemotePublication(publicationId)
+    if (!publication) return
+    publication.setSubscribed(subscribed)
+    const sdk = this.sdk
+    const owner = this.publicationOwners.get(publicationId)
+    if (sdk && owner && publication.source === sdk.Track.Source.ScreenShare) {
+      const participant = this.room?.remoteParticipants.get(owner)
+      const audio = participant?.getTrackPublication(sdk.Track.Source.ScreenShareAudio)
+      audio?.setSubscribed(subscribed)
+      if (audio && this.publicationVolumes.has(publicationId)) {
+        this.publicationVolumes.set(audio.trackSid, this.publicationVolumes.get(publicationId) ?? 100)
+      }
+    }
+    if (subscribed) this.applyPreferredQuality(publication)
+    this.sync()
+  }
+
+  setPublicationQuality(publicationId: string, quality: StreamQuality) {
+    const publication = this.findRemotePublication(publicationId)
+    const sdk = this.sdk
+    if (!publication || !sdk) return
+    if (quality !== 'auto') publication.setVideoQuality(quality === 'low'
+      ? sdk.VideoQuality.LOW
+      : quality === 'high' ? sdk.VideoQuality.MEDIUM : sdk.VideoQuality.HIGH)
+    if (!publication.isSubscribed) publication.setSubscribed(true)
+    this.sync()
+  }
+
+  setParticipantVolume(peerId: PeerId, volume: number) {
+    this.participantVolumes.set(peerId, clamp(volume, 0, 200))
+    for (const [publicationId, owner] of this.publicationOwners) {
+      if (owner === peerId) this.applyVolume(publicationId)
+    }
+  }
+
+  setPublicationVolume(publicationId: string, volume: number) {
+    const normalized = clamp(volume, 0, 200)
+    this.publicationVolumes.set(publicationId, normalized)
+    const publication = this.findPublication(publicationId)
+    const sdk = this.sdk
+    const owner = this.publicationOwners.get(publicationId)
+    if (sdk && owner && publication?.source === sdk.Track.Source.ScreenShare) {
+      const screenAudio = this.room?.remoteParticipants
+        .get(owner)?.getTrackPublication(sdk.Track.Source.ScreenShareAudio)
+      if (screenAudio) {
+        this.publicationVolumes.set(screenAudio.trackSid, normalized)
+        this.applyVolume(screenAudio.trackSid)
+      }
+    }
+    this.applyVolume(publicationId)
+  }
+
+  attachMedia(publicationId: string, element: HTMLMediaElement) {
+    const publication = this.findPublication(publicationId)
+    const track = publication?.videoTrack
+    if (!track) return () => {}
+    track.attach(element)
+    return () => { track.detach(element) }
+  }
+
+  snapshot() { return this.state }
+
+  subscribe(listener: (snapshot: VoiceSnapshot) => void) {
+    this.listeners.add(listener)
+    listener(this.state)
+    return () => this.listeners.delete(listener)
+  }
+
+  getPreferences() { return { ...this.preferences } }
+
+  async updatePreferences(patch: Partial<VoicePreferences>) {
+    const previous = this.preferences
+    this.preferences = { ...this.preferences, ...patch }
+    saveVoicePreferences(this.preferences)
+
+    if (patch.inputDeviceId !== undefined && patch.inputDeviceId !== previous.inputDeviceId) {
+      await this.setInputDevice(patch.inputDeviceId)
+    }
+    if (patch.outputDeviceId !== undefined && patch.outputDeviceId !== previous.outputDeviceId) {
+      await this.setOutputDevice(patch.outputDeviceId)
+    }
+    if (patch.cameraDeviceId !== undefined && patch.cameraDeviceId !== previous.cameraDeviceId) {
+      await this.setCameraDevice(patch.cameraDeviceId)
+    }
+    if (patch.cameraQuality !== undefined && this.state.cameraEnabled) {
+      await this.setCameraEnabled(false)
+      await this.setCameraEnabled(true)
+    }
+    if (patch.outputVolume !== undefined) {
+      for (const publicationId of this.audioElements.keys()) this.applyVolume(publicationId)
+    }
+    if (
+      this.room
+      && (patch.noiseMode !== undefined
+        || patch.echoCancellation !== undefined
+        || patch.autoGainControl !== undefined)
+    ) {
+      await this.restartMicrophone()
+    } else if (
+      patch.inputVolume !== undefined
+      || patch.inputMode !== undefined
+      || patch.automaticSensitivity !== undefined
+      || patch.sensitivity !== undefined
+    ) {
+      this.audioProcessor?.update(this.processorSettings())
+    }
+  }
+
+  async diagnosticReport(): Promise<DiagnosticReport> {
+    const report: DiagnosticReport = {
+      generatedAt: new Date().toISOString(),
+      backend: 'livekit',
+      status: this.state.status,
+      quality: this.room?.localParticipant.connectionQuality ?? 'unknown',
+    }
+    const publications = this.room?.localParticipant.getTrackPublications() ?? []
+    for (const publication of publications) {
+      const track = publication.track
+      const stats = await track?.getRTCStatsReport().catch(() => undefined)
+      if (!stats) continue
+      stats.forEach((entry) => {
+        if (entry.type === 'codec' && typeof entry.mimeType === 'string') report.codec = entry.mimeType
+        if (entry.type === 'outbound-rtp') {
+          if (entry.frameWidth && entry.frameHeight) report.resolution = `${entry.frameWidth}x${entry.frameHeight}`
+          if (typeof entry.framesPerSecond === 'number') report.fps = entry.framesPerSecond
+          if (typeof entry.packetsLost === 'number' && typeof entry.packetsSent === 'number') {
+            report.packetLossPercent = round((entry.packetsLost / Math.max(1, entry.packetsSent)) * 100)
+          }
+        }
+        if (entry.type === 'remote-inbound-rtp') {
+          if (typeof entry.roundTripTime === 'number') report.rttMs = round(entry.roundTripTime * 1000)
+          if (typeof entry.jitter === 'number') report.jitterMs = round(entry.jitter * 1000)
+        }
+      })
+      if (track && track.currentBitrate > 0) report.bitrateKbps = round(track.currentBitrate / 1000)
+    }
+    return report
+  }
+
+  leave() {
+    this.endSession(true)
+    this.state = {
+      status: 'idle', channel: null, muted: false, deafened: false,
+      cameraEnabled: false, screenSharing: false, screenHasAudio: null,
+      participants: [], media: [], error: null,
+    }
+    this.emit()
+  }
+
+  destroy() {
+    this.leave()
+    this.listeners.clear()
+  }
+
+  async resumeAudio() {
+    const room = this.room
+    if (!room) return false
+    try {
+      await room.startAudio()
+      const played = await Promise.all(
+        [...this.audioElements.values()].map((audio) => audio.play().then(() => true).catch(() => false)),
+      )
+      const ready = room.canPlaybackAudio && played.every(Boolean)
+      if (ready) this.audioPlaybackWarningShown = false
+      return ready
+    } catch {
+      return false
+    }
+  }
+
+  private async connect(url: string, token: string, expiresAt: number, channel: string, generation: number) {
+    if (Date.now() >= expiresAt || !this.isCurrentSession(channel, generation)) {
+      if (generation !== this.sessionGeneration) return
+      this.requestedChannel = null
+      this.state = { ...this.state, status: 'idle', channel: null }
+      this.fail('A autorizacao de midia expirou; tente entrar novamente.')
+      return
+    }
+    this.state = { ...this.state, status: 'connecting' }
+    this.emit()
+    let connectingRoom: Room | null = null
+    try {
+      const sdk = await import('livekit-client')
+      if (!this.isCurrentSession(channel, generation)) return
+      this.sdk = sdk
+      const room = new sdk.Room({
+        adaptiveStream: true,
+        dynacast: true,
+        publishDefaults: {
+          videoCodec: 'vp9',
+          backupCodec: { codec: 'vp8' },
+          simulcast: true,
+          scalabilityMode: 'L3T3_KEY',
+          stopMicTrackOnMute: false,
+        },
+      })
+      connectingRoom = room
+      this.room = room
+      this.bindEvents(room, sdk, generation)
+      await room.connect(mediaUrlForThisDevice(url), token, { autoSubscribe: false })
+      if (!this.isCurrentRoom(room, channel, generation)) {
+        await room.disconnect(true)
+        return
+      }
+      this.configureExistingSubscriptions(room, sdk)
+      void this.resumeAudio().then((ready) => {
+        if (!ready && this.isCurrentRoom(room, channel, generation)) this.warnAudioPlaybackBlocked()
+      })
+      if (this.preferences.outputDeviceId) {
+        await room.switchActiveDevice('audiooutput', this.preferences.outputDeviceId, true).catch(() => false)
+      }
+      await this.enableMicrophone()
+      if (!this.isCurrentRoom(room, channel, generation)) return
+      this.state = { ...this.state, status: 'connected', channel, error: null }
+      this.options.send({ t: 'voice.connected', channel })
+      this.sync()
+    } catch (error) {
+      if (!this.isCurrentSession(channel, generation)) {
+        if (connectingRoom) await connectingRoom.disconnect(true).catch(() => {})
+        return
+      }
+      this.endSession(false)
+      this.fail(mediaError(error, 'Midia temporariamente indisponivel.'))
+    }
+  }
+
+  private bindEvents(room: Room, sdk: LiveKitModule, generation: number) {
+    const current = () => this.room === room && this.sessionGeneration === generation
+    room.on(sdk.RoomEvent.ParticipantConnected, () => { if (current()) this.sync() })
+    room.on(sdk.RoomEvent.ParticipantDisconnected, () => { if (current()) this.sync() })
+    room.on(sdk.RoomEvent.TrackPublished, (publication: RemoteTrackPublication, participant: Participant) => {
+      if (!current()) return
+      this.publicationOwners.set(publication.trackSid, participant.identity)
+      this.configureSubscription(publication, sdk)
+      this.sync()
+    })
+    room.on(sdk.RoomEvent.TrackSubscribed, (track, publication, participant) => {
+      if (!current()) return
+      this.publicationOwners.set(publication.trackSid, participant.identity)
+      if (track.kind === sdk.Track.Kind.Audio) this.attachAudio(publication, participant.identity)
+      this.sync()
+    })
+    room.on(sdk.RoomEvent.TrackUnsubscribed, (_track, publication) => {
+      if (!current()) return
+      this.detachAudio(publication.trackSid)
+      this.sync()
+    })
+    room.on(sdk.RoomEvent.TrackUnpublished, (publication) => {
+      if (!current()) return
+      this.detachAudio(publication.trackSid)
+      this.sync()
+    })
+    room.on(sdk.RoomEvent.LocalTrackPublished, () => { if (current()) this.sync() })
+    room.on(sdk.RoomEvent.LocalTrackUnpublished, (publication) => {
+      if (!current()) return
+      if (publication.source === sdk.Track.Source.ScreenShare) {
+        this.state = { ...this.state, screenSharing: false, screenHasAudio: null }
+        this.publishState()
+      }
+      this.sync()
+    })
+    room.on(sdk.RoomEvent.ActiveSpeakersChanged, (participants: Participant[]) => {
+      if (!current()) return
+      const active = new Set(participants.map((participant) => participant.identity))
+      for (const participant of this.allParticipants()) {
+        this.options.onSpeaking(participant.identity, active.has(participant.identity))
+      }
+      this.sync()
+    })
+    room.on(sdk.RoomEvent.ConnectionQualityChanged, () => { if (current()) this.sync() })
+    room.on(sdk.RoomEvent.Reconnecting, () => {
+      if (!current()) return
+      this.state = { ...this.state, status: 'reconnecting' }
+      this.emit()
+    })
+    room.on(sdk.RoomEvent.Reconnected, () => {
+      if (!current()) return
+      this.state = { ...this.state, status: 'connected' }
+      this.sync()
+    })
+    room.on(sdk.RoomEvent.MediaDevicesError, (error) => {
+      if (current()) this.fail(mediaError(error, 'Falha em um dispositivo de midia.'))
+    })
+    room.on(sdk.RoomEvent.AudioPlaybackStatusChanged, () => {
+      if (current() && !room.canPlaybackAudio) this.warnAudioPlaybackBlocked()
+    })
+    room.on(sdk.RoomEvent.Disconnected, () => {
+      if (current() && this.requestedChannel) {
+        this.endSession(true)
+        this.state = {
+          ...this.state,
+          status: 'idle', channel: null, participants: [], media: [],
+          cameraEnabled: false, screenSharing: false, screenHasAudio: null,
+          error: 'A conexao de midia foi encerrada.',
+        }
+        this.emit()
+        this.options.onError('A conexao de midia foi encerrada.')
+      }
+    })
+  }
+
+  private configureExistingSubscriptions(room: Room, sdk: LiveKitModule) {
+    for (const participant of room.remoteParticipants.values()) {
+      for (const publication of participant.trackPublications.values()) {
+        this.publicationOwners.set(publication.trackSid, participant.identity)
+        this.configureSubscription(publication, sdk)
+      }
+    }
+  }
+
+  private configureSubscription(publication: RemoteTrackPublication, sdk: LiveKitModule) {
+    const subscribe = publication.source === sdk.Track.Source.Microphone
+      || publication.source === sdk.Track.Source.Camera
+    publication.setSubscribed(subscribe)
+  }
+
+  private applyPreferredQuality(publication: RemoteTrackPublication) {
+    const sdk = this.sdk
+    if (!sdk || this.preferences.streamQuality === 'auto') return
+    publication.setVideoQuality(this.preferences.streamQuality === 'low'
+      ? sdk.VideoQuality.LOW
+      : this.preferences.streamQuality === 'high'
+        ? sdk.VideoQuality.MEDIUM
+        : sdk.VideoQuality.HIGH)
+  }
+
+  private async enableMicrophone() {
+    const room = this.room
+    if (!room) return
+    try {
+      const publication = await room.localParticipant.setMicrophoneEnabled(
+        !this.state.muted && !this.state.deafened,
+        this.audioCaptureOptions(),
+      )
+      if (publication?.audioTrack) await this.enableAudioProcessor(publication.audioTrack)
+    } catch (error) {
+      this.state = { ...this.state, muted: true }
+      this.options.onError(mediaError(error, 'Microfone indisponivel; voce entrou apenas ouvindo.'))
+    }
+  }
+
+  private async enableAudioProcessor(track: LocalAudioTrack) {
+    const processor = this.preferences.noiseMode === 'enhanced'
+      ? new RnnoiseTrackProcessor(this.processorSettings())
+      : new VoiceAudioProcessor(this.processorSettings())
+    try {
+      await track.setProcessor(processor)
+      this.audioProcessor = processor
+    } catch {
+      await processor.destroy().catch(() => {})
+      this.audioProcessor = null
+      if (this.preferences.noiseMode === 'enhanced') {
+        this.preferences = { ...this.preferences, noiseMode: 'standard' }
+        saveVoicePreferences(this.preferences)
+        this.options.onError('O RNNoise local nao iniciou; voltei para a supressao padrao do sistema.')
+        const fallback = new VoiceAudioProcessor(this.processorSettings())
+        await track.setProcessor(fallback).then(() => { this.audioProcessor = fallback }).catch(() => {})
+      }
+    }
+  }
+
+  private processorSettings(): VoiceProcessorSettings {
+    return {
+      inputVolume: this.preferences.inputVolume,
+      inputMode: this.preferences.inputMode,
+      automaticSensitivity: this.preferences.automaticSensitivity,
+      sensitivity: this.preferences.sensitivity,
+    }
+  }
+
+  private audioCaptureOptions() {
+    return {
+      deviceId: this.preferences.inputDeviceId || undefined,
+      echoCancellation: this.preferences.echoCancellation,
+      autoGainControl: this.preferences.autoGainControl,
+      noiseSuppression: this.preferences.noiseMode === 'standard',
+      channelCount: 1,
+      sampleRate: 48_000,
+    }
+  }
+
+  private async applyMicrophoneState() {
+    const room = this.room
+    if (!room) return
+    await room.localParticipant
+      .setMicrophoneEnabled(!this.state.muted && !this.state.deafened, this.audioCaptureOptions())
+      .catch((error) => this.fail(mediaError(error, 'Nao consegui alterar o microfone.')))
+  }
+
+  private async restartMicrophone() {
+    const room = this.room
+    if (!room) return
+    await this.audioProcessor?.destroy().catch(() => {})
+    this.audioProcessor = null
+    await room.localParticipant.setMicrophoneEnabled(false)
+    await this.enableMicrophone()
+    this.sync()
+  }
+
+  private publishState() {
+    if (!this.requestedChannel || this.state.status !== 'connected') return
+    this.options.send({
+      t: 'voice.state',
+      muted: this.state.muted,
+      deafened: this.state.deafened,
+      camera_enabled: this.state.cameraEnabled,
+      screen_sharing: this.state.screenSharing,
+    })
+  }
+
+  private finishScreenShareStart(preset: ScreenPreset, hasAudio: boolean) {
+    this.preferences = { ...this.preferences, screenPreset: preset }
+    saveVoicePreferences(this.preferences)
+    this.state = { ...this.state, screenSharing: true, screenHasAudio: hasAudio }
+    this.publishState()
+    this.sync()
+  }
+
+  private async stopScreenShare(room: Room) {
+    const capture = this.nativeScreenCapture
+    this.nativeScreenCapture = null
+    if (!capture) {
+      await room.localParticipant.setScreenShareEnabled(false)
+      return
+    }
+    await room.localParticipant.unpublishTrack(capture.track).catch(() => undefined)
+    await capture.stop()
+  }
+
+  private syncStappState(msg: Extract<ServerMsg, { t: 'voice.state' }>) {
+    if (msg.peer_id !== this.options.selfPeerId) return
+    this.state = {
+      ...this.state,
+      muted: msg.muted,
+      deafened: msg.deafened,
+      cameraEnabled: msg.camera_enabled,
+      screenSharing: msg.screen_sharing,
+    }
+    this.emit()
+  }
+
+  private sync() {
+    const room = this.room
+    const sdk = this.sdk
+    if (!room || !sdk) {
+      this.emit()
+      return
+    }
+    const participants: VoiceParticipantState[] = this.allParticipants().map((participant) => ({
+      peerId: participant.identity,
+      name: participant.isLocal ? (participant.name || 'Voce') : (participant.name || 'Pessoa'),
+      local: participant.isLocal,
+      speaking: participant.isSpeaking,
+      microphone: participant.isMicrophoneEnabled,
+      camera: participant.isCameraEnabled,
+      screen: participant.isScreenShareEnabled,
+      quality: participant.connectionQuality,
+    }))
+    const media = this.allParticipants().flatMap((participant) =>
+      participant.getTrackPublications()
+        .filter((publication) =>
+          publication.kind === sdk.Track.Kind.Video
+          && (publication.source === sdk.Track.Source.Camera
+            || publication.source === sdk.Track.Source.ScreenShare),
+        )
+        .map((publication) => ({
+          id: publication.trackSid,
+          peerId: participant.identity,
+          name: participant.name || (participant.isLocal ? 'Voce' : 'Pessoa'),
+          kind: publication.source === sdk.Track.Source.ScreenShare ? 'screen' as const : 'camera' as const,
+          local: participant.isLocal,
+          subscribed: participant.isLocal || publication.isSubscribed,
+          muted: publication.isMuted,
+          width: publication.dimensions?.width,
+          height: publication.dimensions?.height,
+        })),
+    )
+    this.state = { ...this.state, participants, media }
+    this.emit()
+  }
+
+  private allParticipants(): Participant[] {
+    if (!this.room) return []
+    return [this.room.localParticipant, ...this.room.remoteParticipants.values()]
+  }
+
+  private findPublication(id: string): TrackPublication | undefined {
+    return this.allParticipants()
+      .flatMap((participant) => participant.getTrackPublications())
+      .find((publication) => publication.trackSid === id)
+  }
+
+  private findRemotePublication(id: string): RemoteTrackPublication | undefined {
+    for (const participant of this.room?.remoteParticipants.values() ?? []) {
+      const publication = participant.trackPublications.get(id)
+      if (publication) return publication
+    }
+    return undefined
+  }
+
+  private attachAudio(publication: TrackPublication, owner: PeerId) {
+    const track = publication.audioTrack
+    if (!track || this.audioElements.has(publication.trackSid)) return
+    const audio = document.createElement('audio')
+    audio.autoplay = true
+    audio.muted = this.state.deafened
+    audio.dataset.stappVoice = publication.trackSid
+    audio.hidden = true
+    document.body.append(audio)
+    track.attach(audio)
+    this.audioElements.set(publication.trackSid, audio)
+    this.publicationOwners.set(publication.trackSid, owner)
+    this.applyVolume(publication.trackSid)
+    void audio.play().catch(() => this.warnAudioPlaybackBlocked())
+  }
+
+  private detachAudio(publicationId: string) {
+    const audio = this.audioElements.get(publicationId)
+    const publication = this.findPublication(publicationId)
+    if (audio) publication?.audioTrack?.detach(audio)
+    audio?.remove()
+    this.audioElements.delete(publicationId)
+    this.publicationOwners.delete(publicationId)
+  }
+
+  private applyVolume(publicationId: string) {
+    const audio = this.audioElements.get(publicationId)
+    if (!audio) return
+    const owner = this.publicationOwners.get(publicationId)
+    const participant = owner ? (this.participantVolumes.get(owner) ?? 100) : 100
+    const publication = this.publicationVolumes.get(publicationId) ?? 100
+    const master = this.preferences.outputVolume
+    audio.volume = clamp((participant / 100) * (publication / 100) * (master / 100), 0, 1)
+  }
+
+  private endSession(sendLeave: boolean) {
+    const hadSession = Boolean(this.requestedChannel || this.room)
+    this.sessionGeneration += 1
+    this.requestedChannel = null
+    if (sendLeave && hadSession) this.options.send({ t: 'voice.leave' })
+
+    const processor = this.audioProcessor
+    this.audioProcessor = null
+    const screenCapture = this.nativeScreenCapture
+    this.nativeScreenCapture = null
+    for (const publicationId of [...this.audioElements.keys()]) this.detachAudio(publicationId)
+    const room = this.room
+    this.room = null
+    this.sdk = null
+    this.publicationOwners.clear()
+    this.publicationVolumes.clear()
+    void this.disposeSession(room, processor, screenCapture)
+  }
+
+  private async disposeSession(
+    room: Room | null,
+    processor: ConfigurableAudioProcessor | null,
+    screenCapture: NativeScreenCapture | null,
+  ) {
+    await screenCapture?.stop().catch(() => {})
+    await processor?.destroy().catch(() => {})
+    if (room) await room.disconnect(true).catch(() => {})
+  }
+
+  private isCurrentSession(channel: string, generation: number) {
+    return this.requestedChannel === channel && this.sessionGeneration === generation
+  }
+
+  private isCurrentRoom(room: Room, channel: string, generation: number) {
+    return this.room === room && this.isCurrentSession(channel, generation)
+  }
+
+  private warnAudioPlaybackBlocked() {
+    if (this.audioPlaybackWarningShown) return
+    this.audioPlaybackWarningShown = true
+    this.options.onError('O navegador bloqueou o audio automatico. Clique em qualquer controle da chamada para liberar o som.')
+  }
+
+  private fail(message: string) {
+    this.state = { ...this.state, error: message }
+    this.emit()
+    this.options.onError(message)
+  }
+
+  private emit() {
+    for (const listener of this.listeners) listener(this.state)
+  }
+}
+
+function mediaError(error: unknown, fallback: string) {
+  if (error instanceof DOMException) {
+    if (error.name === 'NotAllowedError') return 'A permissao de midia foi negada.'
+    if (error.name === 'NotFoundError') return 'Nenhum dispositivo compativel foi encontrado.'
+    if (error.name === 'NotReadableError') return 'O dispositivo esta ocupado por outro aplicativo.'
+  }
+  if (error instanceof Error && error.message) {
+    // O SDK costuma trazer aqui a causa de rede/codec. Redigimos qualquer JWT
+    // ou parametro de autenticacao antes de mostrar o diagnostico local.
+    const detail = error.message
+      .replace(/eyJ[A-Za-z0-9._-]+/g, '[token]')
+      .replace(/([?&](?:access_token|token)=)[^&\s]+/gi, '$1[redigido]')
+      .slice(0, 220)
+    return `${fallback} ${detail}`
+  }
+  return fallback
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function round(value: number) {
+  return Math.round(value * 10) / 10
+}
+
+/**
+ * No computador que hospeda o Stapp, o loopback e a rota correta e tambem e
+ * tratado como origem confiavel pelos navegadores. Isso impede que modos
+ * HTTPS-only tentem converter o WebSocket Radmin sem TLS para HTTPS. Clientes
+ * Tauri e maquinas remotas continuam recebendo exatamente o endereco Radmin.
+ */
+function mediaUrlForThisDevice(raw: string) {
+  try {
+    const url = new URL(raw)
+    const localPage = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
+    if (localPage && url.protocol === 'ws:' && url.hostname.startsWith('26.')) {
+      url.hostname = location.hostname
+    }
+    return url.toString().replace(/\/$/, '')
+  } catch {
+    return raw
+  }
+}

@@ -16,6 +16,28 @@
   height: 100%;
   pointer-events: none;
   z-index: 0;
+  background: var(--connect-backdrop);
+}
+
+.connect__orb {
+  position: absolute;
+  width: 58vmax;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--connect-orb) 0, var(--connect-orb-clear) 68%);
+}
+
+.connect__orb--one { top: -32vmax; left: -12vmax; }
+.connect__orb--two { right: -28vmax; bottom: -36vmax; }
+
+.connect__grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--connect-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--connect-grid) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, transparent, var(--connect-grid-mask), transparent);
 }
 
 /* Card assimetrico solido (com 2 cantos arredondados e 2 cantos retos/sharp) */
@@ -28,11 +50,8 @@
   max-width: 440px;
   padding: 44px 40px 36px;
   border-radius: 48px 0 48px 0;
-  background: #14171f;
+  background: var(--connect-card);
   border: 0;
-  box-shadow:
-    0 32px 64px -14px rgba(0, 0, 0, 0.8),
-    0 12px 28px -6px rgba(0, 0, 0, 0.55);
   overflow: hidden;
 }
 
@@ -75,7 +94,7 @@
   margin-top: 12px;
   padding: 4px 12px;
   border-radius: 999px;
-  background: #0d1016;
+  background: var(--connect-input);
   color: var(--text-dim);
   font-size: 11px;
   font-weight: 500;
@@ -84,7 +103,7 @@
 
 .connect__security.is-secure {
   color: var(--online);
-  background: rgba(87, 201, 138, 0.1);
+  background: var(--online-quiet);
 }
 
 .connect__security-dot {
@@ -138,12 +157,11 @@
   height: 44px;
   padding: 0 14px;
   border-radius: var(--radius);
-  background: #0d1016;
+  background: var(--connect-input);
   color: var(--text);
   font-size: 14px;
   line-height: 44px;
   border: 0;
-  box-shadow: none;
   outline: none;
   transition: background 0.15s ease;
 }
@@ -157,11 +175,11 @@
 }
 
 .connect__field:hover:not(:disabled) {
-  background: #11141c;
+  background: var(--connect-input-hover);
 }
 
 .connect__field:focus {
-  background: #131722;
+  background: var(--connect-input-focus);
   outline: none;
 }
 
@@ -190,7 +208,7 @@
 
 .connect__input-action:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-active);
 }
 
 .connect__options {
@@ -240,21 +258,19 @@
   width: 18px;
   height: 18px;
   border-radius: 4px;
-  background: #0d1016;
+  background: var(--connect-input);
   color: var(--on-accent);
   border: 0;
-  box-shadow: none;
   transition: background 0.15s ease;
 }
 
 .connect__checkbox-label:hover .connect__checkbox-box:not(.is-checked) {
-  background: #151922;
+  background: var(--connect-checkbox-hover);
 }
 
 .connect__checkbox-box.is-checked {
   background: var(--accent);
-  color: #071522;
-  box-shadow: none;
+  color: var(--connect-checkbox-ink);
 }
 
 .connect__link {
@@ -350,7 +366,7 @@
 .connect__switch:hover:not(:disabled),
 .connect__back:hover:not(:disabled) {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-hover);
 }
 
 .connect__waiting {
@@ -361,7 +377,7 @@
   min-height: 48px;
   padding: 12px;
   border-radius: var(--radius);
-  background: #0d1016;
+  background: var(--connect-input);
   color: var(--text-dim);
   font-size: 14px;
   margin-top: 6px;

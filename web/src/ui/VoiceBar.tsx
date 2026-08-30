@@ -4,6 +4,7 @@ import {
   IconLeave,
   IconMic,
   IconMicOff,
+  IconSignal,
 } from './Icons'
 import './voicebar.css'
 
@@ -14,6 +15,7 @@ interface Props {
   onToggleMute(): void
   onToggleDeafen(): void
   onLeave(): void
+  onOpen(): void
 }
 
 export function VoiceBar({
@@ -23,16 +25,20 @@ export function VoiceBar({
   onToggleMute,
   onToggleDeafen,
   onLeave,
+  onOpen,
 }: Props) {
   // Ensurdecer tambem corta o microfone, entao o botao de mudo reflete os dois.
   const micOff = muted || deafened
 
   return (
     <div className="voicebar">
-      <div className="voicebar__where">
-        <span className="voicebar__label">na call</span>
+      <button className="voicebar__where" onClick={onOpen} title="abrir chamada">
+        <span className="voicebar__label">
+          <IconSignal size={12} className="voicebar__signal" />
+          Voz Conectada
+        </span>
         <span className="voicebar__channel">{channelName}</span>
-      </div>
+      </button>
 
       <div className="voicebar__actions">
         <button
@@ -57,8 +63,8 @@ export function VoiceBar({
         <button
           className="voicebar__btn voicebar__btn--leave"
           onClick={onLeave}
-          title="sair da call"
-          aria-label="sair da call"
+          title="desconectar"
+          aria-label="desconectar"
         >
           <IconLeave />
         </button>

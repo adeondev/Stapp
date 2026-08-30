@@ -1,0 +1,47 @@
+.voicesettings__scrim { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 22px; background: var(--scrim); }
+.voicesettings { display: grid; grid-template-rows: auto minmax(0, 1fr); width: min(760px, 100%); max-height: min(850px, 94vh); overflow: hidden; border-radius: var(--radius-xl); background: var(--bg-raised); }
+.voicesettings > header { display: flex; align-items: center; justify-content: space-between; padding: 18px 22px; background: var(--glass-strong); }
+.voicesettings > header span { color: var(--text-dim); font-size: 11px; text-transform: uppercase; }
+.voicesettings > header h2 { margin: 2px 0 0; font-size: 20px; }
+.voicesettings > header button { display: grid; place-items: center; width: 36px; height: 36px; background: var(--bg-input); }
+.voicesettings__body { display: flex; flex-direction: column; gap: 12px; padding: 16px; overflow: auto; }
+.voicesettings__group { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: var(--radius-lg); background: var(--bg-app); }
+.voicesettings__group h3 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; }
+.voicesettings__group label:not(.voicesettings__toggle, .voicesettings__range) { display: flex; flex-direction: column; gap: 6px; color: var(--text-soft); font-size: 12px; }
+.voicesettings__group select, .voicesettings__group input:not([type="range"], [type="checkbox"]) { width: 100%; min-height: 38px; padding: 0 10px; border: 0; border-radius: var(--radius); background: var(--bg-input); color: var(--text); }
+.voicesettings__columns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: end; }
+.voicesettings__range { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; color: var(--text-soft); font-size: 12px; }
+.voicesettings__range input { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.voicesettings__range output { color: var(--text-dim); }
+.voicesettings__toggle { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-raised); }
+.voicesettings__toggle span { display: flex; flex-direction: column; }
+.voicesettings__toggle small, .voicesettings__choice small, .voicesettings__noise small { color: var(--text-dim); font-size: 11px; }
+.voicesettings__toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
+.voicesettings__choice { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.voicesettings__choice button { display: flex; flex-direction: column; gap: 3px; padding: 11px; background: var(--bg-raised); text-align: left; }
+.voicesettings__choice button.is-active { background: var(--pill-active); }
+.voicesettings__noise { display: flex; flex-direction: column; gap: 7px; }
+.voicesettings__noise > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.voicesettings__noise button { padding: 8px; background: var(--bg-raised); }
+.voicesettings__noise button.is-active { background: var(--pill-active); color: var(--text); }
+.voicesettings__test { align-self: flex-start; padding: 8px 12px; background: var(--bg-raised); }
+.voicesettings__test.is-active { background: var(--danger-quiet); color: var(--danger); }
+.voicesettings__meter { height: 7px; overflow: hidden; border-radius: var(--radius-pill); background: var(--bg-raised); }
+.voicesettings__meter span { display: block; height: 100%; border-radius: inherit; background: var(--online); transition: width 60ms linear; }
+.voicesettings__camera-preview { display: none; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--radius-lg); background: var(--call-video); }
+.voicesettings__camera-preview.is-visible { display: block; }
+.voicesettings__camera-preview video { width: 100%; height: 100%; object-fit: cover; }
+.voicesettings__camera-preview.is-mirrored video { transform: scaleX(-1); }
+.voicesettings__preview-error { color: var(--danger); font-size: 12px; }
+.voicesettings__diagnostic { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.voicesettings__diagnostic > div { display: flex; flex-direction: column; }
+.voicesettings__diagnostic span { color: var(--text-dim); font-size: 11px; }
+.voicesettings__diagnostic button, .voicesettings__reset { padding: 9px 12px; background: var(--bg-input); }
+.voicesettings pre { max-height: 180px; margin: 0; padding: 12px; overflow: auto; border-radius: var(--radius); background: var(--glass-strong); color: var(--text-soft); font-size: 11px; }
+.voicesettings__reset { align-self: flex-start; color: var(--danger); }
+
+@media (max-width: 760px) {
+  .voicesettings__scrim { padding: 0; }
+  .voicesettings { width: 100%; max-height: 100%; height: 100%; border-radius: 0; }
+  .voicesettings__columns, .voicesettings__choice { grid-template-columns: 1fr; }
+}

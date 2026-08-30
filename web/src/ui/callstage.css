@@ -1,0 +1,669 @@
+.callstage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--call-stage);
+  color: var(--text);
+  user-select: none;
+}
+.callstage__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 48px;
+  padding: 0 16px;
+  background: var(--call-header);
+  border-bottom: 1px solid var(--call-tile);
+}
+
+.callstage__channel-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.callstage__status-badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-app);
+}
+
+.callstage__signal-icon {
+  color: var(--online);
+}
+
+.callstage__eyebrow {
+  color: var(--online);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Ping HUD Gamer */
+.callstage__ping-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-app);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.02em;
+}
+
+.callstage__ping-badge.is-good {
+  color: var(--online);
+}
+
+.callstage__ping-badge.is-fair {
+  color: #E5A93B;
+}
+
+.callstage__ping-badge.is-poor {
+  color: var(--danger);
+}
+
+.callstage__ping-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.callstage__header h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.callstage__window-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.callstage__window-actions button {
+  display: grid;
+  place-items: center;
+  min-height: 32px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--call-control);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.callstage__window-actions button:hover,
+.callstage__window-actions button[aria-pressed="true"] {
+  background: var(--call-control-hover);
+  color: var(--text);
+}
+
+.callstage__action-pill {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+}
+
+.callstage__action-pill.is-active {
+  background: var(--accent) !important;
+  color: var(--on-accent) !important;
+}
+
+.callstage__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.callstage__viewport {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.callstage__sidechat {
+  width: 360px;
+  min-width: 320px;
+  max-width: 450px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-app);
+  border-left: 1px solid var(--call-tile);
+}
+
+/* Modo Embutido (No Topo do Chat - Split View) */
+.callstage--embedded {
+  flex: 0 0 auto;
+  height: 340px;
+  max-height: 48vh;
+  border-bottom: 2px solid var(--call-tile);
+}
+
+.callstage--embedded .callstage__header {
+  min-height: 40px;
+  padding: 0 12px;
+}
+
+.callstage--embedded .callstage__dock-wrap {
+  bottom: 8px;
+}
+
+.callstage--embedded .callstage__dock {
+  padding: 3px 6px;
+  gap: 4px;
+}
+
+.callstage--embedded .callstage__dock-button {
+  width: 36px;
+  height: 36px;
+}
+
+.callstage--embedded .callstage__dock-chevron {
+  height: 36px;
+}
+
+/* Modo Party Co-op (Avatares alinhados em linha limpa no centro) */
+.callstage__party {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  padding-bottom: 60px; /* espaço para dock flutuante */
+}
+
+.callstage__party-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 20px;
+  max-width: 900px;
+}
+
+.callstage--party-mode .calltile--avatar {
+  background: transparent;
+  min-height: auto;
+  width: auto;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  border: 1px solid transparent;
+}
+
+.callstage--party-mode .calltile--avatar:hover {
+  background: var(--bg-app);
+  border-color: var(--call-tile);
+}
+
+.callstage--party-mode .calltile--avatar .calltile__meta {
+  position: static;
+  margin-top: 10px;
+  background: transparent;
+  padding: 0;
+}
+
+.callstage--party-mode .calltile--avatar .calltile__meta-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.callstage__layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  grid-auto-rows: minmax(190px, 1fr);
+  gap: 12px;
+  height: 100%;
+}
+
+.callstage--embedded .callstage__layout {
+  grid-auto-rows: minmax(140px, 1fr);
+}
+
+.callstage--focus .callstage__layout {
+  grid-template-columns: minmax(0, 1fr) 200px;
+  grid-template-rows: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+.callstage--focus .calltile.is-primary {
+  grid-row: 1 / -1;
+  min-height: 0;
+}
+
+/* Card / Tile de Participante e Transmissão */
+.calltile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  min-height: 150px;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--call-tile);
+}
+
+.calltile video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--call-video);
+}
+
+.calltile video.is-mirrored {
+  transform: scaleX(-1);
+}
+
+/* Avatar Gamer com Anel Verde do Discord ao Falar */
+.calltile__avatar-container {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  transition: outline 0.1s ease-in-out;
+}
+
+.calltile__avatar-container.is-speaking {
+  outline: 3px solid var(--online);
+  outline-offset: 3px;
+}
+
+.calltile__avatar-img {
+  display: grid;
+  place-items: center;
+  width: 80px;
+  height: 80px;
+  border-radius: 50%;
+  background: var(--avatar-accent, var(--accent));
+  color: var(--avatar-ink, var(--on-accent));
+  font-size: 32px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+/* Tag de Nome no Canto Inferior Esquerdo */
+.calltile__meta {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 50px);
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--call-label);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.calltile__meta-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calltile__meta-icon {
+  color: var(--danger);
+}
+
+/* Badge AO VIVO */
+.calltile__badge-live {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+
+.calltile__more {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  background: var(--call-label);
+  color: var(--text-dim);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.calltile:hover .calltile__more,
+.calltile__more:focus-visible {
+  opacity: 1;
+}
+
+.calltile__more:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+/* Painel para assistir transmissão quando ainda não inscrita */
+.calltile__watch-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+  text-align: center;
+}
+
+.calltile__watch-icon-wrap {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: var(--bg-app);
+  color: var(--text-dim);
+}
+
+.calltile__watch-panel strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.calltile__watch-button {
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.calltile__watch-button:hover {
+  filter: brightness(1.1);
+}
+
+/* Dropdown Menu de Participante */
+.calltile__menu {
+  position: absolute;
+  top: 42px;
+  right: 10px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 220px;
+  padding: 8px;
+  border-radius: var(--radius);
+  background: var(--call-menu);
+}
+
+.calltile__menu > button,
+.calltile__quality button {
+  padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--call-control);
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+
+.calltile__menu > button:hover,
+.calltile__quality button:hover {
+  background: var(--call-control-hover);
+}
+
+.calltile__menu label {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 8px;
+  padding: 6px;
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.calltile__menu input {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.calltile__quality {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+/* Placeholder Vazio */
+.callstage__empty {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-dim);
+}
+
+.callstage__empty strong {
+  color: var(--text);
+  font-size: 16px;
+}
+
+/* Dock Flutuante Inferior Estilo Discord */
+.callstage__dock-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  padding: 14px;
+}
+
+.callstage__dock {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--call-dock);
+}
+
+.callstage__dock-combo {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius);
+  background: var(--call-control);
+}
+
+.callstage__dock-combo:hover {
+  background: var(--call-control-hover);
+}
+
+.callstage__dock-chevron {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 44px;
+  padding-right: 4px;
+  color: var(--text-dim);
+}
+
+.callstage__dock-chevron:hover {
+  color: var(--text);
+}
+
+.callstage__dock-button {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  background: var(--call-control);
+  color: var(--text);
+}
+
+.callstage__dock-combo .callstage__dock-button {
+  background: transparent !important;
+}
+
+.callstage__dock-button:hover {
+  background: var(--call-control-hover);
+}
+
+.callstage__dock-button.is-active {
+  color: var(--online);
+}
+
+.callstage__dock-button.is-off {
+  color: var(--danger);
+}
+
+.callstage__dock-button.is-danger {
+  margin-left: 8px;
+  background: var(--danger);
+  color: var(--on-accent);
+}
+
+.callstage__dock-button.is-danger:hover {
+  background: var(--danger);
+  filter: brightness(1.15);
+}
+
+/* Submenu Dropdown de Configuração Rápida do Dock */
+.callstage__submenu {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  z-index: 10;
+  display: flex;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-radius: var(--radius-lg);
+  background: var(--call-menu);
+  translate: -50% 0;
+}
+
+.callstage__submenu strong {
+  padding: 4px 6px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.callstage__submenu-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.callstage__submenu-section small {
+  padding: 4px 6px;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.callstage__submenu-empty {
+  padding: 4px 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.callstage__submenu-divider {
+  height: 1px;
+  background: var(--call-tile);
+  margin: 4px 0;
+}
+
+.callstage__submenu > button,
+.callstage__submenu-section > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--call-control);
+  color: var(--text-soft);
+  font-size: 12px;
+  text-align: left;
+}
+
+.callstage__submenu > button:hover,
+.callstage__submenu-section > button:hover {
+  background: var(--call-control-hover);
+  color: var(--text);
+}
+
+.callstage__submenu > button.is-selected,
+.callstage__submenu-section > button.is-selected {
+  background: var(--bg-hover);
+  color: var(--online);
+  font-weight: 600;
+}
+
+.callstage__submenu small.callstage__submenu-tip {
+  padding: 4px 6px;
+  color: var(--text-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.call-popout {
+  margin: 0;
+  background: var(--call-video);
+}
+
+.call-popout video {
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+}
+
+@media (max-width: 950px) {
+  .callstage__window-actions button:nth-child(-n+2) {
+    display: none;
+  }
+  .callstage--focus .callstage__layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(300px, 1fr) 120px;
+    grid-auto-flow: column;
+  }
+  .callstage--focus .calltile.is-primary {
+    grid-row: auto;
+  }
+  .callstage__sidechat {
+    width: 280px;
+  }
+}

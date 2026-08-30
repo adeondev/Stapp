@@ -63,6 +63,7 @@ impl AppState {
                 user_id: account.id.clone(),
                 username: account.username.clone(),
                 voice: None,
+                pending_voice: None,
             },
         );
 

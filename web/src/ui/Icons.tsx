@@ -150,6 +150,95 @@ export function IconShield({ size = 16, className }: IconProps) {
   return <Shield01Icon size={size} className={className} />
 }
 
+function StrokeIcon({ size = 18, className, children }: IconProps & { children: React.ReactNode }) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}
+    aria-hidden="true">{children}</svg>
+}
+
+export function IconCamera({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}><rect x="3" y="6" width="13" height="12" rx="2" />
+    <path d="m16 10 5-3v10l-5-3" /></StrokeIcon>
+}
+
+export function IconCameraOff({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}><path d="M3 3l18 18" />
+    <path d="M10 6h4a2 2 0 0 1 2 2v4m0 4H5a2 2 0 0 1-2-2V8c0-.6.3-1.2.7-1.5" />
+    <path d="m16 10 5-3v10l-3-1.8" /></StrokeIcon>
+}
+
+export function IconScreen({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}><rect x="3" y="4" width="18" height="13" rx="2" />
+    <path d="M8 21h8m-4-4v4" /></StrokeIcon>
+}
+
+export function IconMinimize({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}><path d="M8 3v5H3m18 0h-5V3M3 16h5v5m8 0v-5h5" /></StrokeIcon>
+}
+
+export function IconFullscreen({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}><path d="M3 8V3h5m8 0h5v5m0 8v5h-5M8 21H3v-5" /></StrokeIcon>
+}
+
+export function IconPictureInPicture({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}><rect x="3" y="5" width="18" height="14" rx="2" />
+    <rect x="12" y="11" width="7" height="5" rx="1" /></StrokeIcon>
+}
+
+export function IconMore({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}><circle cx="5" cy="12" r="1" fill="currentColor" />
+    <circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="19" cy="12" r="1" fill="currentColor" /></StrokeIcon>
+}
+
+export function IconSignal({ size = 16, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+      <rect x="3" y="16" width="3" height="5" rx="1" />
+      <rect x="8" y="12" width="3" height="9" rx="1" />
+      <rect x="13" y="8" width="3" height="13" rx="1" />
+      <rect x="18" y="4" width="3" height="17" rx="1" />
+    </svg>
+  )
+}
+
+export function IconChat({ size = 18, className }: IconProps) {
+  return (
+    <StrokeIcon size={size} className={className}>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+    </StrokeIcon>
+  )
+}
+
+export function IconGrid({ size = 18, className }: IconProps) {
+  return (
+    <StrokeIcon size={size} className={className}>
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    </StrokeIcon>
+  )
+}
+
+export function IconChevronDown({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  )
+}
+
+export function IconExpand({ size = 16, className }: IconProps) {
+  return (
+    <StrokeIcon size={size} className={className}>
+      <polyline points="15 3 21 3 21 9" />
+      <polyline points="9 21 3 21 3 15" />
+      <line x1="21" y1="3" x2="14" y2="10" />
+      <line x1="3" y1="21" x2="10" y2="14" />
+    </StrokeIcon>
+  )
+}
+
 export function IconStappLogo({ size = 48, className }: { size?: number; className?: string }) {
   return (
     <svg

@@ -122,6 +122,10 @@ async fn a_call_de_uma_conversa_nao_vaza_para_terceiros() {
     server.state.register_session("b1", &bob).await.unwrap();
 
     let canal = direct_channel(&daniel.id, &alice.id);
+    server
+        .state
+        .authorize_direct_call(&daniel.id, &alice.id)
+        .await;
     let mut events = server.state.subscribe();
 
     join(&server.state, &"d1".to_string(), &canal).await;
@@ -171,7 +175,15 @@ async fn ninguem_entra_na_conversa_de_voz_dos_outros() {
     let recusou = events
         .try_recv()
         .ok()
-        .map(|envelope| matches!(envelope.msg, ServerMsg::Error { .. }))
+        .map(|envelope| {
+            matches!(
+                envelope.msg,
+                ServerMsg::VoiceDenied {
+                    code: crate::protocol::VoiceDeniedCode::Forbidden,
+                    ..
+                }
+            )
+        })
         .unwrap_or(false);
     assert!(
         recusou,

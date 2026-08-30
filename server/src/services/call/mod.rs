@@ -102,6 +102,7 @@ pub async fn accept(state: &Arc<AppState>, peer_id: &str, from: UserId) {
         return;
     }
 
+    state.authorize_direct_call(&call.from, &call.to).await;
     let channel = voice::direct_channel(&call.from, &call.to);
     for lado in [&call.from, &call.to] {
         let outro = if lado == &call.from {

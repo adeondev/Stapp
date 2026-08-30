@@ -14,12 +14,14 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::config::ChannelKind;
 use crate::config::Config;
 use crate::http;
+use crate::services::voice;
 use crate::session::AppState;
 use crate::storage::Db;
 use crate::ws;
 
 /// Monta a aplicacao sem abrir uma porta, para permitir testes do Router em memoria.
 pub fn build(config: Config) -> Result<Router> {
+    voice::validate_backend(&config.voice)?;
     let static_dir = config.server.static_dir.clone();
     let db = Db::open(&config.storage.database)?;
     let state = AppState::new(config, db)?;
@@ -45,12 +47,14 @@ async fn security_headers(request: Request, next: Next) -> Response {
     headers.insert(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(
-            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' http: https: ws: wss:",
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' http: https: ws: wss:",
         ),
     );
     headers.insert(
         HeaderName::from_static("permissions-policy"),
-        HeaderValue::from_static("microphone=(self), camera=(), geolocation=()"),
+        HeaderValue::from_static(
+            "microphone=(self), camera=(self), display-capture=(self), geolocation=()",
+        ),
     );
     headers.insert(
         HeaderName::from_static("referrer-policy"),

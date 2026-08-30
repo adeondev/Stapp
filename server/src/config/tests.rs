@@ -65,7 +65,7 @@ fn rejects_invalid_limits_and_voice_backend() {
     );
 
     no_users.voice.max_peers = 6;
-    no_users.voice.backend = "livekit".into();
+    no_users.voice.backend = "peer_to_peer_magico".into();
     assert!(
         no_users
             .validate()

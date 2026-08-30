@@ -34,7 +34,10 @@ async fn conexao_nova_recebe_auth_required_com_o_nome_do_servidor() {
 
     assert_eq!(aviso["server_name"], "Stapp de teste");
     assert_eq!(aviso["registration_enabled"], true);
-    assert_eq!(aviso["protocol_version"], 2);
+    assert_eq!(
+        aviso["protocol_version"],
+        stapp_server::protocol::PROTOCOL_VERSION
+    );
     assert!(aviso["server_id"].as_str().is_some_and(|id| !id.is_empty()));
     cliente.close().await;
 }
@@ -664,7 +667,9 @@ async fn o_avatar_sobe_aparece_para_os_outros_e_pode_ser_removido() {
 
     // A alice recebe o perfil novo sem pedir nada.
     let evento = alice
-        .wait_for_matching("user.profile", |msg| msg["profile"]["user_id"] == eu.as_str())
+        .wait_for_matching("user.profile", |msg| {
+            msg["profile"]["user_id"] == eu.as_str()
+        })
         .await;
     assert_eq!(evento["profile"]["has_avatar"], true);
     let versao = evento["profile"]["updated_at"].as_i64().unwrap();

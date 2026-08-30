@@ -3,7 +3,6 @@ import { canPersistSession } from '../net/auth'
 import { defaultServerUrl, type ConnectionStatus } from '../net/connection'
 import type { SavedServer } from '../net/servers'
 import type { AuthMode } from '../protocol'
-import { CRTWarp } from './CRTWarp'
 import { HelpModal } from './HelpModal'
 import {
   IconArrowRight,
@@ -117,7 +116,9 @@ export function Connect({
   return (
     <main className="connect">
       <div className="connect__bg" aria-hidden="true">
-        <CRTWarp color="#6980b8" backgroundColor="#15181d" scanlineStrength={0} noise={0} rgbShift={0} />
+        <span className="connect__orb connect__orb--one" />
+        <span className="connect__orb connect__orb--two" />
+        <span className="connect__grid" />
       </div>
 
       <section className="connect__card" aria-labelledby="connect-title">

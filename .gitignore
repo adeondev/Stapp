@@ -15,6 +15,14 @@ node_modules/
 /web/src-tauri/target/
 /web/src-tauri/gen/
 
+# LiveKit local (contem segredos e artefatos baixados)
+/infra/livekit/.env
+/infra/livekit/livekit.generated.yaml
+/infra/livekit/bin/
+/infra/livekit/*.log
+/infra/livekit/*.pid
+/server/stapp.livekit.toml
+
 # OS / editor
 .DS_Store
 Thumbs.db

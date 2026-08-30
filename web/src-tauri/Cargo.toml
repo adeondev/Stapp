@@ -1,8 +1,8 @@
 [package]
-name = "app"
+name = "stapp-desktop"
 version = "0.1.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "Cliente desktop privado do Stapp"
+authors = ["Stapp"]
 license = ""
 repository = ""
 edition = "2021"
@@ -11,15 +11,22 @@ rust-version = "1.77.2"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]
-name = "app_lib"
+name = "stapp_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-tauri-build = { version = "2.6.3" }
+tauri-build = { version = "2.6.3", features = [] }
 
 [dependencies]
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"
-tauri = { version = "2.11.3" }
+tauri = { version = "2.11.3", features = [] }
 tauri-plugin-log = "2"
+tauri-plugin-global-shortcut = "2.3.1"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+xcap = "0.0.14"
+
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38.2"

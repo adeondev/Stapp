@@ -1,5 +1,13 @@
 import type { PeerId, RtcPayload, ServerMsg, VoiceConfig } from '../protocol'
-import type { VoiceTransport, VoiceTransportOptions } from './VoiceTransport'
+import type {
+  DiagnosticReport,
+  MediaDeviceLists,
+  VoiceSnapshot,
+  VoiceTransport,
+  VoiceTransportOptions,
+} from './VoiceTransport'
+import { loadVoicePreferences, saveVoicePreferences } from './preferences'
+import type { ScreenPreset, StreamQuality, VoicePreferences } from './preferences'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -43,6 +51,13 @@ export class MeshTransport implements VoiceTransport {
   private readonly monitors = new Map<PeerId, Monitor>()
   private audioCtx: AudioContext | null = null
   private ticker: ReturnType<typeof setInterval> | null = null
+  private readonly listeners = new Set<(snapshot: VoiceSnapshot) => void>()
+  private preferences = loadVoicePreferences()
+  private state: VoiceSnapshot = {
+    status: 'idle', channel: null, muted: false, deafened: false,
+    cameraEnabled: false, screenSharing: false, screenHasAudio: null,
+    participants: [], media: [], error: null,
+  }
 
   constructor(
     private readonly config: Extract<VoiceConfig, { backend: 'mesh' }>,
@@ -61,7 +76,7 @@ export class MeshTransport implements VoiceTransport {
 
     try {
       this.local = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+        audio: this.audioConstraints(),
         video: false,
       })
     } catch (err) {
@@ -80,6 +95,14 @@ export class MeshTransport implements VoiceTransport {
     this.applyLocalState()
     this.watch(this.options.selfPeerId, this.local)
     this.options.send({ t: 'voice.join', channel })
+    this.state = {
+      ...this.state,
+      status: 'connected',
+      channel,
+      participants: [this.localParticipant()],
+      error: null,
+    }
+    this.emit()
     return true
   }
 
@@ -92,16 +115,39 @@ export class MeshTransport implements VoiceTransport {
       case 'voice.roster':
         if (msg.channel === this.channel) {
           for (const peer of msg.peers) void this.offerTo(peer.peer_id)
+          this.state = {
+            ...this.state,
+            participants: [this.localParticipant(), ...msg.peers.map((peer) => ({
+              peerId: peer.peer_id, name: peer.username, local: false, speaking: false,
+              microphone: !peer.muted, camera: false, screen: false, quality: 'unknown' as const,
+            }))],
+          }
+          this.emit()
         }
         break
 
       // Alguem entrou depois de nos: quem chega e que oferece, entao aqui so
       // esperamos a offer aparecer em rtc.signal.
       case 'voice.joined':
+        if (msg.peer.channel === this.channel && msg.peer.peer_id !== this.options.selfPeerId) {
+          this.state = {
+            ...this.state,
+            participants: [
+              ...this.state.participants.filter((peer) => peer.peerId !== msg.peer.peer_id),
+              { peerId: msg.peer.peer_id, name: msg.peer.username, local: false, speaking: false,
+                microphone: !msg.peer.muted, camera: false, screen: false, quality: 'unknown' },
+            ],
+          }
+          this.emit()
+        }
         break
-
       case 'voice.left':
         this.dropPeer(msg.peer_id)
+        this.state = {
+          ...this.state,
+          participants: this.state.participants.filter((peer) => peer.peerId !== msg.peer_id),
+        }
+        this.emit()
         break
 
       case 'rtc.signal':
@@ -117,6 +163,8 @@ export class MeshTransport implements VoiceTransport {
     this.muted = muted
     this.applyLocalState()
     this.publishState()
+    this.state = { ...this.state, muted, participants: this.withLocalState() }
+    this.emit()
   }
 
   setDeafened(deafened: boolean) {
@@ -125,6 +173,8 @@ export class MeshTransport implements VoiceTransport {
     // Ensurdecer tambem cala o proprio microfone, como no Discord.
     this.applyLocalState()
     this.publishState()
+    this.state = { ...this.state, deafened, muted: this.muted, participants: this.withLocalState() }
+    this.emit()
   }
 
   leave() {
@@ -139,6 +189,11 @@ export class MeshTransport implements VoiceTransport {
     this.channel = null
     this.muted = false
     this.deafened = false
+    this.state = {
+      ...this.state, status: 'idle', channel: null, muted: false, deafened: false,
+      participants: [], media: [],
+    }
+    this.emit()
   }
 
   destroy() {
@@ -147,6 +202,131 @@ export class MeshTransport implements VoiceTransport {
     this.ticker = null
     void this.audioCtx?.close()
     this.audioCtx = null
+    this.listeners.clear()
+  }
+
+  async resumeAudio() {
+    await this.audioCtx?.resume().catch(() => {})
+    const results = await Promise.all(
+      [...this.peers.values()].map((link) => link.audio.play().then(() => true).catch(() => false)),
+    )
+    return results.every(Boolean)
+  }
+
+  async setCameraEnabled(_enabled: boolean) {
+    this.options.onError('camera e compartilhamento exigem o backend LiveKit')
+    return false
+  }
+
+  async setScreenShareEnabled(_enabled: boolean, _preset?: ScreenPreset, _sourceId?: string) {
+    this.options.onError('camera e compartilhamento exigem o backend LiveKit')
+    return false
+  }
+
+  async listScreenSources() {
+    return []
+  }
+
+  async captureScreenSourceThumbnail(_sourceId: string) {
+    return null
+  }
+
+  async setInputDevice(deviceId: string) {
+    this.preferences.inputDeviceId = deviceId
+    saveVoicePreferences(this.preferences)
+    if (!this.channel) return
+    const replacement = await navigator.mediaDevices.getUserMedia({ audio: this.audioConstraints() })
+    const track = replacement.getAudioTracks()[0]
+    if (!track) return
+    for (const link of this.peers.values()) {
+      const sender = link.pc.getSenders().find((candidate) => candidate.track?.kind === 'audio')
+      await sender?.replaceTrack(track)
+    }
+    this.local?.getTracks().forEach((old) => old.stop())
+    this.local = replacement
+    this.applyLocalState()
+  }
+
+  async setOutputDevice(deviceId: string) {
+    this.preferences.outputDeviceId = deviceId
+    saveVoicePreferences(this.preferences)
+    for (const link of this.peers.values()) {
+      if ('setSinkId' in link.audio) {
+        await (link.audio as HTMLAudioElement & { setSinkId(id: string): Promise<void> }).setSinkId(deviceId)
+      }
+    }
+  }
+
+  async setCameraDevice(deviceId: string) {
+    this.preferences.cameraDeviceId = deviceId
+    saveVoicePreferences(this.preferences)
+  }
+
+  async enumerateDevices(): Promise<MediaDeviceLists> {
+    const devices = await navigator.mediaDevices.enumerateDevices()
+    return {
+      inputs: devices.filter((device) => device.kind === 'audioinput'),
+      outputs: devices.filter((device) => device.kind === 'audiooutput'),
+      cameras: devices.filter((device) => device.kind === 'videoinput'),
+    }
+  }
+
+  async startMicrophoneTest(onLevel: (level: number) => void) {
+    const { startMicrophoneTest } = await import('./testMicrophone')
+    return startMicrophoneTest(this.audioConstraints(), onLevel)
+  }
+
+  async startCameraPreview(element: HTMLVideoElement) {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        deviceId: this.preferences.cameraDeviceId || undefined,
+        width: this.preferences.cameraQuality === '1080p' ? 1920 : 1280,
+        height: this.preferences.cameraQuality === '1080p' ? 1080 : 720,
+        frameRate: 30,
+      },
+    })
+    element.srcObject = stream
+    await element.play().catch(() => {})
+    return () => {
+      for (const track of stream.getTracks()) track.stop()
+      if (element.srcObject === stream) element.srcObject = null
+    }
+  }
+
+  setPublicationSubscribed(_publicationId: string, _subscribed: boolean) {}
+  setPublicationQuality(_publicationId: string, _quality: StreamQuality) {}
+
+  setParticipantVolume(peerId: PeerId, volume: number) {
+    const link = this.peers.get(peerId)
+    if (link) link.audio.volume = Math.min(1, Math.max(0, volume / 100))
+  }
+
+  setPublicationVolume(_publicationId: string, _volume: number) {}
+  attachMedia(_publicationId: string, _element: HTMLMediaElement) { return () => {} }
+  snapshot() { return this.state }
+  subscribe(listener: (snapshot: VoiceSnapshot) => void) {
+    this.listeners.add(listener)
+    listener(this.state)
+    return () => this.listeners.delete(listener)
+  }
+  getPreferences() { return { ...this.preferences } }
+  async updatePreferences(patch: Partial<VoicePreferences>) {
+    const previous = this.preferences
+    this.preferences = { ...this.preferences, ...patch }
+    saveVoicePreferences(this.preferences)
+    if (patch.outputDeviceId !== undefined && patch.outputDeviceId !== previous.outputDeviceId) {
+      await this.setOutputDevice(patch.outputDeviceId)
+    }
+    if (patch.inputDeviceId !== undefined && patch.inputDeviceId !== previous.inputDeviceId) {
+      await this.setInputDevice(patch.inputDeviceId)
+    }
+  }
+  async diagnosticReport(): Promise<DiagnosticReport> {
+    return {
+      generatedAt: new Date().toISOString(), backend: 'mesh', status: this.state.status,
+      quality: this.peers.size ? 'conectado' : 'sem pares',
+    }
   }
 
   // ------------------------------------------------------------------ pares
@@ -263,7 +443,10 @@ export class MeshTransport implements VoiceTransport {
 
   private publishState() {
     if (!this.channel) return
-    this.options.send({ t: 'voice.state', muted: this.muted, deafened: this.deafened })
+    this.options.send({
+      t: 'voice.state', muted: this.muted, deafened: this.deafened,
+      camera_enabled: false, screen_sharing: false,
+    })
   }
 
   // ------------------------------------------------------- quem esta falando
@@ -324,7 +507,48 @@ export class MeshTransport implements VoiceTransport {
       if (speaking !== monitor.speaking) {
         monitor.speaking = speaking
         this.options.onSpeaking(peerId, speaking)
+        this.state = {
+          ...this.state,
+          participants: this.state.participants.map((peer) =>
+            peer.peerId === peerId ? { ...peer, speaking } : peer,
+          ),
+        }
+        this.emit()
       }
     }
+  }
+
+  private audioConstraints(): MediaTrackConstraints {
+    return {
+      deviceId: this.preferences.inputDeviceId || undefined,
+      echoCancellation: this.preferences.echoCancellation,
+      noiseSuppression: this.preferences.noiseMode !== 'off',
+      autoGainControl: this.preferences.autoGainControl,
+      channelCount: 1,
+      sampleRate: 48_000,
+    }
+  }
+
+  private localParticipant() {
+    return {
+      peerId: this.options.selfPeerId,
+      name: 'Voce',
+      local: true,
+      speaking: this.monitors.get(this.options.selfPeerId)?.speaking ?? false,
+      microphone: !this.muted && !this.deafened,
+      camera: false,
+      screen: false,
+      quality: 'unknown' as const,
+    }
+  }
+
+  private withLocalState() {
+    return this.state.participants.map((peer) =>
+      peer.local ? { ...peer, microphone: !this.muted && !this.deafened } : peer,
+    )
+  }
+
+  private emit() {
+    for (const listener of this.listeners) listener(this.state)
   }
 }

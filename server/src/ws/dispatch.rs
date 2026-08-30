@@ -51,8 +51,22 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
 
         ClientMsg::VoiceJoin { channel } => voice::join(state, peer_id, &channel).await,
         ClientMsg::VoiceLeave => voice::leave(state, peer_id).await,
-        ClientMsg::VoiceState { muted, deafened } => {
-            voice::set_state(state, peer_id, muted, deafened).await
+        ClientMsg::VoiceConnected { channel } => voice::connected(state, peer_id, &channel).await,
+        ClientMsg::VoiceState {
+            muted,
+            deafened,
+            camera_enabled,
+            screen_sharing,
+        } => {
+            voice::set_state(
+                state,
+                peer_id,
+                muted,
+                deafened,
+                camera_enabled,
+                screen_sharing,
+            )
+            .await
         }
         ClientMsg::RtcSignal { to, payload } => voice::relay(state, peer_id, &to, payload).await,
     }

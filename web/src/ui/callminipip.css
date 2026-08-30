@@ -1,0 +1,177 @@
+/* Mini-player flutuante estilo Discord para chamadas ativas ao navegar por outros chats.
+   Sem box-shadow (regra estrita do design): contraste feito pelo tom de fundo (--bg-raised / --call-dock). */
+.callminipip {
+  position: absolute;
+  right: 20px;
+  bottom: 20px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  width: 250px;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+  user-select: none;
+}
+
+.callminipip__screen {
+  position: relative;
+  width: 100%;
+  height: 140px;
+  background: var(--call-video);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.callminipip__video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.callminipip__placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 8px;
+  padding: 12px;
+}
+
+.callminipip__avatar-wrap {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+}
+
+.callminipip__avatar-wrap.is-speaking {
+  outline: 3px solid var(--online);
+  outline-offset: 2px;
+}
+
+.callminipip__avatar {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--avatar-accent, var(--accent));
+  color: var(--avatar-ink, var(--on-accent));
+  font-size: 20px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.callminipip__avatar-generic {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+  font-size: 20px;
+}
+
+.callminipip__speaker-name {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.callminipip__overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent);
+}
+
+.callminipip__badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.callminipip__signal {
+  color: var(--online);
+}
+
+.callminipip__live-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.callminipip__expand-btn {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.callminipip__expand-btn:hover {
+  background: var(--bg-active);
+}
+
+.callminipip__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 6px 12px;
+  background: var(--call-dock);
+  gap: 8px;
+}
+
+.callminipip__action-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  background: var(--call-control);
+  color: var(--text);
+}
+
+.callminipip__action-btn:hover {
+  background: var(--call-control-hover);
+}
+
+.callminipip__action-btn.is-muted {
+  color: var(--danger);
+  background: var(--danger-quiet);
+}
+
+.callminipip__action-btn--leave {
+  color: var(--danger);
+}
+
+.callminipip__action-btn--leave:hover {
+  background: var(--danger);
+  color: var(--on-accent);
+}

@@ -126,6 +126,8 @@ export function reduce(state: StappState, msg: StappAction): StappState {
                 channel: msg.channel,
                 muted: false,
                 deafened: false,
+                camera_enabled: false,
+                screen_sharing: false,
               },
             ]
           : []
@@ -215,6 +217,8 @@ export function reduce(state: StappState, msg: StappAction): StappState {
     case 'call.ringing':
     case 'call.accepted':
     case 'call.ended':
+    case 'voice.grant':
+    case 'voice.denied':
     case 'rtc.signal':
     case 'error':
     case 'dm.denied':
@@ -269,19 +273,23 @@ export function totalUnread(state: StappState): number {
   return Object.values(state.conversations).reduce((sum, item) => sum + item.unread, 0)
 }
 
-/**
- * O nome de quem esta do outro lado de uma call de conversa (`dm:<a>:<b>`).
- * Sai do canal, nao da tela aberta — quem atendeu uma chamada pode nem ter a
- * conversa aberta.
- */
-export function directChannelPartner(state: StappState, channel: string): string | null {
+export function directChannelPartnerId(state: StappState, channel: string): UserId | null {
   const resto = channel.startsWith('dm:') ? channel.slice(3) : null
   if (!resto) return null
 
   const partes = resto.split(':')
   if (partes.length !== 2) return null
 
-  const outro = partes.find((id) => id !== state.selfUserId)
+  return partes.find((id) => id !== state.selfUserId) ?? null
+}
+
+/**
+ * O nome de quem esta do outro lado de uma call de conversa (`dm:<a>:<b>`).
+ * Sai do canal, nao da tela aberta — quem atendeu uma chamada pode nem ter a
+ * conversa aberta.
+ */
+export function directChannelPartner(state: StappState, channel: string): string | null {
+  const outro = directChannelPartnerId(state, channel)
   if (!outro) return null
 
   return (

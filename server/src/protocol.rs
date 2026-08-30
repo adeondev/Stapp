@@ -4,12 +4,34 @@
 //! na mesma alteracao. Nao existe geracao automatica de proposito.
 
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 use crate::config::Channel;
 
 pub type PeerId = String;
 pub type UserId = String;
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
+
+/// String secreta serializada normalmente, mas sempre redigida em logs/debug.
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SecretString(String);
+
+impl SecretString {
+    pub fn new(value: String) -> Self {
+        Self(value)
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Debug for SecretString {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("[REDACTED]")
+    }
+}
 
 /// Corpo dos endpoints HTTP de login e registro. Nao derive `Debug`: carrega
 /// senha em texto apenas durante a verificacao.
@@ -49,6 +71,8 @@ pub struct VoicePeer {
     pub channel: String,
     pub muted: bool,
     pub deafened: bool,
+    pub camera_enabled: bool,
+    pub screen_sharing: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -170,7 +194,23 @@ pub enum VoiceConfig {
         ice_servers: Vec<String>,
         max_peers: usize,
     },
-    // Livekit { url: String, token: String },  <- proximo passo
+    Livekit {
+        max_peers: usize,
+        camera: bool,
+        screen_share: bool,
+        screen_audio: bool,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VoiceDeniedCode {
+    Unavailable,
+    Full,
+    Forbidden,
+    MediaFailure,
+    AlreadyConnected,
+    GrantExpired,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -265,8 +305,17 @@ pub enum ClientMsg {
     #[serde(rename = "voice.leave")]
     VoiceLeave,
 
+    /// Confirma que o cliente conseguiu conectar ao SFU com o grant recebido.
+    #[serde(rename = "voice.connected")]
+    VoiceConnected { channel: String },
+
     #[serde(rename = "voice.state")]
-    VoiceState { muted: bool, deafened: bool },
+    VoiceState {
+        muted: bool,
+        deafened: bool,
+        camera_enabled: bool,
+        screen_sharing: bool,
+    },
 
     /// Offer, answer ou candidato ICE. O servidor nao le o conteudo, so entrega.
     #[serde(rename = "rtc.signal")]
@@ -394,6 +443,22 @@ pub enum ServerMsg {
         peers: Vec<VoicePeer>,
     },
 
+    /// Credencial efemera e restrita a uma unica sala LiveKit.
+    #[serde(rename = "voice.grant")]
+    VoiceGrant {
+        channel: String,
+        url: String,
+        token: SecretString,
+        expires_at: i64,
+    },
+
+    #[serde(rename = "voice.denied")]
+    VoiceDenied {
+        channel: String,
+        code: VoiceDeniedCode,
+        message: String,
+    },
+
     #[serde(rename = "voice.joined")]
     VoiceJoined { peer: VoicePeer },
 
@@ -405,6 +470,8 @@ pub enum ServerMsg {
         peer_id: PeerId,
         muted: bool,
         deafened: bool,
+        camera_enabled: bool,
+        screen_sharing: bool,
     },
 
     #[serde(rename = "rtc.signal")]
@@ -422,4 +489,19 @@ pub fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod secret_tests {
+    use super::SecretString;
+
+    #[test]
+    fn segredo_serializa_para_o_cliente_mas_debug_e_redigido() {
+        let secret = SecretString::new("token-super-secreto".into());
+        assert_eq!(
+            serde_json::to_string(&secret).unwrap(),
+            "\"token-super-secreto\""
+        );
+        assert_eq!(format!("{secret:?}"), "[REDACTED]");
+    }
 }

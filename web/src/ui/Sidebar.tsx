@@ -130,9 +130,10 @@ function ServerNavigation({ state, view, callChannel, speaking, onSelectChannel,
       <h2 className="sidebar__section">Canais de voz</h2>
       {state.channels.filter((channel) => channel.kind === 'voice').map((channel) => {
         const peers = peersInChannel(state, channel.id)
+        const isConnected = channel.id === callChannel
         return <div key={channel.id}>
-          <button className={`sidebar__item ${channel.id === callChannel ? 'is-active' : ''}`}
-            onClick={() => onJoinCall(channel.id)} disabled={channel.id === callChannel}>
+          <button className={`sidebar__item ${isConnected ? 'is-active' : ''}`}
+            onClick={() => onJoinCall(channel.id)} title={isConnected ? 'Abrir chamada' : 'Conectar à sala de voz'}>
             <IconSpeaker /><span className="sidebar__item-name">{channel.name}</span>
             {peers.length > 0 && <span className="sidebar__count">{peers.length}</span>}
           </button>

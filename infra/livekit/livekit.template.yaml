@@ -1,0 +1,37 @@
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  node_ip: "__RADMIN_IP__"
+  use_external_ip: false
+  advertise_internal_ip: true
+  enable_loopback_candidate: true
+  allow_tcp_fallback: true
+
+room:
+  auto_create: true
+  empty_timeout: 300
+  departure_timeout: 20
+  max_participants: 6
+  enabled_codecs:
+    - mime: audio/opus
+    - mime: audio/red
+    - mime: video/vp8
+    - mime: video/h264
+    - mime: video/vp9
+
+turn:
+  enabled: false
+
+enable_data_tracks: false
+
+logging:
+  level: info
+  pion_level: error
+  json: false
+
+keys:
+  "__API_KEY__": "__API_SECRET__"

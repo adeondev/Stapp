@@ -97,6 +97,10 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
             backend: "mesh".into(),
             ice_servers: vec![],
             max_peers,
+            public_url: None,
+            api_url: None,
+            api_key_env: "STAPP_TEST_LIVEKIT_KEY".into(),
+            api_secret_env: "STAPP_TEST_LIVEKIT_SECRET".into(),
         },
         storage: StorageConfig {
             database,

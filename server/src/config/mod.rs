@@ -79,6 +79,17 @@ pub struct VoiceSettings {
     pub ice_servers: Vec<String>,
     #[serde(default = "default_max_peers")]
     pub max_peers: usize,
+    /// URL WebSocket que os clientes usam para chegar ao SFU.
+    #[serde(default)]
+    pub public_url: Option<String>,
+    /// URL HTTP usada somente pelo servidor Stapp para moderar salas.
+    #[serde(default)]
+    pub api_url: Option<String>,
+    /// Nomes das variaveis de ambiente; os segredos nunca ficam no TOML.
+    #[serde(default = "default_livekit_api_key_env")]
+    pub api_key_env: String,
+    #[serde(default = "default_livekit_api_secret_env")]
+    pub api_secret_env: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -127,10 +138,27 @@ impl Config {
         );
         anyhow::ensure!(self.voice.max_peers > 0, "voice.max_peers precisa ser > 0");
         anyhow::ensure!(
-            self.voice.backend == "mesh",
+            matches!(self.voice.backend.as_str(), "mesh" | "livekit"),
             "voice.backend \"{}\" nao existe ainda — hoje so tem \"mesh\"",
             self.voice.backend
         );
+        if self.voice.backend == "livekit" {
+            let public_url = self.voice.public_url.as_deref().unwrap_or_default();
+            let api_url = self.voice.api_url.as_deref().unwrap_or_default();
+            anyhow::ensure!(
+                public_url.starts_with("ws://") || public_url.starts_with("wss://"),
+                "voice.public_url precisa comecar com ws:// ou wss://"
+            );
+            anyhow::ensure!(
+                api_url.starts_with("http://") || api_url.starts_with("https://"),
+                "voice.api_url precisa comecar com http:// ou https://"
+            );
+            anyhow::ensure!(
+                !self.voice.api_key_env.trim().is_empty()
+                    && !self.voice.api_secret_env.trim().is_empty(),
+                "os nomes das variaveis de ambiente do LiveKit nao podem estar vazios"
+            );
+        }
         Ok(())
     }
 
@@ -174,6 +202,10 @@ impl Default for VoiceSettings {
             backend: default_backend(),
             ice_servers: default_ice(),
             max_peers: default_max_peers(),
+            public_url: None,
+            api_url: None,
+            api_key_env: default_livekit_api_key_env(),
+            api_secret_env: default_livekit_api_secret_env(),
         }
     }
 }
@@ -210,6 +242,12 @@ fn default_ice() -> Vec<String> {
 }
 fn default_max_peers() -> usize {
     6
+}
+fn default_livekit_api_key_env() -> String {
+    "STAPP_LIVEKIT_API_KEY".into()
+}
+fn default_livekit_api_secret_env() -> String {
+    "STAPP_LIVEKIT_API_SECRET".into()
 }
 fn default_database() -> PathBuf {
     PathBuf::from("data/stapp.db")

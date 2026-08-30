@@ -6,7 +6,7 @@
   align-items: center;
   justify-content: center;
   padding: 24px 20px;
-  background: rgba(0, 0, 0, 0.75);
+  background: var(--scrim-strong);
   animation: help-fade-in 0.16s ease-out forwards;
 }
 
@@ -26,11 +26,8 @@
   max-width: 520px;
   padding: 38px 36px 34px;
   border-radius: 40px 0 40px 0;
-  background: #14171f;
+  background: var(--connect-card);
   border: 0;
-  box-shadow:
-    0 36px 72px -16px rgba(0, 0, 0, 0.85),
-    0 16px 32px -8px rgba(0, 0, 0, 0.6);
   overflow: hidden;
   animation: help-dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -94,7 +91,7 @@
 
 .help-modal__close:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-active);
 }
 
 .help-modal__list {
@@ -110,14 +107,13 @@
   gap: 16px;
   padding: 16px 18px;
   border-radius: var(--radius);
-  background: #0d1016;
+  background: var(--connect-input);
   border: 0;
-  box-shadow: none;
   transition: background 0.15s ease;
 }
 
 .help-modal__row:hover {
-  background: #12151d;
+  background: var(--connect-input-hover);
 }
 
 .help-modal__row-icon {
@@ -155,7 +151,7 @@
 .help-modal__row-text code {
   padding: 2px 6px;
   border-radius: 4px;
-  background: #1a1d26;
+  background: var(--connect-code);
   color: var(--text);
   font-size: 12px;
   font-family: ui-monospace, SFMono-Regular, monospace;
@@ -181,7 +177,6 @@
   font-size: 14px;
   font-weight: 600;
   border: 0;
-  box-shadow: none;
   cursor: pointer;
   transition: background 0.15s ease, transform 0.08s ease;
 }

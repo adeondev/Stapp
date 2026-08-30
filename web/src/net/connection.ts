@@ -121,6 +121,10 @@ export class Connection {
 
 /** Em dev o servidor esta noutra porta; em producao ele mesmo serve o app. */
 export function defaultServerUrl(): string {
+  // A casca Tauri serve os assets em `tauri.localhost`; isso e a interface,
+  // nao um servidor Stapp. No desktop do host, o primeiro uso aponta para o
+  // servidor local sem salvar esse endereco ou qualquer segredo.
+  if ('__TAURI_INTERNALS__' in window) return 'ws://127.0.0.1:8787/ws'
   if (import.meta.env.DEV) return `ws://${location.hostname}:8787/ws`
   return `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`
 }

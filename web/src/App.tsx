@@ -7,7 +7,7 @@ import { hasPendingLogout, lastServer, loadServers, markLogoutPending, normalize
   removeServer, saveServer, setPendingLogout, type SavedServer } from './net/servers'
 import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
 import { PROTOCOL_VERSION } from './protocol'
-import { directChannelPartner, initialState, profileOf, reduce } from './store'
+import { directChannelPartner, directChannelPartnerId, initialState, profileOf, reduce } from './store'
 import { AccountBar } from './ui/AccountBar'
 import { avatarBaseFromWs, removeAvatar, uploadAvatar } from './net/avatars'
 import { ProfileProvider } from './ui/Avatar'
@@ -20,7 +20,11 @@ import { MembersPanel } from './ui/MembersPanel'
 import { ServerRail } from './ui/ServerRail'
 import { Sidebar, sidebarModeFor, type View } from './ui/Sidebar'
 import { VoiceBar } from './ui/VoiceBar'
-import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
+import { CallStage } from './ui/CallStage'
+import { CallMiniPip } from './ui/CallMiniPip'
+import { VoiceSettings } from './ui/VoiceSettings'
+import { createVoiceTransport, emptySnapshot, type VoiceSnapshot, type VoiceTransport } from './voice/VoiceTransport'
+import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
 import './ui/app.css'
 
 interface CallState { channel: string; muted: boolean; deafened: boolean }
@@ -56,20 +60,32 @@ export default function App() {
   const viewRef = useRef<View | null>(null)
   viewRef.current = view
   const [call, setCall] = useState<CallState | null>(null)
+  const [callFocused, setCallFocused] = useState(false)
+  const [callMode, setCallMode] = useState<'embedded' | 'fullscreen'>('embedded')
+  const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(emptySnapshot)
+  const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
+  const [_voicePreferences, setVoicePreferences] = useState<VoicePreferences>(loadVoicePreferences)
   const [ringing, setRinging] = useState<Ringing | null>(null)
   const [editingProfile, setEditingProfile] = useState(false)
 
   const connection = useRef<Connection | null>(null)
   const authApi = useRef<AuthApi | null>(null)
   const voice = useRef<VoiceTransport | null>(null)
+  const unsubscribeVoice = useRef<(() => void) | null>(null)
 
   const resetRoom = useCallback(() => {
     voice.current?.destroy()
     voice.current = null
+    unsubscribeVoice.current?.()
+    unsubscribeVoice.current = null
     dispatch({ t: 'app.reset' })
     setAuthenticated(false)
     setView(null)
     setCall(null)
+    setCallFocused(false)
+    setCallMode('embedded')
+    setVoiceSnapshot(emptySnapshot())
+    setVoiceSettingsOpen(false)
     setRinging(null)
     setSpeaking(new Set())
     setNotice(null)
@@ -161,14 +177,16 @@ export default function App() {
 
         if (msg.t === 'welcome') {
           voice.current?.destroy()
+          unsubscribeVoice.current?.()
           setCall(null)
+          setCallFocused(false)
           setRinging(null)
           setSpeaking(new Set())
           setAuthBusy(false)
           setAuthError(null)
           setAuthenticated(true)
           updateActiveProfile({ username: attemptedUsername.current, lastUsed: Date.now(), logoutPending: undefined })
-          voice.current = createVoiceTransport(msg.voice, {
+          const transport = createVoiceTransport(msg.voice, {
             selfPeerId: msg.self_peer_id,
             send: (out) => connection.current?.send(out),
             onSpeaking(peerId, isSpeaking) {
@@ -180,6 +198,14 @@ export default function App() {
               })
             },
             onError: setNotice,
+          })
+          voice.current = transport
+          unsubscribeVoice.current = transport.subscribe((snapshot) => {
+            setVoiceSnapshot(snapshot)
+            if (snapshot.status === 'idle' && !snapshot.channel) {
+              setCall(null)
+              setCallFocused(false)
+            }
           })
           setView((current) => current ?? { kind: 'home' })
         }
@@ -199,7 +225,9 @@ export default function App() {
         if (msg.t === 'call.accepted') {
           setRinging(null)
           void voice.current?.join(msg.channel).then((started) => {
-            if (started) setCall({ channel: msg.channel, muted: false, deafened: false })
+            if (started) {
+              setCall({ channel: msg.channel, muted: false, deafened: false })
+            }
           })
         }
         if (msg.t === 'call.ended') { setRinging(null); setNotice(CALL_REASON[msg.reason]) }
@@ -318,8 +346,19 @@ export default function App() {
     if (current?.kind === 'direct') connection.current?.send({ t: 'dm.send', user_id: current.userId, text })
   }, [])
 
+  const selectHome = useCallback(() => {
+    setView({ kind: 'home' })
+    setCallFocused(false)
+  }, [])
+
+  const selectChannel = useCallback((id: string) => {
+    setView({ kind: 'channel', id })
+    setCallFocused(false)
+  }, [])
+
   const selectDirect = useCallback((userId: UserId) => {
     setView({ kind: 'direct', userId })
+    setCallFocused(false)
     connection.current?.send({ t: 'dm.open', user_id: userId })
   }, [])
 
@@ -333,8 +372,20 @@ export default function App() {
 
   const joinCall = useCallback(async (channelId: string) => {
     const started = await voice.current?.join(channelId)
-    if (started) setCall({ channel: channelId, muted: false, deafened: false })
+    if (started) {
+      setCall({ channel: channelId, muted: false, deafened: false })
+      setCallFocused(true)
+    }
   }, [])
+
+  const handleJoinCall = useCallback(async (channelId: string) => {
+    if (call?.channel === channelId) {
+      setCallFocused(true)
+      return
+    }
+    await joinCall(channelId)
+  }, [call?.channel, joinCall])
+
   const startCall = useCallback((userId: UserId, username: string) => {
     setRinging({ userId, username, direction: 'outgoing' })
     connection.current?.send({ t: 'call.start', user_id: userId })
@@ -362,7 +413,7 @@ export default function App() {
     [active?.profile.url],
   )
 
-  const leaveCall = useCallback(() => { voice.current?.leave(); setCall(null) }, [])
+  const leaveCall = useCallback(() => { voice.current?.leave(); setCall(null); setCallFocused(false) }, [])
   const toggleMute = useCallback(() => setCall((current) => {
     if (!current) return current
     voice.current?.setMuted(!current.muted)
@@ -373,6 +424,16 @@ export default function App() {
     voice.current?.setDeafened(!current.deafened)
     return { ...current, deafened: !current.deafened }
   }), [])
+
+  const resolveUserId = useCallback((peerId: PeerId): UserId | undefined => {
+    if (peerId === state.selfPeerId) return state.selfUserId ?? undefined
+    const peer = state.voicePeers.find((p) => p.peer_id === peerId)
+    if (peer) return peer.user_id
+    const user = state.users.find((u) => u.username === peerId)
+    if (user) return user.user_id
+    const dir = state.directory.find((d) => d.username === peerId)
+    return dir?.user_id
+  }, [state.selfPeerId, state.selfUserId, state.voicePeers, state.users, state.directory])
 
   if (!active || !authenticated) {
     return <Connect serverUrl={active?.profile.url ?? null} serverProfile={active?.profile ?? null}
@@ -396,6 +457,31 @@ export default function App() {
   const showMembers = view?.kind === 'channel'
   const meuPerfil = profileOf(state, state.selfUserId ?? '', attemptedUsername.current)
   const avatarBase = avatarBaseFromWs(active.profile.url)
+  const callPartnerId = call ? directChannelPartnerId(state, call.channel) : null
+  const isCallView = Boolean(
+    call &&
+    ((view?.kind === 'direct' && view.userId === callPartnerId) ||
+     (view?.kind === 'channel' && view.id === call.channel))
+  )
+
+  const sideChatComponent = channel ? (
+    <Chat
+      title={channel.name}
+      kind="channel"
+      messages={state.messages[channel.id] ?? []}
+      canSend={status === 'online'}
+      onSend={sendMessage}
+    />
+  ) : conversation ? (
+    <Chat
+      title={conversation.username}
+      kind="direct"
+      messages={state.directMessages[conversation.user_id] ?? []}
+      canSend={canDirect}
+      disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
+      onSend={sendMessage}
+    />
+  ) : null
 
   // Sem isto todo avatar cai no provisorio: e daqui que qualquer tela alcanca
   // o perfil de qualquer pessoa sem receber o estado por prop.
@@ -403,36 +489,92 @@ export default function App() {
     <ProfileProvider profiles={state.profiles} avatarBase={avatarBase}>
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
       <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
-        onHome={() => setView({ kind: 'home' })} onSelect={selectServer} onAdd={backToServers} />
+        onHome={selectHome} onSelect={selectServer} onAdd={backToServers} />
       <Sidebar state={state} status={status} view={view} mode={sidebarMode}
-        onSelectHome={() => setView({ kind: 'home' })}
-        onSelectChannel={(id) => setView({ kind: 'channel', id })} onSelectDirect={selectDirect}
-        callChannel={call?.channel ?? null} onJoinCall={joinCall} speaking={speaking}
+        onSelectHome={selectHome}
+        onSelectChannel={selectChannel} onSelectDirect={selectDirect}
+        callChannel={call?.channel ?? null} onJoinCall={handleJoinCall} speaking={speaking}
         footer={<div className="sidebar__footer-stack">
           {call && <VoiceBar channelName={callName} muted={call.muted} deafened={call.deafened}
-            onToggleMute={toggleMute} onToggleDeafen={toggleDeafen} onLeave={leaveCall} />}
+            onToggleMute={toggleMute} onToggleDeafen={toggleDeafen} onLeave={leaveCall}
+            onOpen={() => {
+              if (callPartnerId) selectDirect(callPartnerId)
+              else if (call?.channel) selectChannel(call.channel)
+              setCallFocused(true)
+            }} />}
           <AccountBar onOpenProfile={() => setEditingProfile(true)} userId={state.selfUserId} username={self?.username ?? attemptedUsername.current} onLogout={logout}
             onRemoveServer={() => removeSaved(active.profile.url)} />
         </div>} />
 
       <main className="main">
         {notice && <div className="notice" role="status">{notice}</div>}
-        {view?.kind === 'home' ? (
-          <FriendsHome members={state.socialMembers} onlineIds={onlineIds}
-            onOpenDirect={selectDirect} onAction={socialAction} />
-        ) : channel ? (
-          <Chat title={channel.name} kind="channel" messages={state.messages[channel.id] ?? []}
-            canSend={status === 'online'} onSend={sendMessage} />
-        ) : conversation ? (
-          <Chat title={conversation.username} kind="direct"
-            messages={state.directMessages[conversation.user_id] ?? []} canSend={canDirect}
-            disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
-            onSend={sendMessage} onCall={canDirect ? () => startCall(conversation.user_id, conversation.username) : undefined} />
+        {call && voice.current && ((callFocused && callMode === 'fullscreen') || (!isCallView && callFocused)) ? (
+          <CallStage
+            channelName={callName}
+            snapshot={voiceSnapshot}
+            transport={voice.current}
+            onMinimize={() => setCallFocused(false)}
+            onLeave={leaveCall}
+            onOpenSettings={() => setVoiceSettingsOpen(true)}
+            chatPanel={sideChatComponent}
+            resolveUserId={resolveUserId}
+            selfUserId={state.selfUserId}
+            variant="fullscreen"
+            onToggleVariant={isCallView ? () => { setCallMode('embedded'); setCallFocused(false) } : undefined}
+          />
         ) : (
-          <div className="placeholder"><img src={stappLogo} alt="" className="placeholder__logo" />
-            <strong>Escolha onde quer conversar</strong><span>Um canal, uma conversa ou a área de amigos.</span></div>
+          <>
+            {/* Chamada Embutida no Topo do Chat (Split View) */}
+            {call && voice.current && isCallView && (
+              <CallStage
+                channelName={callName}
+                snapshot={voiceSnapshot}
+                transport={voice.current}
+                onMinimize={() => setCallFocused(false)}
+                onLeave={leaveCall}
+                onOpenSettings={() => setVoiceSettingsOpen(true)}
+                resolveUserId={resolveUserId}
+                selfUserId={state.selfUserId}
+                variant="embedded"
+                onToggleVariant={() => { setCallMode('fullscreen'); setCallFocused(true) }}
+              />
+            )}
+
+            {view?.kind === 'home' ? (
+              <FriendsHome members={state.socialMembers} onlineIds={onlineIds}
+                onOpenDirect={selectDirect} onAction={socialAction} />
+            ) : channel ? (
+              <Chat title={channel.name} kind="channel" messages={state.messages[channel.id] ?? []}
+                canSend={status === 'online'} onSend={sendMessage} />
+            ) : conversation ? (
+              <Chat title={conversation.username} kind="direct"
+                messages={state.directMessages[conversation.user_id] ?? []} canSend={canDirect}
+                disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
+                onSend={sendMessage} onCall={canDirect ? () => startCall(conversation.user_id, conversation.username) : undefined} />
+            ) : (
+              <div className="placeholder"><img src={stappLogo} alt="" className="placeholder__logo" />
+                <strong>Escolha onde quer conversar</strong><span>Um canal, uma conversa ou a área de amigos.</span></div>
+            )}
+          </>
         )}
       </main>
+
+      {/* Mini-player flutuante estilo Discord */}
+      {call && !callFocused && !isCallView && voice.current && (
+        <CallMiniPip
+          channelName={callName}
+          snapshot={voiceSnapshot}
+          transport={voice.current}
+          onExpand={() => {
+            if (callPartnerId) selectDirect(callPartnerId)
+            else if (call?.channel) selectChannel(call.channel)
+            setCallFocused(true)
+          }}
+          onLeave={leaveCall}
+          resolveUserId={resolveUserId}
+          selfUserId={state.selfUserId}
+        />
+      )}
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
         onMessage={selectDirect} onAction={socialAction} />}
@@ -443,6 +585,15 @@ export default function App() {
 
       {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
         onAccept={acceptCall} onDecline={dismissCall} />}
+      {voice.current && (
+        <VoiceSettings
+          open={voiceSettingsOpen}
+          transport={voice.current}
+          snapshot={voiceSnapshot}
+          onClose={() => setVoiceSettingsOpen(false)}
+          onPreferencesChange={setVoicePreferences}
+        />
+      )}
     </div>
     </ProfileProvider>
   )

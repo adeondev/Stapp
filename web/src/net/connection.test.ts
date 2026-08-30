@@ -1,5 +1,7 @@
+// @vitest-environment jsdom
+
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { Connection } from './connection'
+import { Connection, defaultServerUrl } from './connection'
 
 class FakeWebSocket {
   static OPEN = 1
@@ -23,6 +25,7 @@ describe('Connection', () => {
   beforeEach(() => {
     FakeWebSocket.instances = []
     vi.stubGlobal('WebSocket', FakeWebSocket)
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   })
 
   it('envia somente o access token depois de auth.required', () => {
@@ -48,5 +51,10 @@ describe('Connection', () => {
     connection.authenticate('curto')
     connection.close()
     expect(connection.hasAccess()).toBe(false)
+  })
+
+  it('usa o servidor local como sugestao inicial no aplicativo Tauri', () => {
+    ;(window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {}
+    expect(defaultServerUrl()).toBe('ws://127.0.0.1:8787/ws')
   })
 })

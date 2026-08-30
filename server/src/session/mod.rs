@@ -24,7 +24,7 @@ use crate::storage::Db;
 
 pub use bus::{Envelope, Target};
 pub use calls::{CallStartError, PendingCall};
-pub use membership::VoiceJoinError;
+pub use membership::{VoiceJoin, VoiceJoinError};
 pub use registry::SessionError;
 
 /// Uma conexao autenticada. Uma conta pode ter varias.
@@ -33,6 +33,7 @@ struct SessionEntry {
     user_id: UserId,
     username: String,
     voice: Option<membership::VoiceMembership>,
+    pending_voice: Option<membership::VoiceReservation>,
 }
 
 pub struct AppState {

@@ -83,6 +83,10 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
             backend: "mesh".into(),
             ice_servers: vec!["stun:exemplo:3478".into()],
             max_peers: 4,
+            public_url: None,
+            api_url: None,
+            api_key_env: "STAPP_TEST_LIVEKIT_KEY".into(),
+            api_secret_env: "STAPP_TEST_LIVEKIT_SECRET".into(),
         },
         storage: StorageConfig {
             database,
@@ -356,5 +360,7 @@ fn status_de(resposta: &[u8]) -> u16 {
 }
 
 fn encontrar(agulha: &[u8], marca: &[u8]) -> Option<usize> {
-    agulha.windows(marca.len()).position(|janela| janela == marca)
+    agulha
+        .windows(marca.len())
+        .position(|janela| janela == marca)
 }

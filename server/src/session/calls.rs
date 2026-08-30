@@ -4,7 +4,7 @@
 //! aceita, a chamada vira um canal de voz comum (`dm:<a>:<b>`) e some daqui —
 //! quem cuida do resto e o [`crate::services::voice`].
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
@@ -31,6 +31,9 @@ pub enum CallStartError {
 pub struct Calls {
     /// Chave: a conversa. So existe uma chamada tocando por par.
     pending: HashMap<String, PendingCall>,
+    /// Conversas diretas cujo toque foi aceito. Sem esta autorizacao, conhecer
+    /// o nome deterministico do canal nao basta para obter um grant de midia.
+    active: HashSet<String>,
 }
 
 impl AppState {
@@ -94,6 +97,30 @@ impl AppState {
             .into_iter()
             .filter_map(|chave| calls.pending.remove(&chave))
             .collect()
+    }
+
+    pub async fn authorize_direct_call(&self, first: &UserId, second: &UserId) {
+        self.calls
+            .write()
+            .await
+            .active
+            .insert(conversation_id(first, second));
+    }
+
+    pub async fn is_direct_call_authorized(&self, first: &UserId, second: &UserId) -> bool {
+        self.calls
+            .read()
+            .await
+            .active
+            .contains(&conversation_id(first, second))
+    }
+
+    pub async fn close_direct_call(&self, first: &UserId, second: &UserId) {
+        self.calls
+            .write()
+            .await
+            .active
+            .remove(&conversation_id(first, second));
     }
 }
 

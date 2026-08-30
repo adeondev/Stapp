@@ -8,6 +8,18 @@
   --connect-blue-deep: #1e1f22;
   --connect-blue-mid: #2b2d31;
   --connect-blue-soft: #313338;
+  --connect-backdrop: #15181d;
+  --connect-card: #14171f;
+  --connect-input: #0d1016;
+  --connect-input-hover: #11141c;
+  --connect-input-focus: #131722;
+  --connect-checkbox-hover: #151922;
+  --connect-checkbox-ink: #071522;
+  --connect-code: #1a1d26;
+  --connect-orb: rgba(105, 128, 184, 0.32);
+  --connect-orb-clear: rgba(105, 128, 184, 0);
+  --connect-grid: rgba(255, 255, 255, 0.035);
+  --connect-grid-mask: #000000;
   --on-accent: #ffffff;
 
   /* Paleta de perfil: a cor que cada pessoa escolhe. O banco guarda o NOME
@@ -47,6 +59,8 @@
   --pill-active: #18567c;
   --separator-solid: #3d3f44;
   --scrim: rgba(0, 0, 0, 0.7);
+  --scrim-strong: rgba(0, 0, 0, 0.75);
+  --scroll-thumb: rgba(255, 255, 255, 0.12);
 
   --text: #f2f3f5;
   --text-soft: #dbdee1;
@@ -58,6 +72,16 @@
   --online: #23a55a;
   --online-quiet: rgba(35, 165, 90, 0.15);
   --warning: #f0b232;
+
+  --call-stage: #17181b;
+  --call-header: #202125;
+  --call-tile: #26282d;
+  --call-video: #0d0e10;
+  --call-dock: #202226;
+  --call-control: #303238;
+  --call-control-hover: #3a3d44;
+  --call-label: rgba(13, 14, 16, 0.86);
+  --call-menu: #1d1f23;
 
   --radius-sm: 4px;
   --radius: 8px;
@@ -96,7 +120,7 @@ button { cursor: pointer; }
 button:disabled { cursor: default; opacity: 0.48; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 ::placeholder { color: var(--text-faint); }
-* { scrollbar-color: rgba(255, 255, 255, 0.12) transparent; scrollbar-width: thin; }
+* { scrollbar-color: var(--scroll-thumb) transparent; scrollbar-width: thin; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

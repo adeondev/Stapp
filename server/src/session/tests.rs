@@ -163,3 +163,60 @@ async fn o_roster_nao_inclui_quem_esta_chegando() {
     assert_eq!(segundo.roster[0].peer_id, "one");
     assert_eq!(segundo.peer.peer_id, "two");
 }
+
+#[tokio::test]
+async fn reservas_concorrentes_contam_no_limite_e_so_confirmacao_publica() {
+    use std::time::Duration;
+
+    let server = TestServer::new(10, 1);
+    let daniel = server.account("Daniel");
+    let alice = server.account("Alice");
+    server.state.register_session("one", &daniel).await.unwrap();
+    server.state.register_session("two", &alice).await.unwrap();
+
+    server
+        .state
+        .reserve_voice(&"one".into(), "voz-a", 1, Duration::from_secs(15))
+        .await
+        .unwrap();
+    assert!(server.state.peers_in_voice("voz-a").await.is_empty());
+    assert!(matches!(
+        server
+            .state
+            .reserve_voice(&"two".into(), "voz-a", 1, Duration::from_secs(15))
+            .await,
+        Err(VoiceJoinError::Full)
+    ));
+
+    let confirmed = server
+        .state
+        .confirm_voice(&"one".into(), "voz-a")
+        .await
+        .unwrap();
+    assert!(confirmed.roster.is_empty());
+    assert_eq!(server.state.peers_in_voice("voz-a").await, vec!["one"]);
+}
+
+#[tokio::test]
+async fn reserva_expirada_nao_vira_participante() {
+    use std::time::Duration;
+
+    let server = TestServer::new(10, 2);
+    let account = server.account("Daniel");
+    server
+        .state
+        .register_session("one", &account)
+        .await
+        .unwrap();
+    server
+        .state
+        .reserve_voice(&"one".into(), "voz-a", 2, Duration::from_millis(1))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    assert!(matches!(
+        server.state.confirm_voice(&"one".into(), "voz-a").await,
+        Err(VoiceJoinError::GrantExpired)
+    ));
+    assert!(server.state.peers_in_voice("voz-a").await.is_empty());
+}

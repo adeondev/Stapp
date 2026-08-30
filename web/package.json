@@ -16,11 +16,13 @@
   "dependencies": {
     "@hugeicons/core-free-icons": "^4.3.0",
     "@hugeicons/react": "^1.1.10",
+    "@jitsi/rnnoise-wasm": "0.2.1",
     "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.2",
     "hugeicons-react": "^0.4.0",
+    "livekit-client": "2.22.1",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0",
-    "three": "^0.185.1"
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.4",
@@ -28,7 +30,6 @@
     "@testing-library/user-event": "^14.6.6",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
-    "@types/three": "^0.185.4",
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
