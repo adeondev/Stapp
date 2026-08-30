@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import stappLogo from '../../assets/imgs/svg/stapp_logo.svg'
 import { defaultServerUrl, isSecureAuthUrl, type ConnectionStatus } from '../net/connection'
 import type { AuthMode } from '../protocol'
 import './connect.css'
@@ -82,18 +83,21 @@ export function Connect({
   return (
     <main className="connect">
       <section className="connect__card" aria-labelledby="connect-title">
-        <h1 id="connect-title" className="connect__title">
-          {authInfo?.serverName ?? 'Stapp'}
-        </h1>
-        <p className="connect__sub">
-          {serverUrl
-            ? authInfo
-              ? 'sua conta pertence somente a este servidor'
-              : status === 'reconnecting'
-                ? 'tentando alcançar este servidor novamente'
-                : 'conferindo o servidor'
-            : 'conecte no servidor de quem voce confia'}
-        </p>
+        <header className="connect__header">
+          <img src={stappLogo} alt="Stapp" className="connect__logo" />
+          <h1 id="connect-title" className="connect__title">
+            {authInfo?.serverName ?? 'Stapp'}
+          </h1>
+          <p className="connect__sub">
+            {serverUrl
+              ? authInfo
+                ? 'sua conta pertence somente a este servidor'
+                : status === 'reconnecting'
+                  ? 'tentando alcançar este servidor novamente'
+                  : 'conferindo o servidor'
+              : 'conecte no servidor de quem você confia'}
+          </p>
+        </header>
 
         {!serverUrl ? (
           <form onSubmit={chooseServer} noValidate>

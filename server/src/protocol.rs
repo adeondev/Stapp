@@ -38,6 +38,46 @@ pub struct Message {
     pub ts: i64,
 }
 
+/// Uma mensagem direta. Nao carrega canal: a conversa e o par de contas, e quem
+/// le ja sabe com quem esta falando.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectMessage {
+    pub id: String,
+    pub author_id: UserId,
+    pub author_username: String,
+    pub kind: DirectMessageKind,
+    pub text: String,
+    pub ts: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DirectMessageKind {
+    Text,
+    /// Rastro de uma chamada 1:1 na conversa ("chamada perdida", duracao).
+    /// FUTURE: so passa a ser gravado quando a chamada direta existir.
+    Call,
+}
+
+/// Uma conversa na lista lateral, do ponto de vista de quem recebe.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectSummary {
+    /// A outra pessoa da conversa.
+    pub user_id: UserId,
+    pub username: String,
+    pub last: Option<DirectMessage>,
+    pub unread: usize,
+}
+
+/// Alguem com conta neste servidor, online ou nao. E daqui que sai a lista de
+/// quem da para chamar numa DM — sem isso so daria para falar com quem esta
+/// conectado no momento.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectoryEntry {
+    pub user_id: UserId,
+    pub username: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "lowercase")]
 pub enum VoiceConfig {
@@ -76,6 +116,17 @@ pub enum ClientMsg {
 
     #[serde(rename = "chat.send")]
     ChatSend { channel: String, text: String },
+
+    /// Abre uma conversa: pede o historico e marca tudo como lido.
+    #[serde(rename = "dm.open")]
+    DmOpen { user_id: UserId },
+
+    #[serde(rename = "dm.send")]
+    DmSend { user_id: UserId, text: String },
+
+    /// Marca lida ate agora. Usado quando chega mensagem com a conversa aberta.
+    #[serde(rename = "dm.read")]
+    DmRead { user_id: UserId },
 
     #[serde(rename = "voice.join")]
     VoiceJoin { channel: String },
@@ -125,6 +176,9 @@ pub enum ServerMsg {
         server_name: String,
         channels: Vec<Channel>,
         users: Vec<OnlineUser>,
+        /// Todas as contas do servidor, online ou nao — e com quem da para
+        /// abrir uma conversa.
+        directory: Vec<DirectoryEntry>,
         voice: VoiceConfig,
         voice_peers: Vec<VoicePeer>,
     },
@@ -134,6 +188,31 @@ pub enum ServerMsg {
 
     #[serde(rename = "chat.new")]
     ChatNew { channel: String, msg: Message },
+
+    /// A lista lateral de conversas, com nao-lidas. Vai logo depois do welcome.
+    #[serde(rename = "dm.list")]
+    DmList { conversations: Vec<DirectSummary> },
+
+    #[serde(rename = "dm.history")]
+    DmHistory {
+        user_id: UserId,
+        msgs: Vec<DirectMessage>,
+    },
+
+    /// `user_id` e sempre **a outra pessoa** da conversa, na visao de quem
+    /// recebe — por isso cada lado recebe um payload diferente.
+    #[serde(rename = "dm.new")]
+    DmNew {
+        user_id: UserId,
+        msg: DirectMessage,
+        /// Nao-lidas desta conversa para quem esta recebendo (0 para o autor).
+        unread: usize,
+    },
+
+    /// Esta conversa ficou sem nao-lidas. Vai para **todas** as sessoes da
+    /// conta, entao ler no celular limpa o badge do PC.
+    #[serde(rename = "dm.read")]
+    DmRead { user_id: UserId },
 
     #[serde(rename = "user.online")]
     UserOnline { user: OnlineUser },

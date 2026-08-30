@@ -8,4 +8,5 @@
 //! em `ws::dispatch`.
 
 pub mod chat;
+pub mod direct;
 pub mod voice;

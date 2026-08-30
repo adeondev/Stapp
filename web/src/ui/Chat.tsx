@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { Channel, Message } from '../protocol'
-import { IconHash } from './Icons'
+import type { ChatEntry } from '../protocol'
+import { IconAt, IconHash } from './Icons'
 import './chat.css'
 
 /** Mensagens seguidas da mesma pessoa dentro disso viram um bloco so. */
@@ -10,13 +10,15 @@ const time = (ts: number) =>
   new Date(ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 
 interface Props {
-  channel: Channel
-  messages: Message[]
+  /** Nome no cabecalho: o canal ou a pessoa da conversa. */
+  title: string
+  kind: 'channel' | 'direct'
+  messages: ChatEntry[]
   canSend: boolean
   onSend(text: string): void
 }
 
-export function Chat({ channel, messages, canSend, onSend }: Props) {
+export function Chat({ title, kind, messages, canSend, onSend }: Props) {
   const [draft, setDraft] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLTextAreaElement>(null)
@@ -27,12 +29,12 @@ export function Chat({ channel, messages, canSend, onSend }: Props) {
   useLayoutEffect(() => {
     const el = scroller.current
     if (el && pinned.current) el.scrollTop = el.scrollHeight
-  }, [messages, channel.id])
+  }, [messages, title])
 
   useEffect(() => {
     setDraft('')
     pinned.current = true
-  }, [channel.id])
+  }, [title])
 
   function onScroll() {
     const el = scroller.current
@@ -58,8 +60,8 @@ export function Chat({ channel, messages, canSend, onSend }: Props) {
   return (
     <section className="chat">
       <header className="chat__head">
-        <IconHash />
-        <span>{channel.name}</span>
+        {kind === 'direct' ? <IconAt /> : <IconHash />}
+        <span>{title}</span>
       </header>
 
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
@@ -93,7 +95,13 @@ export function Chat({ channel, messages, canSend, onSend }: Props) {
           className="chat__input"
           value={draft}
           rows={1}
-          placeholder={canSend ? `falar em ${channel.name}` : 'sem conexao com o servidor'}
+          placeholder={
+            canSend
+              ? kind === 'direct'
+                ? `falar com ${title}`
+                : `falar em ${title}`
+              : 'sem conexao com o servidor'
+          }
           disabled={!canSend}
           onChange={(e) => {
             setDraft(e.target.value)

@@ -1,5 +1,8 @@
 import type {
   Channel,
+  DirectMessage,
+  DirectSummary,
+  DirectoryEntry,
   Message,
   OnlineUser,
   PeerId,
@@ -18,6 +21,12 @@ export interface StappState {
   voiceConfig: VoiceConfig | null
   voicePeers: VoicePeer[]
   messages: Record<string, Message[]>
+  /** Todo mundo com conta, online ou nao. Com quem da para abrir conversa. */
+  directory: DirectoryEntry[]
+  /** A lista lateral de conversas, com nao-lidas. Chave: o outro user_id. */
+  conversations: Record<UserId, DirectSummary>
+  /** Historico ja carregado de cada conversa. Chave: o outro user_id. */
+  directMessages: Record<UserId, DirectMessage[]>
 }
 
 export const initialState: StappState = {
@@ -29,6 +38,9 @@ export const initialState: StappState = {
   voiceConfig: null,
   voicePeers: [],
   messages: {},
+  directory: [],
+  conversations: {},
+  directMessages: {},
 }
 
 const byUsername = (a: { username: string }, b: { username: string }) =>
@@ -50,6 +62,7 @@ export function reduce(state: StappState, msg: StappAction): StappState {
         users: [...msg.users].sort(byUsername),
         voiceConfig: msg.voice,
         voicePeers: msg.voice_peers,
+        directory: [...msg.directory].sort(byUsername),
       }
 
     case 'chat.history':
@@ -62,8 +75,16 @@ export function reduce(state: StappState, msg: StappAction): StappState {
     }
 
     case 'user.online': {
-      if (state.users.some((user) => user.user_id === msg.user.user_id)) return state
-      return { ...state, users: [...state.users, msg.user].sort(byUsername) }
+      // Quem criou a conta depois do nosso welcome nao esta no diretorio.
+      // Este evento e a prova de que existe, entao aproveitamos para incluir.
+      const directory = state.directory.some((entry) => entry.user_id === msg.user.user_id)
+        ? state.directory
+        : [...state.directory, msg.user].sort(byUsername)
+
+      if (state.users.some((user) => user.user_id === msg.user.user_id)) {
+        return { ...state, directory }
+      }
+      return { ...state, users: [...state.users, msg.user].sort(byUsername), directory }
     }
 
     case 'user.offline':
@@ -119,12 +140,105 @@ export function reduce(state: StappState, msg: StappAction): StappState {
         ),
       }
 
+    case 'dm.list':
+      return {
+        ...state,
+        conversations: Object.fromEntries(
+          msg.conversations.map((conversation) => [conversation.user_id, conversation]),
+        ),
+      }
+
+    case 'dm.read':
+      // Chega tambem quando outra aba sua leu a conversa.
+      return state.conversations[msg.user_id]
+        ? { ...state, conversations: mergeConversation(state, msg.user_id, { unread: 0 }) }
+        : state
+
+    case 'dm.history':
+      return {
+        ...state,
+        directMessages: { ...state.directMessages, [msg.user_id]: msg.msgs },
+        conversations: mergeConversation(state, msg.user_id, { unread: 0 }),
+      }
+
+    case 'dm.new': {
+      const current = state.directMessages[msg.user_id]
+      // So acrescenta no historico ja carregado; conversa nunca aberta continua
+      // sem lista, e o dm.open busca tudo de uma vez quando ela abrir.
+      const directMessages =
+        current === undefined || current.some((entry) => entry.id === msg.msg.id)
+          ? state.directMessages
+          : { ...state.directMessages, [msg.user_id]: [...current, msg.msg] }
+
+      return {
+        ...state,
+        directMessages,
+        conversations: mergeConversation(state, msg.user_id, {
+          last: msg.msg,
+          unread: msg.unread,
+        }),
+      }
+    }
+
     case 'auth.required':
     case 'auth.error':
     case 'rtc.signal':
     case 'error':
       return state
   }
+}
+
+/**
+ * Atualiza uma conversa da lista, criando a entrada se for a primeira mensagem.
+ * O nome sai do diretorio, ja que `dm.new` nao repete o username do outro.
+ */
+function mergeConversation(
+  state: StappState,
+  userId: UserId,
+  patch: Partial<DirectSummary>,
+): Record<UserId, DirectSummary> {
+  const existing = state.conversations[userId]
+  const username =
+    existing?.username ??
+    state.directory.find((entry) => entry.user_id === userId)?.username ??
+    state.users.find((user) => user.user_id === userId)?.username ??
+    userId
+
+  return {
+    ...state.conversations,
+    [userId]: {
+      user_id: userId,
+      username,
+      last: existing?.last ?? null,
+      unread: existing?.unread ?? 0,
+      ...patch,
+    },
+  }
+}
+
+/** Conversas com mensagem, mais recente primeiro. */
+export function conversationList(state: StappState): DirectSummary[] {
+  return Object.values(state.conversations).sort(
+    (a, b) => (b.last?.ts ?? 0) - (a.last?.ts ?? 0),
+  )
+}
+
+/**
+ * A lista de diretas: quem ja tem conversa primeiro (mais recente no topo) e,
+ * depois, o resto das contas do servidor. Num grupo pequeno todo mundo fica a
+ * um clique, e conversa nova sobe sozinha.
+ */
+export function directList(state: StappState): DirectSummary[] {
+  const conversas = conversationList(state)
+  const jaTem = new Set(conversas.map((item) => item.user_id))
+  const resto = state.directory
+    .filter((entry) => !jaTem.has(entry.user_id))
+    .map((entry) => ({ ...entry, last: null, unread: 0 }))
+  return [...conversas, ...resto]
+}
+
+export function totalUnread(state: StappState): number {
+  return Object.values(state.conversations).reduce((sum, item) => sum + item.unread, 0)
 }
 
 export function peersInChannel(state: StappState, channelId: string): VoicePeer[] {

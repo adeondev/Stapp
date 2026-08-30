@@ -31,6 +31,15 @@ export function IconHash(props: IconProps) {
   )
 }
 
+export function IconAt(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <circle cx="8" cy="8" r="2.6" />
+      <path d="M10.6 5.4v3.4a2 2 0 0 0 3.4 1.4A6.5 6.5 0 1 0 11 13.6" />
+    </Svg>
+  )
+}
+
 export function IconSpeaker(props: IconProps) {
   return (
     <Svg {...props}>

@@ -10,6 +10,7 @@ const welcome = {
   users: [{ user_id: 'user-1', username: 'Daniel' }],
   voice: { backend: 'mesh' as const, ice_servers: [], max_peers: 4 },
   voice_peers: [],
+  directory: [{ user_id: 'user-2', username: 'Alice' }],
 }
 
 describe('store com identidade persistente', () => {
@@ -30,5 +31,105 @@ describe('store com identidade persistente', () => {
       user_id: 'user-1',
       username: 'Daniel',
     })
+  })
+})
+
+describe('mensagens diretas', () => {
+  const dm = (id: string, autor: string, texto: string, ts: number) => ({
+    id,
+    author_id: autor,
+    author_username: autor === 'user-1' ? 'Daniel' : 'Alice',
+    kind: 'text' as const,
+    text: texto,
+    ts,
+  })
+
+  it('conta as nao lidas que o servidor mandou e nomeia a conversa pelo diretorio', () => {
+    let state = reduce(initialState, welcome)
+    state = reduce(state, {
+      t: 'dm.new',
+      user_id: 'user-2',
+      msg: dm('m1', 'user-2', 'oi', 100),
+      unread: 1,
+    })
+
+    expect(state.conversations['user-2'].unread).toBe(1)
+    expect(state.conversations['user-2'].username).toBe('Alice')
+    expect(state.conversations['user-2'].last?.text).toBe('oi')
+  })
+
+  it('abrir a conversa zera as nao lidas e guarda o historico', () => {
+    let state = reduce(initialState, welcome)
+    state = reduce(state, {
+      t: 'dm.new',
+      user_id: 'user-2',
+      msg: dm('m1', 'user-2', 'oi', 100),
+      unread: 1,
+    })
+    state = reduce(state, {
+      t: 'dm.history',
+      user_id: 'user-2',
+      msgs: [dm('m1', 'user-2', 'oi', 100)],
+    })
+
+    expect(state.conversations['user-2'].unread).toBe(0)
+    expect(state.directMessages['user-2']).toHaveLength(1)
+  })
+
+  it('nao duplica quando a mesma mensagem chega duas vezes', () => {
+    let state = reduce(initialState, welcome)
+    state = reduce(state, { t: 'dm.history', user_id: 'user-2', msgs: [] })
+    const chegada = {
+      t: 'dm.new' as const,
+      user_id: 'user-2',
+      msg: dm('m1', 'user-2', 'oi', 100),
+      unread: 1,
+    }
+    state = reduce(state, chegada)
+    state = reduce(state, chegada)
+
+    expect(state.directMessages['user-2']).toHaveLength(1)
+  })
+
+  it('quem criou conta depois entra no diretorio pelo user.online', () => {
+    let state = reduce(initialState, welcome)
+    expect(state.directory.map((entry) => entry.username)).toEqual(['Alice'])
+
+    state = reduce(state, {
+      t: 'user.online',
+      user: { user_id: 'user-3', username: 'Bob' },
+    })
+    expect(state.directory.map((entry) => entry.username)).toEqual(['Alice', 'Bob'])
+  })
+})
+
+describe('lista lateral de diretas', () => {
+  it('poe quem ja tem conversa no topo e o resto do diretorio embaixo', async () => {
+    const { directList } = await import('./store')
+    let state = reduce(initialState, {
+      ...welcome,
+      directory: [
+        { user_id: 'user-2', username: 'Alice' },
+        { user_id: 'user-3', username: 'Bob' },
+      ],
+    })
+    state = reduce(state, {
+      t: 'dm.new',
+      user_id: 'user-3',
+      msg: {
+        id: 'm1',
+        author_id: 'user-3',
+        author_username: 'Bob',
+        kind: 'text',
+        text: 'oi',
+        ts: 500,
+      },
+      unread: 1,
+    })
+
+    const lista = directList(state)
+    expect(lista.map((item) => item.username)).toEqual(['Bob', 'Alice'])
+    expect(lista[0].unread).toBe(1)
+    expect(lista[1].unread).toBe(0)
   })
 })

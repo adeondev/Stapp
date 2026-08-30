@@ -6,6 +6,7 @@
 //! entra como um arquivo novo, nao como mais 80 linhas aqui.
 
 mod accounts;
+mod direct;
 mod messages;
 mod schema;
 
@@ -16,6 +17,7 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub use accounts::{Account, CreateAccountError};
+pub use direct::conversation_id;
 
 /// Um `Mutex<Connection>` basta: o volume aqui e de um grupo de amigos, nao
 /// justifica pool nem `spawn_blocking`.

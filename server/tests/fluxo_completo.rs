@@ -163,3 +163,116 @@ async fn reqwest_simples(url: &str) -> String {
     stream.read_to_string(&mut resposta).await.unwrap();
     resposta
 }
+
+#[tokio::test]
+async fn conversa_direta_chega_so_para_os_dois_e_conta_as_nao_lidas() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let mut daniel = entrar(addr, "daniel").await;
+    let welcome_daniel = daniel.wait_for("welcome").await;
+    let eu = welcome_daniel["self_user_id"].as_str().unwrap().to_string();
+
+    // Bob antes da alice: o diretorio e uma foto do momento do welcome, entao
+    // quem entra depois so aparece para quem reconectar (ou pelo user.online).
+    let mut bob = entrar(addr, "bob").await;
+    bob.wait_for("welcome").await;
+    let mut alice = entrar(addr, "alice").await;
+    let welcome_alice = alice.wait_for("welcome").await;
+
+    // O diretorio da alice tem os outros dois, e nao ela mesma.
+    let diretorio = welcome_alice["directory"].as_array().unwrap();
+    let nomes: Vec<&str> = diretorio
+        .iter()
+        .map(|e| e["username"].as_str().unwrap())
+        .collect();
+    assert!(nomes.contains(&"daniel") && nomes.contains(&"bob"), "{nomes:?}");
+    assert!(!nomes.contains(&"alice"), "voce nao aparece no proprio diretorio");
+
+    let id_alice = welcome_alice["self_user_id"].as_str().unwrap().to_string();
+    daniel
+        .send(json!({ "t": "dm.send", "user_id": id_alice, "text": "  so pra voce  " }))
+        .await;
+
+    // O autor ve a propria mensagem, com a conversa nomeada pela outra pessoa.
+    let eco = daniel.wait_for("dm.new").await;
+    assert_eq!(eco["user_id"], id_alice.as_str());
+    assert_eq!(eco["msg"]["text"], "so pra voce");
+    assert_eq!(eco["unread"], 0);
+
+    // A destinataria recebe com uma nao lida.
+    let recebida = alice.wait_for("dm.new").await;
+    assert_eq!(recebida["user_id"], eu.as_str());
+    assert_eq!(recebida["msg"]["author_username"], "daniel");
+    assert_eq!(recebida["unread"], 1);
+
+    // Abrir zera, e o historico volta com a mensagem.
+    alice.send(json!({ "t": "dm.open", "user_id": eu })).await;
+    let historico = alice.wait_for("dm.history").await;
+    assert_eq!(historico["msgs"].as_array().unwrap().len(), 1);
+    assert_eq!(historico["msgs"][0]["text"], "so pra voce");
+    assert_eq!(historico["msgs"][0]["kind"], "text");
+
+    bob.close().await;
+    alice.close().await;
+    daniel.close().await;
+}
+
+#[tokio::test]
+async fn a_conversa_espera_quem_estava_offline() {
+    let dir = common::TestDir::new();
+
+    // Alice cria a conta e sai; daniel escreve enquanto ela nao esta.
+    let (id_alice, id_daniel) = {
+        let addr = common::start(common::config(dir.database(), true)).await;
+        let mut alice = entrar(addr, "alice").await;
+        let id_alice = alice.wait_for("welcome").await["self_user_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        alice.close().await;
+
+        let mut daniel = entrar(addr, "daniel").await;
+        let id_daniel = daniel.wait_for("welcome").await["self_user_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        daniel
+            .send(json!({ "t": "dm.send", "user_id": id_alice, "text": "te procurei" }))
+            .await;
+        daniel.wait_for("dm.new").await;
+        daniel.close().await;
+        (id_alice, id_daniel)
+    };
+    let _ = id_alice;
+
+    // Servidor novo, mesmo banco: a conversa a espera na lista, ja com a nao lida.
+    let addr = common::start(common::config(dir.database(), false)).await;
+    let mut alice = common::Client::connect(addr).await;
+    alice.wait_for("auth.required").await;
+    alice
+        .send(json!({ "t": "auth.login", "username": "alice", "password": SENHA }))
+        .await;
+    alice.wait_for("welcome").await;
+
+    let lista = alice.wait_for("dm.list").await;
+    let conversas = lista["conversations"].as_array().unwrap();
+    assert_eq!(conversas.len(), 1);
+    assert_eq!(conversas[0]["user_id"], id_daniel.as_str());
+    assert_eq!(conversas[0]["unread"], 1);
+    assert_eq!(conversas[0]["last"]["text"], "te procurei");
+
+    alice.close().await;
+}
+
+const SENHA: &str = "uma senha bem seguraa";
+
+/// Conecta, cria a conta e devolve o cliente logo apos o `auth.required`.
+async fn entrar(addr: std::net::SocketAddr, username: &str) -> common::Client {
+    let mut cliente = common::Client::connect(addr).await;
+    cliente.wait_for("auth.required").await;
+    cliente
+        .send(json!({ "t": "auth.register", "username": username, "password": SENHA }))
+        .await;
+    cliente
+}

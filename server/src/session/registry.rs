@@ -104,6 +104,18 @@ impl AppState {
         list
     }
 
+    /// Todas as conexoes abertas desta conta. Uma pessoa pode estar no PC e no
+    /// celular; a mensagem direta tem que chegar nas duas.
+    pub async fn sessions_of(&self, user_id: &UserId) -> Vec<String> {
+        self.sessions
+            .read()
+            .await
+            .iter()
+            .filter(|(_, entry)| &entry.user_id == user_id)
+            .map(|(peer_id, _)| peer_id.clone())
+            .collect()
+    }
+
     pub async fn identity_of(&self, peer_id: &str) -> Option<OnlineUser> {
         self.sessions
             .read()

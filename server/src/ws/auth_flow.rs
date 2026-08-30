@@ -11,6 +11,7 @@ use std::time::Duration;
 use super::Phase;
 use crate::auth::{LoginError, RegisterError};
 use crate::services::chat;
+use crate::services::direct;
 use crate::protocol::{AuthErrorCode, ClientMsg, PeerId, ServerMsg};
 use crate::session::{AppState, SessionError, Target};
 use crate::storage::Account;
@@ -136,11 +137,13 @@ async fn open_session(state: &Arc<AppState>, peer_id: &PeerId, account: Account)
             server_name: state.config.server.name.clone(),
             channels: state.config.channels.clone(),
             users: state.snapshot().await,
+            directory: direct::directory(state, &account.id),
             voice: voice::client_config(state),
             voice_peers: voice::all_peers(state).await,
         },
     );
     chat::send_history(state, peer_id);
+    direct::send_list(state, peer_id).await;
 
     if registration.first_session {
         state.publish(

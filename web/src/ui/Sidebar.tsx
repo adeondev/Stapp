@@ -1,7 +1,8 @@
+import stappLogo from '../../assets/imgs/svg/stapp_logo.svg'
 import type { ConnectionStatus } from '../net/connection'
-import type { PeerId } from '../protocol'
-import { peersInChannel, type StappState } from '../store'
-import { IconHash, IconMicOff, IconSpeaker } from './Icons'
+import type { PeerId, UserId } from '../protocol'
+import { directList, peersInChannel, type StappState } from '../store'
+import { IconAt, IconHash, IconMicOff, IconSpeaker } from './Icons'
 import './sidebar.css'
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -11,11 +12,15 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
   offline: 'desconectado',
 }
 
+/** O que esta aberto na area principal. */
+export type View = { kind: 'channel'; id: string } | { kind: 'direct'; userId: UserId }
+
 interface Props {
   state: StappState
   status: ConnectionStatus
-  activeChannel: string | null
+  view: View | null
   onSelectChannel(id: string): void
+  onSelectDirect(userId: UserId): void
   /** Canal de voz em que estamos, se estivermos em algum. */
   callChannel: string | null
   onJoinCall(id: string): void
@@ -26,8 +31,9 @@ interface Props {
 export function Sidebar({
   state,
   status,
-  activeChannel,
+  view,
   onSelectChannel,
+  onSelectDirect,
   callChannel,
   onJoinCall,
   speaking,
@@ -36,7 +42,10 @@ export function Sidebar({
   return (
     <aside className="sidebar">
       <header className="sidebar__head">
-        <span className="sidebar__server">{state.serverName}</span>
+        <div className="sidebar__brand">
+          <img src={stappLogo} alt="" className="sidebar__logo" aria-hidden="true" />
+          <span className="sidebar__server">{state.serverName}</span>
+        </div>
         <span className={`sidebar__status sidebar__status--${status}`}>
           {STATUS_LABEL[status]}
         </span>
@@ -49,7 +58,9 @@ export function Sidebar({
           .map((channel) => (
             <button
               key={channel.id}
-              className={`sidebar__item ${channel.id === activeChannel ? 'is-active' : ''}`}
+              className={`sidebar__item ${
+                view?.kind === 'channel' && view.id === channel.id ? 'is-active' : ''
+              }`}
               onClick={() => onSelectChannel(channel.id)}
             >
               <IconHash />
@@ -91,6 +102,26 @@ export function Sidebar({
               </div>
             )
           })}
+
+        <h2 className="sidebar__section">diretas</h2>
+        {directList(state).map((conversa) => {
+          const online = state.users.some((user) => user.user_id === conversa.user_id)
+          const aberta = view?.kind === 'direct' && view.userId === conversa.user_id
+          return (
+            <button
+              key={conversa.user_id}
+              className={`sidebar__item ${aberta ? 'is-active' : ''}`}
+              onClick={() => onSelectDirect(conversa.user_id)}
+            >
+              <IconAt />
+              <span className="sidebar__item-name">{conversa.username}</span>
+              {!online && <span className="sidebar__offline">offline</span>}
+              {conversa.unread > 0 && (
+                <span className="sidebar__badge">{conversa.unread}</span>
+              )}
+            </button>
+          )
+        })}
 
         <h2 className="sidebar__section">online — {state.users.length}</h2>
         {state.users.map((user) => (

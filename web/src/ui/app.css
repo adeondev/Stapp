@@ -23,8 +23,17 @@
 }
 
 .placeholder {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
   flex: 1;
   color: var(--text-dim);
+}
+
+.placeholder__logo {
+  width: 48px;
+  height: auto;
+  opacity: 0.5;
 }

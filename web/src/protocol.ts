@@ -35,6 +35,42 @@ export interface Message {
   ts: number
 }
 
+/** O que Chat sabe renderizar. Message e DirectMessage servem os dois. */
+export interface ChatEntry {
+  id: string
+  author_id: UserId
+  author_username: string
+  text: string
+  ts: number
+}
+
+export type DirectMessageKind = 'text' | 'call'
+
+/** Nao carrega canal: a conversa e o par de contas. */
+export interface DirectMessage {
+  id: string
+  author_id: UserId
+  author_username: string
+  kind: DirectMessageKind
+  text: string
+  ts: number
+}
+
+/** Uma conversa na lista lateral, ja do ponto de vista de quem recebe. */
+export interface DirectSummary {
+  /** A outra pessoa da conversa. */
+  user_id: UserId
+  username: string
+  last: DirectMessage | null
+  unread: number
+}
+
+/** Alguem com conta no servidor, online ou nao. */
+export interface DirectoryEntry {
+  user_id: UserId
+  username: string
+}
+
 export type VoiceConfig =
   | { backend: 'mesh'; ice_servers: string[]; max_peers: number }
   // | { backend: 'livekit'; url: string; token: string }
@@ -60,6 +96,9 @@ export type ClientMsg =
   | { t: 'auth.login'; username: string; password: string }
   | { t: 'auth.register'; username: string; password: string }
   | { t: 'chat.send'; channel: string; text: string }
+  | { t: 'dm.open'; user_id: UserId }
+  | { t: 'dm.send'; user_id: UserId; text: string }
+  | { t: 'dm.read'; user_id: UserId }
   | { t: 'voice.join'; channel: string }
   | { t: 'voice.leave' }
   | { t: 'voice.state'; muted: boolean; deafened: boolean }
@@ -81,11 +120,27 @@ export type ServerMsg =
       server_name: string
       channels: Channel[]
       users: OnlineUser[]
+      /** Todas as contas do servidor, online ou nao. */
+      directory: DirectoryEntry[]
       voice: VoiceConfig
       voice_peers: VoicePeer[]
     }
   | { t: 'chat.history'; channel: string; msgs: Message[] }
   | { t: 'chat.new'; channel: string; msg: Message }
+  | { t: 'dm.list'; conversations: DirectSummary[] }
+  | { t: 'dm.history'; user_id: UserId; msgs: DirectMessage[] }
+  | {
+      t: 'dm.new'
+      /** Sempre a OUTRA pessoa da conversa, na visao de quem recebe. */
+      user_id: UserId
+      msg: DirectMessage
+      unread: number
+    }
+  | {
+      /** Esta conversa ficou sem nao-lidas. Vai para todas as suas sessoes. */
+      t: 'dm.read'
+      user_id: UserId
+    }
   | { t: 'user.online'; user: OnlineUser }
   | { t: 'user.offline'; user_id: UserId }
   | { t: 'voice.roster'; channel: string; peers: VoicePeer[] }

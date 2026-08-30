@@ -37,6 +37,16 @@ impl Db {
         }
     }
 
+    pub fn account_by_id(&self, id: &str) -> Result<Option<Account>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!("SELECT {COLUNAS} FROM users WHERE id = ?1"))?;
+        let mut rows = stmt.query([id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(read_account(row)?)),
+            None => Ok(None),
+        }
+    }
+
     pub fn create_account(
         &self,
         username: String,

@@ -12,6 +12,19 @@
   padding: 16px 16px 12px;
 }
 
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.sidebar__logo {
+  width: 18px;
+  height: auto;
+  flex: 0 0 auto;
+}
+
 .sidebar__server {
   font-weight: 600;
   overflow: hidden;
@@ -146,4 +159,23 @@
 .sidebar__you {
   color: var(--text-dim);
   font-size: 12px;
+}
+
+/* Nao-lidas de uma conversa. Fundo de acento com texto escuro — branco sobre
+   o acento fica ilegivel. */
+.sidebar__badge {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
+.sidebar__offline {
+  color: var(--text-dim);
+  font-size: 11px;
 }

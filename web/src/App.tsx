@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import stappLogo from '../assets/imgs/svg/stapp_logo.svg'
 import { Connection, type ConnectionStatus } from './net/connection'
-import type { AuthMode, PeerId } from './protocol'
+import type { AuthMode, PeerId, UserId } from './protocol'
 import { initialState, reduce } from './store'
 import { AccountBar } from './ui/AccountBar'
 import { Chat } from './ui/Chat'
 import { Connect, rememberUsername, type AuthInfo } from './ui/Connect'
-import { Sidebar } from './ui/Sidebar'
+import { Sidebar, type View } from './ui/Sidebar'
 import { VoiceBar } from './ui/VoiceBar'
 import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import './ui/app.css'
@@ -28,7 +29,10 @@ export default function App() {
   const [status, setStatus] = useState<ConnectionStatus>('offline')
   const [notice, setNotice] = useState<string | null>(null)
   const [speaking, setSpeaking] = useState<ReadonlySet<PeerId>>(() => new Set())
-  const [activeChannel, setActiveChannel] = useState<string | null>(null)
+  const [view, setView] = useState<View | null>(null)
+  // O onMessage vive dentro de um efeito; sem o ref ele leria uma view velha.
+  const viewRef = useRef<View | null>(null)
+  viewRef.current = view
   const [call, setCall] = useState<CallState | null>(null)
 
   const connection = useRef<Connection | null>(null)
@@ -39,7 +43,7 @@ export default function App() {
     voice.current = null
     dispatch({ t: 'app.reset' })
     setAuthenticated(false)
-    setActiveChannel(null)
+    setView(null)
     setCall(null)
     setSpeaking(new Set())
     setNotice(null)
@@ -100,9 +104,21 @@ export default function App() {
             onError: setNotice,
           })
 
-          setActiveChannel(
-            (current) => current ?? msg.channels.find((channel) => channel.kind === 'text')?.id ?? null,
-          )
+          setView((current) => {
+            if (current) return current
+            const primeiro = msg.channels.find((channel) => channel.kind === 'text')
+            return primeiro ? { kind: 'channel', id: primeiro.id } : null
+          })
+        }
+
+        // Chegou mensagem na conversa que esta aberta: ja marca lida, senao o
+        // badge apareceria para algo que a pessoa esta lendo agora.
+        if (msg.t === 'dm.new') {
+          const atual = viewRef.current
+          // `unread > 0` so acontece quando quem escreveu foi a outra pessoa.
+          if (atual?.kind === 'direct' && atual.userId === msg.user_id && msg.unread > 0) {
+            connection.current?.send({ t: 'dm.read', user_id: msg.user_id })
+          }
         }
 
         if (msg.t === 'error') setNotice(msg.message)
@@ -149,11 +165,24 @@ export default function App() {
 
   const sendMessage = useCallback(
     (text: string) => {
-      if (!activeChannel) return
-      connection.current?.send({ t: 'chat.send', channel: activeChannel, text })
+      const atual = viewRef.current
+      if (!atual) return
+      if (atual.kind === 'channel') {
+        connection.current?.send({ t: 'chat.send', channel: atual.id, text })
+      } else {
+        connection.current?.send({ t: 'dm.send', user_id: atual.userId, text })
+      }
     },
-    [activeChannel],
+    [],
   )
+
+  const selectChannel = useCallback((id: string) => setView({ kind: 'channel', id }), [])
+
+  const selectDirect = useCallback((userId: UserId) => {
+    setView({ kind: 'direct', userId })
+    // Carrega o historico e marca lida de uma vez.
+    connection.current?.send({ t: 'dm.open', user_id: userId })
+  }, [])
 
   const joinCall = useCallback(async (channelId: string) => {
     const started = await voice.current?.join(channelId)
@@ -196,7 +225,14 @@ export default function App() {
     )
   }
 
-  const channel = state.channels.find((item) => item.id === activeChannel) ?? null
+  const channel =
+    view?.kind === 'channel' ? (state.channels.find((item) => item.id === view.id) ?? null) : null
+  const conversa =
+    view?.kind === 'direct'
+      ? (state.conversations[view.userId] ??
+        state.directory.find((entry) => entry.user_id === view.userId) ??
+        null)
+      : null
   const callChannel = call ? state.channels.find((item) => item.id === call.channel) : undefined
   const self = state.users.find((user) => user.user_id === state.selfUserId)
 
@@ -205,8 +241,9 @@ export default function App() {
       <Sidebar
         state={state}
         status={status}
-        activeChannel={activeChannel}
-        onSelectChannel={setActiveChannel}
+        view={view}
+        onSelectChannel={selectChannel}
+        onSelectDirect={selectDirect}
         callChannel={call?.channel ?? null}
         onJoinCall={joinCall}
         speaking={speaking}
@@ -231,13 +268,25 @@ export default function App() {
         {notice && <div className="notice">{notice}</div>}
         {channel ? (
           <Chat
-            channel={channel}
+            title={channel.name}
+            kind="channel"
             messages={state.messages[channel.id] ?? []}
             canSend={status === 'online'}
             onSend={sendMessage}
           />
+        ) : conversa ? (
+          <Chat
+            title={conversa.username}
+            kind="direct"
+            messages={state.directMessages[conversa.user_id] ?? []}
+            canSend={status === 'online'}
+            onSend={sendMessage}
+          />
         ) : (
-          <div className="placeholder">conectando em {serverUrl}</div>
+          <div className="placeholder">
+            <img src={stappLogo} alt="" className="placeholder__logo" aria-hidden="true" />
+            <span>conectando em {serverUrl}</span>
+          </div>
         )}
       </main>
     </div>

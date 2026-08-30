@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use crate::services::chat;
+use crate::services::direct;
 use crate::protocol::{ClientMsg, PeerId};
 use crate::session::AppState;
 use crate::services::voice;
@@ -18,6 +19,10 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
         ClientMsg::AuthLogin { .. } | ClientMsg::AuthRegister { .. } => {}
 
         ClientMsg::ChatSend { channel, text } => chat::send(state, peer_id, channel, &text).await,
+
+        ClientMsg::DmOpen { user_id } => direct::open(state, peer_id, user_id).await,
+        ClientMsg::DmSend { user_id, text } => direct::send(state, peer_id, user_id, &text).await,
+        ClientMsg::DmRead { user_id } => direct::mark_read(state, peer_id, user_id).await,
 
         ClientMsg::VoiceJoin { channel } => voice::join(state, peer_id, &channel).await,
         ClientMsg::VoiceLeave => voice::leave(state, peer_id).await,

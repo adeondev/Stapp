@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 use rusqlite::Connection;
 
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 const V1: &str = "BEGIN IMMEDIATE;
      CREATE TABLE users (
@@ -31,6 +31,31 @@ const V1: &str = "BEGIN IMMEDIATE;
      PRAGMA user_version = 1;
      COMMIT;";
 
+/// Mensagens diretas. A conversa nao tem tabela propria: o par de contas ja e a
+/// identidade dela (ver `storage::direct::conversation_id`).
+///
+/// `kind` existe desde ja para a chamada 1:1 poder deixar rastro na conversa
+/// ("chamada perdida") sem precisar de outra migracao.
+const V2: &str = "BEGIN IMMEDIATE;
+     CREATE TABLE dm_messages (
+         id              TEXT PRIMARY KEY,
+         conversation_id TEXT NOT NULL,
+         author_id       TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+         author_username TEXT NOT NULL,
+         kind            TEXT NOT NULL DEFAULT 'text',
+         text            TEXT NOT NULL,
+         ts              INTEGER NOT NULL
+     );
+     CREATE INDEX idx_dm_messages_conversation_ts ON dm_messages (conversation_id, ts);
+     CREATE TABLE dm_reads (
+         user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         conversation_id TEXT NOT NULL,
+         last_read_ts    INTEGER NOT NULL,
+         PRIMARY KEY (user_id, conversation_id)
+     );
+     PRAGMA user_version = 2;
+     COMMIT;";
+
 pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -47,8 +72,12 @@ pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
         bail!("o banco usa o esquema {version}, mas este servidor conhece ate {SCHEMA_VERSION}");
     }
 
-    if version == 0 {
+    // Cada passo roda em sequencia, entao um banco em v0 chega em v2 sozinho.
+    if version < 1 {
         conn.execute_batch(V1)?;
+    }
+    if version < 2 {
+        conn.execute_batch(V2)?;
     }
 
     Ok(())

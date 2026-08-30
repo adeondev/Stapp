@@ -1,18 +1,52 @@
 .connect {
-  display: grid;
-  place-items: center;
-  height: 100%;
-  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100%;
+  padding: 32px 20px;
+  background: var(--bg-sidebar);
 }
 
 .connect__card {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 380px;
-  padding: 32px;
-  border-radius: var(--radius);
-  background: var(--bg-sidebar);
+  max-width: 420px;
+  padding: 40px 36px 36px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-raised);
+}
+
+.connect__header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.connect__logo {
+  display: block;
+  width: 56px;
+  height: auto;
+  margin-bottom: 18px;
+  user-select: none;
+}
+
+.connect__title {
+  margin: 0;
+  color: var(--text);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+}
+
+.connect__sub {
+  margin: 8px 0 0;
+  color: var(--text-dim);
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .connect__card form {
@@ -20,99 +54,126 @@
   flex-direction: column;
 }
 
-.connect__title {
-  margin: 0;
-  color: var(--accent);
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-}
-
-.connect__sub {
-  margin: 4px 0 24px;
-  color: var(--text-dim);
-  font-size: 14px;
-}
-
 .connect__label {
-  margin-bottom: 6px;
+  display: block;
+  margin-bottom: 8px;
   color: var(--text-dim);
-  font-size: 12px;
-  letter-spacing: 0.04em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 .connect__field {
-  margin-bottom: 18px;
-  padding: 11px 12px;
+  width: 100%;
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--bg-sidebar);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  transition: background 0.15s ease;
+}
+
+.connect__field:hover:not(:disabled) {
   background: var(--bg-input);
 }
 
 .connect__field:disabled {
-  opacity: 0.7;
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .connect__hint {
-  margin: -10px 0 18px;
+  margin: -12px 0 18px;
   color: var(--text-dim);
   font-size: 12px;
+  line-height: 1.45;
 }
 
 .connect__error {
-  margin: -4px 0 16px;
-  padding: 10px 12px;
+  margin: 0 0 16px;
+  padding: 10px 14px;
   border-radius: var(--radius);
   background: var(--danger-quiet);
   color: var(--danger);
   font-size: 13px;
+  line-height: 1.4;
 }
 
 .connect__go {
-  margin-top: 6px;
-  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 12px 16px;
+  border-radius: var(--radius);
   background: var(--accent);
   color: var(--on-accent);
+  font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
 }
 
 .connect__go:hover:not(:disabled) {
   background: var(--accent-hover);
 }
 
+.connect__go:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+.connect__go:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .connect__switch,
 .connect__back {
   align-self: center;
-  padding: 8px 10px;
+  padding: 8px 14px;
+  border-radius: var(--radius);
   color: var(--text-dim);
   font-size: 13px;
+  font-weight: 500;
+  transition: color 0.15s ease, background 0.15s ease;
 }
 
 .connect__switch {
-  margin-top: 10px;
+  margin-top: 14px;
 }
 
 .connect__back {
-  margin: 12px auto -8px;
+  margin: 16px auto -4px;
 }
 
 .connect__switch:hover:not(:disabled),
 .connect__back:hover:not(:disabled) {
   color: var(--text);
-  background: var(--bg-raised);
+  background: var(--bg-sidebar);
 }
 
 .connect__waiting {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
   min-height: 48px;
+  padding: 12px;
+  border-radius: var(--radius);
+  background: var(--bg-sidebar);
   color: var(--text-dim);
   font-size: 14px;
+  margin-top: 6px;
 }
 
 .connect__pulse {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--accent);
   animation: connect-pulse 1.2s ease-in-out infinite;
@@ -128,5 +189,11 @@
 @media (prefers-reduced-motion: reduce) {
   .connect__pulse {
     animation: none;
+  }
+  .connect__go,
+  .connect__field,
+  .connect__switch,
+  .connect__back {
+    transition: none;
   }
 }

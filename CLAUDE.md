@@ -75,6 +75,25 @@ storage/    SQLite: schema.rs migra, accounts.rs e messages.rs consultam
 (`Phase::Anonymous` → `Phase::Authenticated`); anônima só alcança `auth_flow`, autenticada só
 alcança `dispatch`. Foi assim que o `handle` gigante deixou de existir — não recrie.
 
+### Mensagens diretas
+
+A conversa **não tem tabela**: o par de contas já é a identidade dela, e o id sai de
+`storage::conversation_id(a, b)` — os dois ids ordenados. Mandar a primeira mensagem para
+alguém é igual a mandar a centésima; não existe "criar conversa".
+
+Duas coisas que não são óbvias e já quebraram uma vez:
+
+- **DM não vai por broadcast.** O canal usa `state.broadcast`; a direta entrega só nas sessões
+  das duas contas (`sessions_of`). Uma pessoa pode ter várias conexões e todas precisam receber.
+- **`dm.new` tem payload diferente por lado.** O campo `user_id` é sempre *a outra pessoa* na
+  visão de quem recebe, e `unread` é a contagem daquele destinatário. Por isso são dois
+  `send_to`, não um evento só.
+- **Ler avisa todas as suas sessões** (`ServerMsg::DmRead`). Sem isso a aba que já estava com a
+  conversa aberta continuava com o badge, porque nada dizia a ela que a contagem zerou.
+
+`kind` em `dm_messages` já existe (`text` | `call`) para a chamada 1:1 deixar rastro na conversa
+sem precisar de outra migração.
+
 ### Regra dura: os dois `protocol` andam juntos
 
 [`server/src/protocol.rs`](server/src/protocol.rs) é a fonte da verdade.

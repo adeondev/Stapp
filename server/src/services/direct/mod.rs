@@ -1,0 +1,212 @@
+//! Mensagens diretas.
+//!
+//! Diferente do chat de canal, nada aqui vai por broadcast: a mensagem e
+//! entregue so nas conexoes das duas contas envolvidas. Quem estiver offline
+//! nao perde nada — recebe pelo historico quando conectar.
+
+use uuid::Uuid;
+
+use crate::protocol::{
+    DirectMessage, DirectMessageKind, DirectSummary, DirectoryEntry, ServerMsg, UserId, now_ms,
+};
+use crate::session::AppState;
+use crate::storage::conversation_id;
+
+/// Todo mundo com conta neste servidor, menos voce. E a lista de quem da para
+/// chamar numa conversa nova.
+pub fn directory(state: &AppState, me: &UserId) -> Vec<DirectoryEntry> {
+    match state.db.list_accounts() {
+        Ok(accounts) => accounts
+            .into_iter()
+            .filter(|account| &account.id != me && account.disabled_at.is_none())
+            .map(|account| DirectoryEntry {
+                user_id: account.id,
+                username: account.username,
+            })
+            .collect(),
+        Err(err) => {
+            tracing::error!(%err, "falha listando contas para o diretorio");
+            Vec::new()
+        }
+    }
+}
+
+/// A lista lateral de conversas: com quem voce ja falou, mais recente primeiro.
+pub async fn send_list(state: &AppState, peer_id: &str) {
+    let Some(me) = state.identity_of(peer_id).await else {
+        return;
+    };
+
+    let partners = match state.db.direct_partners(&me.user_id) {
+        Ok(partners) => partners,
+        Err(err) => {
+            tracing::error!(%err, "falha listando conversas");
+            return;
+        }
+    };
+
+    let mut conversations = Vec::with_capacity(partners.len());
+    for other in partners {
+        if let Some(summary) = summary(state, &me.user_id, &other) {
+            conversations.push(summary);
+        }
+    }
+
+    state.send_to(peer_id, ServerMsg::DmList { conversations });
+}
+
+pub async fn open(state: &AppState, peer_id: &str, other: UserId) {
+    let Some(me) = state.identity_of(peer_id).await else {
+        return;
+    };
+    if !exists(state, &other) {
+        return refuse(state, peer_id, "essa conta nao existe");
+    }
+
+    let conversation = conversation_id(&me.user_id, &other);
+    let limit = state.config.storage.history_limit;
+
+    let msgs = match state.db.direct_history(&conversation, limit) {
+        Ok(msgs) => msgs,
+        Err(err) => {
+            tracing::error!(%err, "falha lendo conversa");
+            return;
+        }
+    };
+
+    // Abrir a conversa ja marca tudo como lido.
+    mark_and_notify(state, &me.user_id, &other, &conversation).await;
+
+    state.send_to(
+        peer_id,
+        ServerMsg::DmHistory {
+            user_id: other,
+            msgs,
+        },
+    );
+}
+
+pub async fn mark_read(state: &AppState, peer_id: &str, other: UserId) {
+    let Some(me) = state.identity_of(peer_id).await else {
+        return;
+    };
+    let conversation = conversation_id(&me.user_id, &other);
+    mark_and_notify(state, &me.user_id, &other, &conversation).await;
+}
+
+pub async fn send(state: &AppState, peer_id: &str, other: UserId, raw_text: &str) {
+    let Some(me) = state.identity_of(peer_id).await else {
+        return;
+    };
+    if other == me.user_id {
+        return refuse(state, peer_id, "nao da para conversar consigo mesmo");
+    }
+    if !exists(state, &other) {
+        return refuse(state, peer_id, "essa conta nao existe");
+    }
+    let Some(text) = clean_text(raw_text) else {
+        return;
+    };
+
+    let conversation = conversation_id(&me.user_id, &other);
+    let msg = DirectMessage {
+        id: Uuid::new_v4().to_string(),
+        author_id: me.user_id.clone(),
+        author_username: me.username.clone(),
+        kind: DirectMessageKind::Text,
+        text,
+        ts: now_ms(),
+    };
+
+    if let Err(err) = state.db.insert_direct(&conversation, &msg) {
+        tracing::error!(%err, "falha gravando mensagem direta");
+        return refuse(state, peer_id, "nao consegui guardar a mensagem");
+    }
+
+    // Quem escreveu ja leu o que escreveu.
+    mark(state, &me.user_id, &conversation);
+
+    // O autor pode ter outras abas abertas; todas precisam ver.
+    for peer in state.sessions_of(&me.user_id).await {
+        state.send_to(
+            &peer,
+            ServerMsg::DmNew {
+                user_id: other.clone(),
+                msg: msg.clone(),
+                unread: 0,
+            },
+        );
+    }
+
+    let unread = state
+        .db
+        .direct_unread(&other, &conversation)
+        .unwrap_or_default();
+    for peer in state.sessions_of(&other).await {
+        state.send_to(
+            &peer,
+            ServerMsg::DmNew {
+                user_id: me.user_id.clone(),
+                msg: msg.clone(),
+                unread,
+            },
+        );
+    }
+}
+
+fn summary(state: &AppState, me: &UserId, other: &UserId) -> Option<DirectSummary> {
+    let account = state.db.account_by_id(other).ok()??;
+    let conversation = conversation_id(me, other);
+    Some(DirectSummary {
+        user_id: account.id,
+        username: account.username,
+        last: state.db.direct_last(&conversation).ok().flatten(),
+        unread: state.db.direct_unread(me, &conversation).unwrap_or_default(),
+    })
+}
+
+fn exists(state: &AppState, user_id: &UserId) -> bool {
+    matches!(state.db.account_by_id(user_id), Ok(Some(_)))
+}
+
+fn mark(state: &AppState, reader: &UserId, conversation: &str) {
+    if let Err(err) = state.db.mark_direct_read(reader, conversation, now_ms()) {
+        tracing::error!(%err, "falha marcando conversa como lida");
+    }
+}
+
+/// Marca como lida e avisa **todas** as sessoes de quem leu. Sem este aviso a
+/// aba que ja estava com a conversa aberta continuaria mostrando o badge.
+async fn mark_and_notify(state: &AppState, reader: &UserId, other: &UserId, conversation: &str) {
+    mark(state, reader, conversation);
+    for peer in state.sessions_of(reader).await {
+        state.send_to(
+            &peer,
+            ServerMsg::DmRead {
+                user_id: other.clone(),
+            },
+        );
+    }
+}
+
+fn refuse(state: &AppState, peer_id: &str, message: &str) {
+    state.send_to(
+        peer_id,
+        ServerMsg::Error {
+            message: message.to_string(),
+        },
+    );
+}
+
+fn clean_text(raw: &str) -> Option<String> {
+    let text: String = raw
+        .chars()
+        .filter(|c| *c == '\n' || !c.is_control())
+        .take(2000)
+        .collect();
+    let text = text.trim().to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+#[cfg(test)]
+mod tests;
