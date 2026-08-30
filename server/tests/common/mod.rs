@@ -287,3 +287,74 @@ impl Client {
         let _ = self.socket.close(None).await;
     }
 }
+
+// ------------------------------------------------------------------ avatares
+//
+// Os helpers acima trabalham com String; imagem e binaria, entao estes leem e
+// escrevem bytes.
+
+pub async fn avatar_upload(addr: SocketAddr, token: &str, bytes: &[u8]) -> u16 {
+    let mut cabecalho = format!(
+        "POST /avatars HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nContent-Type: application/octet-stream\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\n\r\n",
+        bytes.len()
+    )
+    .into_bytes();
+    cabecalho.extend_from_slice(bytes);
+    status_de(&requisicao_binaria(addr, &cabecalho).await)
+}
+
+pub async fn avatar_upload_sem_token(addr: SocketAddr, bytes: &[u8]) -> u16 {
+    let mut cabecalho = format!(
+        "POST /avatars HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nContent-Length: {}\r\n\r\n",
+        bytes.len()
+    )
+    .into_bytes();
+    cabecalho.extend_from_slice(bytes);
+    status_de(&requisicao_binaria(addr, &cabecalho).await)
+}
+
+pub async fn avatar_delete(addr: SocketAddr, token: &str) -> u16 {
+    let pedido = format!(
+        "DELETE /avatars HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nAuthorization: Bearer {token}\r\nContent-Length: 0\r\n\r\n"
+    );
+    status_de(&requisicao_binaria(addr, pedido.as_bytes()).await)
+}
+
+/// Status, corpo cru e cabecalhos em minusculas — da para conferir que veio
+/// WebP e que a imagem pode ser embutida a partir de outra origem.
+pub async fn avatar_get(addr: SocketAddr, user_id: &str) -> (u16, Vec<u8>, String) {
+    let pedido =
+        format!("GET /avatars/{user_id} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    let resposta = requisicao_binaria(addr, pedido.as_bytes()).await;
+    let corte = encontrar(&resposta, b"\r\n\r\n");
+    let cabecalhos = match corte {
+        Some(i) => String::from_utf8_lossy(&resposta[..i]).to_lowercase(),
+        None => String::new(),
+    };
+    let corpo = match corte {
+        Some(i) => resposta[i + 4..].to_vec(),
+        None => Vec::new(),
+    };
+    (status_de(&resposta), corpo, cabecalhos)
+}
+
+async fn requisicao_binaria(addr: SocketAddr, pedido: &[u8]) -> Vec<u8> {
+    let mut stream = TcpStream::connect(addr).await.expect("conectar HTTP");
+    stream.write_all(pedido).await.unwrap();
+    let mut resposta = Vec::new();
+    stream.read_to_end(&mut resposta).await.unwrap();
+    resposta
+}
+
+fn status_de(resposta: &[u8]) -> u16 {
+    let primeira = resposta.split(|b| *b == b'\n').next().unwrap_or_default();
+    String::from_utf8_lossy(primeira)
+        .split_whitespace()
+        .nth(1)
+        .and_then(|codigo| codigo.parse().ok())
+        .unwrap_or(0)
+}
+
+fn encontrar(agulha: &[u8], marca: &[u8]) -> Option<usize> {
+    agulha.windows(marca.len()).position(|janela| janela == marca)
+}

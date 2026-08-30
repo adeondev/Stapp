@@ -4,6 +4,10 @@
 //! mundo. Por isso a edicao vai por broadcast: cada tela redesenha o nome e o
 //! avatar na hora, sem ninguem precisar reconectar.
 
+pub mod avatar;
+
+use std::path::PathBuf;
+
 use crate::protocol::{Profile, ServerMsg, UserId, now_ms};
 use crate::session::AppState;
 
@@ -66,6 +70,43 @@ pub async fn update(
     }
 
     announce(state, &me.user_id);
+}
+
+/// Guarda a imagem e avisa todo mundo. Devolve o tamanho gravado.
+pub fn set_avatar(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Result<usize, String> {
+    let dir = avatar_dir(state);
+    let tamanho = avatar::store(&dir, user_id, bytes).map_err(|erro| erro.to_string())?;
+
+    if let Err(err) = state
+        .db
+        .set_avatar(user_id, Some(avatar::extensao()), now_ms())
+    {
+        tracing::error!(%err, "falha marcando o avatar no banco");
+        // O arquivo sem a linha no banco seria lixo invisivel.
+        avatar::remove(&dir, user_id);
+        return Err("nao consegui salvar o avatar".into());
+    }
+
+    announce(state, user_id);
+    Ok(tamanho)
+}
+
+/// Volta ao avatar gerado.
+pub fn clear_avatar(state: &AppState, user_id: &UserId) {
+    if let Err(err) = state.db.set_avatar(user_id, None, now_ms()) {
+        tracing::error!(%err, "falha limpando o avatar");
+        return;
+    }
+    avatar::remove(&avatar_dir(state), user_id);
+    announce(state, user_id);
+}
+
+pub fn read_avatar(state: &AppState, user_id: &UserId) -> Option<Vec<u8>> {
+    avatar::read(&avatar_dir(state), user_id)
+}
+
+fn avatar_dir(state: &AppState) -> PathBuf {
+    state.config.avatar_dir()
 }
 
 /// Manda o perfil atual para todo mundo. Publico, entao broadcast mesmo.

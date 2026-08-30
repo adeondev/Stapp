@@ -138,6 +138,16 @@ impl Config {
         SocketAddr::new(self.server.bind, self.server.port)
     }
 
+    /// Onde ficam os avatares: ao lado do banco, dentro de `data/`. Assim o
+    /// backup do servidor continua sendo "copie a pasta data/".
+    pub fn avatar_dir(&self) -> PathBuf {
+        self.storage
+            .database
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("avatars")
+    }
+
     pub fn channel(&self, id: &str) -> Option<&Channel> {
         self.channels.iter().find(|c| c.id == id)
     }

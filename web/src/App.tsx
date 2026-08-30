@@ -9,6 +9,7 @@ import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
 import { PROTOCOL_VERSION } from './protocol'
 import { directChannelPartner, initialState, profileOf, reduce } from './store'
 import { AccountBar } from './ui/AccountBar'
+import { avatarBaseFromWs, removeAvatar, uploadAvatar } from './net/avatars'
 import { ProfileProvider } from './ui/Avatar'
 import { ProfileEditor } from './ui/ProfileEditor'
 import { CallPanel } from './ui/CallPanel'
@@ -348,6 +349,19 @@ export default function App() {
       : { t: 'call.cancel', user_id: current.userId })
     return null
   }), [])
+  /** `null` remove. O token vem do Connection para nao ter duas fontes. */
+  const enviarAvatar = useCallback(
+    async (file: File | null) => {
+      const token = connection.current?.token
+      const servidor = active?.profile.url
+      if (!token || !servidor) throw new Error('sua sessão expirou, entre de novo')
+      const base = avatarBaseFromWs(servidor)
+      if (file) await uploadAvatar(base, token, file)
+      else await removeAvatar(base, token)
+    },
+    [active?.profile.url],
+  )
+
   const leaveCall = useCallback(() => { voice.current?.leave(); setCall(null) }, [])
   const toggleMute = useCallback(() => setCall((current) => {
     if (!current) return current
@@ -381,11 +395,12 @@ export default function App() {
   const sidebarMode = sidebarModeFor(view)
   const showMembers = view?.kind === 'channel'
   const meuPerfil = profileOf(state, state.selfUserId ?? '', attemptedUsername.current)
+  const avatarBase = avatarBaseFromWs(active.profile.url)
 
   // Sem isto todo avatar cai no provisorio: e daqui que qualquer tela alcanca
   // o perfil de qualquer pessoa sem receber o estado por prop.
   return (
-    <ProfileProvider profiles={state.profiles}>
+    <ProfileProvider profiles={state.profiles} avatarBase={avatarBase}>
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
       <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
         onHome={() => setView({ kind: 'home' })} onSelect={selectServer} onAdd={backToServers} />
@@ -421,9 +436,10 @@ export default function App() {
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
         onMessage={selectDirect} onAction={socialAction} />}
-      <ProfileEditor isOpen={editingProfile} profile={meuPerfil}
+      <ProfileEditor isOpen={editingProfile} profile={meuPerfil} avatarBase={avatarBase}
         onClose={() => setEditingProfile(false)}
-        onSave={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })} />
+        onSave={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
+        onAvatar={enviarAvatar} />
 
       {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
         onAccept={acceptCall} onDecline={dismissCall} />}

@@ -143,3 +143,47 @@
 .profile-editor__save:hover {
   background: var(--accent-hover);
 }
+
+.profile-editor__photo {
+  display: flex;
+  gap: 8px;
+  margin: -8px 0 20px;
+}
+
+/* O input de arquivo do navegador nao tem como ser estilizado dentro das
+   regras do projeto, entao ele fica escondido e quem aparece sao os botoes. */
+.profile-editor__file {
+  display: none;
+}
+
+.profile-editor__photo-action {
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.profile-editor__photo-action:hover {
+  background: var(--bg-hover);
+}
+
+.profile-editor__photo-action.is-remove {
+  color: var(--danger);
+}
+
+.profile-editor__photo-action.is-remove:hover {
+  background: var(--danger-quiet);
+}
+
+.profile-editor__erro {
+  margin: 0 0 12px;
+  color: var(--danger);
+  font-size: 13px;
+}
+
+/* A previa tambem precisa recortar a imagem no circulo. */
+.profile-editor__avatar {
+  overflow: hidden;
+}

@@ -27,7 +27,8 @@ pub fn build(config: Config) -> Result<Router> {
     let mut app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/ws", get(ws::handler))
-        .nest("/auth", http::auth::routes());
+        .nest("/auth", http::auth::routes())
+        .nest("/avatars", http::avatars::routes());
 
     if let Some(dir) = static_dir.as_deref() {
         app = with_static_client(app, dir);
@@ -59,10 +60,14 @@ async fn security_headers(request: Request, next: Next) -> Response {
         HeaderName::from_static("cross-origin-opener-policy"),
         HeaderValue::from_static("same-origin"),
     );
-    headers.insert(
-        HeaderName::from_static("cross-origin-resource-policy"),
-        HeaderValue::from_static("same-origin"),
-    );
+    // Padrao restrito, mas uma rota pode abrir mao dele de proposito: o avatar
+    // existe para ser embutido com <img> a partir do app, que em dev roda em
+    // outra porta. Sem esta excecao, `same-origin` bloqueia a imagem no
+    // navegador mesmo com o GET respondendo 200.
+    let corp = HeaderName::from_static("cross-origin-resource-policy");
+    if !headers.contains_key(&corp) {
+        headers.insert(corp, HeaderValue::from_static("same-origin"));
+    }
     headers.insert(
         HeaderName::from_static("x-content-type-options"),
         HeaderValue::from_static("nosniff"),

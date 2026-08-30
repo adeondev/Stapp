@@ -67,6 +67,21 @@ impl Db {
     }
 }
 
+impl Db {
+    /// `Some("webp")` quando existe imagem, `None` quando voltou ao gerado.
+    /// Mexe no `updated_at` porque e ele que invalida o cache do navegador.
+    pub fn set_avatar(&self, user_id: &UserId, ext: Option<&str>, now: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO user_profiles (user_id, avatar_ext, updated_at)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(user_id) DO UPDATE SET avatar_ext = ?2, updated_at = ?3",
+            (user_id, ext, now),
+        )?;
+        Ok(())
+    }
+}
+
 fn ler_perfil(row: &Row) -> rusqlite::Result<Profile> {
     let avatar_ext: Option<String> = row.get(5)?;
     Ok(Profile {

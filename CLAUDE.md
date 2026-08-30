@@ -128,6 +128,18 @@ que já foi entregue, e o histórico fica com a foto velha para sempre.
 `messages.author_username` e `dm_messages.author_username` **continuam existindo** e não são
 bug: ali é registro histórico de quem escreveu. O que aparece na tela vem do perfil vivo.
 
+O avatar é imagem de verdade: sobe por `POST /avatars` (HTTP, não pelo WebSocket — centenas de
+KB pelo socket atrasariam a conversa de todo mundo), o servidor **decodifica para saber se é
+imagem mesmo** (a extensão não vale nada), corta quadrado, reduz para 256px e grava sempre um
+WebP em `data/avatars/<user_id>.webp`. Sem imagem, o `<Avatar>` cai sozinho na inicial colorida.
+
+**Armadilha que já custou tempo:** o middleware de segurança em `app.rs` põe
+`cross-origin-resource-policy: same-origin` em tudo. Isso **bloqueia a imagem no `<img>`** quando
+o app roda noutra porta (dev: web em `:5173`, servidor em `:8787`) — e o sintoma engana, porque o
+`GET` responde 200 e só o navegador recusa. A rota do avatar sobrescreve com `cross-origin` de
+propósito, e o middleware respeita quem já definiu o cabeçalho. Se aparecer avatar quebrado,
+olhe esse cabeçalho antes de qualquer outra coisa.
+
 A cor é guardada pelo **nome** (`"green"`), nunca pelo hex — a lista canônica está em
 `ACCENTS`, em [`server/src/services/profile/mod.rs`](server/src/services/profile/mod.rs), e
 precisa bater com os tokens `--accent-<nome>` do `theme.css`.

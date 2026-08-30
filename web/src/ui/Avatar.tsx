@@ -1,5 +1,6 @@
-import { createContext, useContext, useMemo } from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { Profile, UserId } from '../protocol'
+import { avatarUrl } from '../net/avatars'
 import { resolveProfile, type StappState } from '../store'
 
 /**
@@ -15,7 +16,13 @@ import { resolveProfile, type StappState } from '../store'
  * 40px e e redondo. Aqui so entram o conteudo e a cor.
  */
 
-const ProfilesContext = createContext<StappState['profiles']>({})
+interface Contexto {
+  profiles: StappState['profiles']
+  /** Base HTTP do servidor, para montar a URL da imagem. */
+  avatarBase: string | null
+}
+
+const ProfilesContext = createContext<Contexto>({ profiles: {}, avatarBase: null })
 
 /**
  * Deixa os perfis alcancaveis de qualquer lugar. Sem isto, componentes como o
@@ -24,17 +31,20 @@ const ProfilesContext = createContext<StappState['profiles']>({})
  */
 export function ProfileProvider({
   profiles,
+  avatarBase,
   children,
 }: {
   profiles: StappState['profiles']
+  avatarBase: string | null
   children: React.ReactNode
 }) {
-  return <ProfilesContext.Provider value={profiles}>{children}</ProfilesContext.Provider>
+  const valor = useMemo(() => ({ profiles, avatarBase }), [profiles, avatarBase])
+  return <ProfilesContext.Provider value={valor}>{children}</ProfilesContext.Provider>
 }
 
 /** O perfil de alguem, com um provisorio enquanto o servidor nao mandou. */
 export function useProfile(userId: UserId | null | undefined, fallbackName = ''): Profile {
-  const profiles = useContext(ProfilesContext)
+  const { profiles } = useContext(ProfilesContext)
   return useMemo(
     () => resolveProfile(profiles, userId ?? '', fallbackName),
     [profiles, userId, fallbackName],
@@ -52,6 +62,17 @@ interface Props {
 
 export function Avatar({ userId, className, fallbackName, title }: Props) {
   const profile = useProfile(userId, fallbackName)
+  const { avatarBase } = useContext(ProfilesContext)
+  const [falhou, setFalhou] = useState(false)
+
+  // Trocar a foto muda o `updated_at`, e com ele a URL — entao vale voltar a
+  // tentar depois de um erro.
+  useEffect(() => setFalhou(false), [profile.updated_at, profile.has_avatar])
+
+  const imagem =
+    profile.has_avatar && avatarBase && !falhou
+      ? avatarUrl(avatarBase, profile.user_id, profile.updated_at)
+      : null
 
   return (
     <span
@@ -64,7 +85,13 @@ export function Avatar({ userId, className, fallbackName, title }: Props) {
         } as React.CSSProperties
       }
     >
-      {inicial(profile.display_name)}
+      {imagem ? (
+        // Se o arquivo sumiu do servidor, cai no gerado em vez de deixar o
+        // quadrado quebrado do navegador.
+        <img className="avatar__img" src={imagem} alt="" onError={() => setFalhou(true)} />
+      ) : (
+        inicial(profile.display_name)
+      )}
     </span>
   )
 }

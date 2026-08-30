@@ -332,7 +332,7 @@ fn api_error(
 }
 
 #[derive(Clone)]
-struct OriginContext {
+pub(super) struct OriginContext {
     origin: Option<String>,
     cross_site: bool,
 }
@@ -376,7 +376,7 @@ fn rate_limit(
     })
 }
 
-fn origin_context(state: &AppState, headers: &HeaderMap) -> Option<OriginContext> {
+pub(super) fn origin_context(state: &AppState, headers: &HeaderMap) -> Option<OriginContext> {
     let origin = headers
         .get(header::ORIGIN)
         .and_then(|value| value.to_str().ok())
@@ -411,7 +411,7 @@ fn authority(origin: &str) -> Option<&str> {
     origin.split_once("://")?.1.split('/').next()
 }
 
-fn attach_common_headers(response: &mut Response, context: &OriginContext) {
+pub(super) fn attach_common_headers(response: &mut Response, context: &OriginContext) {
     response
         .headers_mut()
         .insert(header::VARY, HeaderValue::from_static("Origin"));

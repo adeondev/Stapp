@@ -27,6 +27,13 @@ export class Connection {
     this.open()
   }
 
+  /** O token atual. O upload de avatar vai por HTTP e precisa dele; guardar uma
+   *  copia no App daria duas fontes de verdade que sairiam de sincronia no
+   *  refresh. */
+  get token(): string | null {
+    return this.accessToken
+  }
+
   authenticate(accessToken: string) {
     this.accessToken = accessToken
     this.authSent = false
