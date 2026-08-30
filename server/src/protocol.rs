@@ -104,6 +104,10 @@ pub enum ServerMsg {
     AuthRequired {
         server_name: String,
         registration_enabled: bool,
+        /// Se ESTA conexao pode mandar senha sem TLS. Quem decide e o servidor
+        /// (`auth.trusted_networks`), entao o cliente nao precisa repetir a
+        /// regra — ele so obedece.
+        plaintext_auth_allowed: bool,
     },
 
     #[serde(rename = "auth.error")]

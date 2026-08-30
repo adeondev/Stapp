@@ -100,3 +100,54 @@ fn resolves_paths_relative_to_the_config_file() {
     assert_eq!(config.storage.database, dir.path().join("data/test.db"));
     assert_eq!(config.server.static_dir, Some(dir.path().join("client")));
 }
+
+#[test]
+fn sem_redes_confiaveis_so_o_loopback_autentica_em_texto_claro() {
+    let auth = crate::config::AuthConfig::default();
+    assert!(auth.allows_plaintext_from("127.0.0.1".parse().unwrap()));
+    assert!(auth.allows_plaintext_from("::1".parse().unwrap()));
+    assert!(!auth.allows_plaintext_from("26.220.166.121".parse().unwrap()));
+    assert!(!auth.allows_plaintext_from("192.168.1.9".parse().unwrap()));
+}
+
+#[test]
+fn uma_rede_confiavel_libera_so_a_propria_faixa() {
+    let auth = crate::config::AuthConfig {
+        trusted_networks: vec!["26.0.0.0/8".parse().unwrap()],
+        ..Default::default()
+    };
+    assert!(auth.allows_plaintext_from("26.220.166.121".parse().unwrap()));
+    assert!(auth.allows_plaintext_from("26.0.0.1".parse().unwrap()));
+    // O loopback continua passando, e o resto da internet continua barrado.
+    assert!(auth.allows_plaintext_from("127.0.0.1".parse().unwrap()));
+    assert!(!auth.allows_plaintext_from("192.168.1.9".parse().unwrap()));
+    assert!(!auth.allows_plaintext_from("8.8.8.8".parse().unwrap()));
+}
+
+#[test]
+fn redes_confiaveis_sao_lidas_do_toml() {
+    let dir = TestDir::new();
+    let path = dir.path().join("stapp.toml");
+    std::fs::write(
+        &path,
+        r#"
+[server]
+name = "Stapp"
+[auth]
+trusted_networks = ["26.0.0.0/8", "192.168.0.0/16"]
+[[channels]]
+id = "geral"
+name = "geral"
+kind = "text"
+"#,
+    )
+    .unwrap();
+
+    let config = Config::load(&path).unwrap();
+    assert_eq!(config.auth.trusted_networks.len(), 2);
+    assert!(
+        config
+            .auth
+            .allows_plaintext_from("26.220.166.121".parse().unwrap())
+    );
+}

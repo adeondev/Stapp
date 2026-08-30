@@ -2,6 +2,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use ipnet::IpNet;
 use serde::Deserialize;
 
 pub mod channel;
@@ -27,6 +28,25 @@ pub struct AuthConfig {
     pub allow_registration: bool,
     #[serde(default = "default_max_sessions_per_user")]
     pub max_sessions_per_user: usize,
+    /// Redes onde a autenticacao sem TLS e aceita, alem do loopback.
+    ///
+    /// A senha viaja em texto claro dentro do WebSocket, entao so entra aqui
+    /// rede que voce controla — uma VPN entre amigos, uma LAN atras de
+    /// firewall. Vazio por padrao: sem TLS, so a propria maquina autentica.
+    #[serde(default)]
+    pub trusted_networks: Vec<IpNet>,
+}
+
+impl AuthConfig {
+    /// O loopback sempre passa: e por ele que chega o trafego de um proxy TLS
+    /// rodando no mesmo host.
+    pub fn allows_plaintext_from(&self, ip: IpAddr) -> bool {
+        ip.is_loopback()
+            || self
+                .trusted_networks
+                .iter()
+                .any(|network| network.contains(&ip))
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -126,6 +146,7 @@ impl Default for AuthConfig {
         Self {
             allow_registration: false,
             max_sessions_per_user: default_max_sessions_per_user(),
+            trusted_networks: Vec::new(),
         }
     }
 }

@@ -60,15 +60,16 @@ pub(super) async fn handle(
         }
     };
 
-    // A senha viaja em texto claro dentro do WebSocket. Em producao quem termina
-    // o TLS e o proxy na mesma maquina, entao a origem continua sendo loopback.
-    if !origin.ip().is_loopback() {
+    // A senha viaja em texto claro dentro do WebSocket. Passa o loopback (em
+    // producao quem termina o TLS e um proxy no mesmo host) e o que o servidor
+    // declarar como rede confiavel em `auth.trusted_networks`.
+    if !state.config.auth.allows_plaintext_from(origin.ip()) {
         return refuse(
             state,
             peer_id,
             Failure::new(
                 AuthErrorCode::SecureTransportRequired,
-                "use WSS para autenticar fora desta maquina",
+                "use WSS para autenticar de fora das redes confiaveis deste servidor",
             ),
         );
     }

@@ -58,6 +58,7 @@ export default function App() {
           setAuthInfo({
             serverName: msg.server_name,
             registrationEnabled: msg.registration_enabled,
+            plaintextAuthAllowed: msg.plaintext_auth_allowed,
           })
           return
         }

@@ -35,7 +35,11 @@ describe('Connect', () => {
     render(
       <Connect
         {...baseProps}
-        authInfo={{ serverName: 'Privado', registrationEnabled: false }}
+        authInfo={{
+          serverName: 'Privado',
+          registrationEnabled: false,
+          plaintextAuthAllowed: true,
+        }}
       />,
     )
     expect(screen.queryByText('criar uma conta neste servidor')).toBeNull()
@@ -47,7 +51,11 @@ describe('Connect', () => {
     render(
       <Connect
         {...baseProps}
-        authInfo={{ serverName: 'Aberto', registrationEnabled: true }}
+        authInfo={{
+          serverName: 'Aberto',
+          registrationEnabled: true,
+          plaintextAuthAllowed: true,
+        }}
       />,
     )
     await user.click(screen.getByRole('button', { name: 'criar uma conta neste servidor' }))
@@ -64,5 +72,37 @@ describe('Connect', () => {
     ])
     expect(screen.getByRole('button', { name: 'criar e entrar' })).toBeTruthy()
     expect(localStorage.length).toBe(0)
+  })
+
+  it('em ws:// liberado pelo servidor, pede a senha mas avisa que nao ha TLS', () => {
+    render(
+      <Connect
+        {...baseProps}
+        serverUrl="ws://26.220.166.121:8787/ws"
+        authInfo={{
+          serverName: 'Radmin',
+          registrationEnabled: true,
+          plaintextAuthAllowed: true,
+        }}
+      />,
+    )
+    expect(screen.getByLabelText('senha')).toBeTruthy()
+    expect(screen.getByText(/a ligacao nao tem TLS/)).toBeTruthy()
+  })
+
+  it('em ws:// que o servidor nao libera, nem mostra o formulario', () => {
+    render(
+      <Connect
+        {...baseProps}
+        serverUrl="ws://26.220.166.121:8787/ws"
+        authInfo={{
+          serverName: 'Fechado',
+          registrationEnabled: true,
+          plaintextAuthAllowed: false,
+        }}
+      />,
+    )
+    expect(screen.queryByLabelText('senha')).toBeNull()
+    expect(screen.getByText(/nao aceita senha sem TLS/)).toBeTruthy()
   })
 })

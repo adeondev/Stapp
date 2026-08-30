@@ -66,7 +66,13 @@ export type ClientMsg =
   | { t: 'rtc.signal'; to: PeerId; payload: RtcPayload }
 
 export type ServerMsg =
-  | { t: 'auth.required'; server_name: string; registration_enabled: boolean }
+  | {
+      t: 'auth.required'
+      server_name: string
+      registration_enabled: boolean
+      /** Se esta conexao pode mandar senha sem TLS. Quem decide e o servidor. */
+      plaintext_auth_allowed: boolean
+    }
   | { t: 'auth.error'; code: AuthErrorCode; message: string; retry_after_ms?: number }
   | {
       t: 'welcome'

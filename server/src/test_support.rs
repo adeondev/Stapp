@@ -73,6 +73,7 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
         auth: AuthConfig {
             allow_registration: false,
             max_sessions_per_user: 3,
+            trusted_networks: Vec::new(),
         },
         channels: vec![
             Channel {

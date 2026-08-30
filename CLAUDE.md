@@ -147,6 +147,14 @@ Antes da primeira entrada, crie uma conta com `cargo run -- user add <username>`
 - **Microfone exige contexto seguro.** `getUserMedia` só funciona em `localhost` ou HTTPS.
   Abrir o cliente em `http://192.168.0.x:5173` **bloqueia o microfone silenciosamente**. Para
   testar na LAN: app Tauri (origem `tauri://` é secure context) ou TLS de verdade.
+- **Senha sem TLS só sai de rede declarada.** O servidor recusa `auth.login`/`auth.register` de
+  qualquer origem que não seja loopback ou uma faixa em `auth.trusted_networks` (`stapp.toml`).
+  Quem decide é o servidor, e ele avisa a decisão daquela conexão no `auth.required`, no campo
+  `plaintext_auth_allowed` — **o cliente obedece, não repete a regra**. Se você se pegar
+  escrevendo política de rede em `web/`, é sinal de que ela deveria estar no servidor.
+- **Duas travas diferentes, não confunda.** Autenticação por rede confiável e microfone por
+  contexto seguro são independentes: numa VPN o texto funciona e a voz não, porque o navegador
+  não sabe nada de `trusted_networks`. Voz fora do localhost = app Tauri ou TLS.
 - **Mesh sem TURN falha em alguns NATs** (CGNAT de operadora). O `ice_servers` vem do
   `stapp.toml`, então adicionar um coturn depois é config, não código.
 - **Anti-glare do mesh:** quem *entra* na call cria as offers para todo mundo que já estava;

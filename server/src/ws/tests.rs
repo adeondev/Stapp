@@ -6,6 +6,24 @@ fn peer() -> PeerId {
     "peer".to_string()
 }
 
+/// Consome os eventos ja enfileirados ate achar um que sirva. Depois de um
+/// welcome sobram `chat.history` e afins na fila, entao `try_recv` sozinho
+/// pegaria o evento errado.
+fn drena_ate<F>(
+    events: &mut tokio::sync::broadcast::Receiver<crate::session::Envelope>,
+    combina: F,
+) -> ServerMsg
+where
+    F: Fn(&ServerMsg) -> bool,
+{
+    while let Ok(envelope) = events.try_recv() {
+        if combina(&envelope.msg) {
+            return envelope.msg;
+        }
+    }
+    panic!("nenhum evento correspondente na fila");
+}
+
 #[test]
 fn auth_error_codes_use_snake_case() {
     let json = serde_json::to_string(&ServerMsg::AuthError {
@@ -85,13 +103,15 @@ async fn rejects_registration_when_closed_and_remote_plaintext_auth() {
     )
     .await;
     assert_eq!(phase, Phase::Anonymous);
-    assert!(matches!(
-        events.try_recv().unwrap().msg,
-        ServerMsg::AuthError {
-            code: AuthErrorCode::SecureTransportRequired,
-            ..
-        }
-    ));
+    drena_ate(&mut events, |msg| {
+        matches!(
+            msg,
+            ServerMsg::AuthError {
+                code: AuthErrorCode::SecureTransportRequired,
+                ..
+            }
+        )
+    });
 }
 
 #[tokio::test]
@@ -156,4 +176,53 @@ async fn sessao_autenticada_continua_autenticada() {
     )
     .await;
     assert_eq!(phase, Phase::Authenticated);
+}
+
+#[tokio::test]
+async fn uma_rede_confiavel_pode_autenticar_sem_tls() {
+    let mut server = TestServer::new(10, 4);
+    {
+        let config = &mut Arc::get_mut(&mut server.state).unwrap().config;
+        config.auth.allow_registration = true;
+        config.auth.trusted_networks = vec!["26.0.0.0/8".parse().unwrap()];
+    }
+    let mut events = server.state.subscribe();
+
+    // De dentro da VPN declarada: entra.
+    let phase = route(
+        &server.state,
+        &peer(),
+        "26.220.166.121:1234".parse().unwrap(),
+        Phase::Anonymous,
+        ClientMsg::AuthRegister {
+            username: "daniyusk".into(),
+            password: "uma senha realmente segura".into(),
+        },
+    )
+    .await;
+    assert_eq!(phase, Phase::Authenticated);
+    drena_ate(&mut events, |msg| matches!(msg, ServerMsg::Welcome { .. }));
+
+    // De fora dela: continua barrado.
+    let phase = route(
+        &server.state,
+        &"outro".to_string(),
+        "203.0.113.7:1234".parse().unwrap(),
+        Phase::Anonymous,
+        ClientMsg::AuthLogin {
+            username: "daniyusk".into(),
+            password: "uma senha realmente segura".into(),
+        },
+    )
+    .await;
+    assert_eq!(phase, Phase::Anonymous);
+    drena_ate(&mut events, |msg| {
+        matches!(
+            msg,
+            ServerMsg::AuthError {
+                code: AuthErrorCode::SecureTransportRequired,
+                ..
+            }
+        )
+    });
 }

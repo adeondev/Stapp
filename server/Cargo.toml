@@ -10,6 +10,7 @@ anyhow = "1"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["ws"] }
 clap = { version = "4", features = ["derive"] }
+ipnet = { version = "2", features = ["serde"] }
 rpassword = "7"
 rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.40", features = ["bundled"] }

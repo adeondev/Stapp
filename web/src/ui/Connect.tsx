@@ -6,6 +6,8 @@ import './connect.css'
 export interface AuthInfo {
   serverName: string
   registrationEnabled: boolean
+  /** O servidor aceita senha sem TLS vinda desta conexao. */
+  plaintextAuthAllowed: boolean
 }
 
 const STORAGE_URL = 'stapp.url'
@@ -52,10 +54,8 @@ export function Connect({
     event.preventDefault()
     const target = url.trim()
     if (!target) return
-    if (!isSecureAuthUrl(target)) {
-      setLocalError('use wss:// ou ws://localhost para proteger sua senha')
-      return
-    }
+    // Escolher o servidor nao manda senha nenhuma. Quem diz se a senha pode
+    // viajar sem TLS e o proprio servidor, na resposta auth.required.
     localStorage.setItem(STORAGE_URL, target)
     setLocalError(null)
     onChooseServer(target)
@@ -115,6 +115,11 @@ export function Connect({
               continuar
             </button>
           </form>
+        ) : authInfo && !authInfo.plaintextAuthAllowed && !isSecureAuthUrl(serverUrl) ? (
+          <p className="connect__error" role="alert">
+            este servidor nao aceita senha sem TLS vinda daqui. use um endereco
+            wss:// ou peca para quem administra liberar esta rede.
+          </p>
         ) : authInfo ? (
           <form onSubmit={authenticate} noValidate>
             <label className="connect__label" htmlFor="username">
@@ -163,6 +168,13 @@ export function Connect({
                 />
                 <p className="connect__hint">12 a 128 caracteres, sem regras de simbolos.</p>
               </>
+            )}
+
+            {!isSecureAuthUrl(serverUrl) && (
+              <p className="connect__hint">
+                este servidor liberou esta rede, mas a ligacao nao tem TLS — sua
+                senha depende da rede ser confiavel.
+              </p>
             )}
 
             {shownError && <p className="connect__error" role="alert">{shownError}</p>}
