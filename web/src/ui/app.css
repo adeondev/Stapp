@@ -1,39 +1,42 @@
 .app {
   display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-columns: var(--rail-width) var(--sidebar-width) minmax(0, 1fr);
   height: 100%;
+  overflow: hidden;
+  background: var(--bg-canvas);
 }
-
+.app.app--members { grid-template-columns: var(--rail-width) var(--sidebar-width) minmax(0, 1fr) var(--members-width); }
 .main {
+  position: relative;
   display: flex;
-  flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
   background: var(--bg-app);
+  backdrop-filter: blur(24px) saturate(125%);
 }
-
-/* Aviso do servidor ou do microfone. Sem borda: o tom de fundo ja separa. */
 .notice {
-  margin: 12px 20px 0;
-  padding: 10px 14px;
-  border-radius: var(--radius);
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 5;
+  max-width: min(520px, calc(100% - 32px));
+  padding: 9px 14px;
+  border-radius: var(--radius-lg);
   background: var(--danger-quiet);
   color: var(--danger);
-  font-size: 14px;
+  font-size: 13px;
+  translate: -50% 0;
+  backdrop-filter: blur(18px);
 }
+.placeholder { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 30px; color: var(--text-dim); text-align: center; }
+.placeholder strong { color: var(--text-soft); font-size: 17px; }
+.placeholder__logo { width: 52px; height: auto; opacity: 0.45; }
 
-.placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  flex: 1;
-  color: var(--text-dim);
+@media (max-width: 1180px) {
+  .app.app--members { grid-template-columns: var(--rail-width) var(--sidebar-width) minmax(0, 1fr); }
+  .members { display: none; }
 }
-
-.placeholder__logo {
-  width: 48px;
-  height: auto;
-  opacity: 0.5;
+@media (max-width: 820px) {
+  :root { --rail-width: 56px; --sidebar-width: 210px; }
 }

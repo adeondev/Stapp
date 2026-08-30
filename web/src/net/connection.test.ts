@@ -1,16 +1,52 @@
-import { describe, expect, it } from 'vitest'
-import { isSecureAuthUrl } from './connection'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { Connection } from './connection'
 
-describe('isSecureAuthUrl', () => {
-  it('permite WSS e WebSocket local', () => {
-    expect(isSecureAuthUrl('wss://stapp.exemplo.com/ws')).toBe(true)
-    expect(isSecureAuthUrl('ws://localhost:8787/ws')).toBe(true)
-    expect(isSecureAuthUrl('ws://127.0.0.1:8787/ws')).toBe(true)
+class FakeWebSocket {
+  static OPEN = 1
+  static instances: FakeWebSocket[] = []
+  readyState = FakeWebSocket.OPEN
+  sent: string[] = []
+  private listeners = new Map<string, Array<(event: { data?: string }) => void>>()
+
+  constructor(readonly url: string) { FakeWebSocket.instances.push(this) }
+  addEventListener(type: string, listener: (event: { data?: string }) => void) {
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener])
+  }
+  send(value: string) { this.sent.push(value) }
+  close() { this.emit('close') }
+  emit(type: string, data?: string) {
+    for (const listener of this.listeners.get(type) ?? []) listener({ data })
+  }
+}
+
+describe('Connection', () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
   })
 
-  it('recusa credenciais por WebSocket remoto sem TLS', () => {
-    expect(isSecureAuthUrl('ws://192.168.0.10:8787/ws')).toBe(false)
-    expect(isSecureAuthUrl('http://stapp.exemplo.com/ws')).toBe(false)
-    expect(isSecureAuthUrl('nao e uma url')).toBe(false)
+  it('envia somente o access token depois de auth.required', () => {
+    const onMessage = vi.fn()
+    const connection = new Connection('wss://stapp.example/ws', { onMessage, onStatus: vi.fn() })
+    const socket = FakeWebSocket.instances[0]
+
+    connection.authenticate('access-opaco')
+    expect(socket.sent).toEqual([])
+    socket.emit('message', JSON.stringify({
+      t: 'auth.required', server_id: 'server-1', protocol_version: 2,
+      server_name: 'Stapp', registration_enabled: true, plaintext_auth_allowed: true,
+    }))
+
+    expect(socket.sent.map((value) => JSON.parse(value))).toEqual([{ t: 'auth.access', access_token: 'access-opaco' }])
+    expect(socket.sent.join('')).not.toContain('password')
+    expect(connection.hasAccess()).toBe(true)
+    connection.close()
+  })
+
+  it('remove o access token da memória no encerramento explícito', () => {
+    const connection = new Connection('wss://stapp.example/ws', { onMessage: vi.fn(), onStatus: vi.fn() })
+    connection.authenticate('curto')
+    connection.close()
+    expect(connection.hasAccess()).toBe(false)
   })
 })

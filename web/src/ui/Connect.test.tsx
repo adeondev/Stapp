@@ -5,14 +5,33 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Connect } from './Connect'
 
+const profile = {
+  url: 'wss://stapp.exemplo.com/ws',
+  name: 'Stapp',
+  username: '',
+  lastUsed: 1,
+}
+
 const baseProps = {
   serverUrl: 'wss://stapp.exemplo.com/ws',
+  serverProfile: profile,
+  savedServers: [profile],
   status: 'connecting' as const,
   busy: false,
   error: null,
   onChooseServer: vi.fn(),
+  onSelectServer: vi.fn(),
+  onRemoveServer: vi.fn(),
   onAuthenticate: vi.fn(),
   onBack: vi.fn(),
+}
+
+const authInfo = {
+  serverId: 'server-1',
+  protocolVersion: 2,
+  serverName: 'Privado',
+  registrationEnabled: false,
+  plaintextAuthAllowed: true,
 }
 
 describe('Connect', () => {
@@ -35,15 +54,11 @@ describe('Connect', () => {
     render(
       <Connect
         {...baseProps}
-        authInfo={{
-          serverName: 'Privado',
-          registrationEnabled: false,
-          plaintextAuthAllowed: true,
-        }}
+        authInfo={authInfo}
       />,
     )
-    expect(screen.queryByText('criar uma conta neste servidor')).toBeNull()
-    expect(screen.getByRole('button', { name: 'entrar' })).toBeTruthy()
+    expect(screen.queryByText(/criar uma conta neste servidor/i)).toBeNull()
+    expect(screen.getByRole('button', { name: /entrar/i })).toBeTruthy()
   })
 
   it('pede confirmacao no cadastro e nunca grava a senha digitada', async () => {
@@ -51,17 +66,13 @@ describe('Connect', () => {
     render(
       <Connect
         {...baseProps}
-        authInfo={{
-          serverName: 'Aberto',
-          registrationEnabled: true,
-          plaintextAuthAllowed: true,
-        }}
+        authInfo={{ ...authInfo, serverName: 'Aberto', registrationEnabled: true }}
       />,
     )
-    await user.click(screen.getByRole('button', { name: 'criar uma conta neste servidor' }))
-    const username = screen.getByLabelText('username') as HTMLInputElement
-    const password = screen.getByLabelText('senha') as HTMLInputElement
-    const confirmation = screen.getByLabelText('repita a senha') as HTMLInputElement
+    await user.click(screen.getByRole('button', { name: /criar uma conta neste servidor/i }))
+    const username = screen.getByLabelText(/username/i) as HTMLInputElement
+    const password = screen.getByLabelText(/^senha$/i) as HTMLInputElement
+    const confirmation = screen.getByLabelText(/repita a senha/i) as HTMLInputElement
     await user.type(username, 'Daniel')
     await user.type(password, 'senha longa de teste')
     await user.type(confirmation, 'senha longa de teste')
@@ -70,7 +81,7 @@ describe('Connect', () => {
       'senha longa de teste',
       'senha longa de teste',
     ])
-    expect(screen.getByRole('button', { name: 'criar e entrar' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /criar e entrar/i })).toBeTruthy()
     expect(localStorage.length).toBe(0)
   })
 
@@ -79,15 +90,11 @@ describe('Connect', () => {
       <Connect
         {...baseProps}
         serverUrl="ws://26.220.166.121:8787/ws"
-        authInfo={{
-          serverName: 'Radmin',
-          registrationEnabled: true,
-          plaintextAuthAllowed: true,
-        }}
+        authInfo={{ ...authInfo, serverName: 'Radmin', registrationEnabled: true }}
       />,
     )
-    expect(screen.getByLabelText('senha')).toBeTruthy()
-    expect(screen.getByText(/a ligacao nao tem TLS/)).toBeTruthy()
+    expect(screen.getByLabelText(/^senha$/i)).toBeTruthy()
+    expect(screen.getByText(/sem HTTPS, esta sessão não será persistida/i)).toBeTruthy()
   })
 
   it('em ws:// que o servidor nao libera, nem mostra o formulario', () => {
@@ -95,14 +102,20 @@ describe('Connect', () => {
       <Connect
         {...baseProps}
         serverUrl="ws://26.220.166.121:8787/ws"
-        authInfo={{
-          serverName: 'Fechado',
-          registrationEnabled: true,
-          plaintextAuthAllowed: false,
-        }}
+        authInfo={{ ...authInfo, serverName: 'Fechado', registrationEnabled: true, plaintextAuthAllowed: false }}
       />,
     )
-    expect(screen.queryByLabelText('senha')).toBeNull()
-    expect(screen.getByText(/nao aceita senha sem TLS/)).toBeTruthy()
+    expect(screen.queryByLabelText(/^senha$/i)).toBeNull()
+    expect(screen.getByText(/exige HTTPS\/WSS/i)).toBeTruthy()
+  })
+
+  it('envia a preferência de lembrar sem armazenar credenciais', async () => {
+    const user = userEvent.setup()
+    render(<Connect {...baseProps} authInfo={authInfo} />)
+    await user.type(screen.getByLabelText(/username/i), 'Deon')
+    await user.type(screen.getByLabelText(/^senha$/i), 'uma senha segura')
+    await user.click(screen.getByRole('button', { name: /entrar/i }))
+    expect(baseProps.onAuthenticate).toHaveBeenCalledWith('login', 'Deon', 'uma senha segura', true)
+    expect(localStorage.length).toBe(0)
   })
 })

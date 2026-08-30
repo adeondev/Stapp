@@ -3,8 +3,9 @@
 Um Discord só nosso. Servidor auto-hospedado + aplicação que conecta nele — no espírito de um
 servidor de Minecraft: alguém sobe o servidor, o resto entra.
 
-Protótipo: **chat de texto**, **call de voz** e contas locais por servidor. Cada host controla
-seus próprios usernames; não existe conta Stapp global.
+O Stapp oferece **canais, mensagens diretas, amizades, privacidade, bloqueio e chamadas de voz**
+com contas locais por servidor. Cada host controla seus próprios usernames; não existe conta
+Stapp global nem um serviço central recebendo credenciais.
 
 ## Requisitos
 
@@ -60,7 +61,14 @@ pnpm install
 pnpm dev
 ```
 
-Abre em `http://localhost:5173`. Escolha o servidor e entre com a conta criada nele.
+Abre em `http://localhost:5173`. A aplicação pode lembrar vários servidores, mas mantém apenas
+uma conexão ativa. "Lembrar servidor" salva somente URL, nome e username; senha e tokens nunca
+entram no `localStorage`.
+
+Login e registro usam `/auth/login` e `/auth/register`. O access token curto fica apenas em
+memória e o WebSocket recebe somente esse token. "Lembrar usuário" usa um refresh token de 30
+dias em cookie `HttpOnly`, `Secure` e exclusivo daquela instância; o SQLite guarda apenas seu
+hash. Sem HTTPS (exceto localhost), a opção fica indisponível e a sessão é temporária.
 
 Para testar de verdade, abra **duas abas** com contas diferentes. A mesma conta pode manter até
 três sessões, mas aparece uma vez na lista online e apenas uma delas entra em voz.
@@ -69,12 +77,15 @@ três sessões, mas aparece uma vez na lista online e apenas uma delas entra em 
 > IP da rede local (`http://192.168.x.x`) faz o texto funcionar mas a voz não. Para usar na LAN,
 > use o app desktop (Tauri) ou coloque HTTPS.
 
-## WSS e senhas na rede
+## HTTPS/WSS e senhas na rede
 
-O servidor não termina TLS. O cliente só envia credenciais por `wss://` ou por `ws://` em
-localhost, e o backend recusa autenticação vinda diretamente de um endereço remoto. Em produção,
-coloque Caddy ou Nginx **no mesmo host**, exponha HTTPS/WSS e encaminhe `/ws` para
-`127.0.0.1:8787`. Não publique a porta 8787 diretamente na rede.
+O servidor não termina TLS. Em produção, coloque Caddy ou Nginx **no mesmo host**, exponha
+HTTPS/WSS e encaminhe tanto `/auth` quanto `/ws` para `127.0.0.1:8787`. O backend recusa senha
+sem TLS fora de loopback ou de `auth.trusted_networks`; uma rede confiável habilita apenas sessão
+temporária, pois o refresh cookie continua exigindo HTTPS. Não publique a porta 8787 na internet.
+
+Se o cliente estiver hospedado em outro domínio, liste origens exatas em
+`auth.allowed_origins`. Curingas não são aceitos.
 
 Exemplo mínimo de Caddyfile:
 
@@ -98,8 +109,8 @@ contexto seguro, o microfone funciona mesmo conectando num servidor da rede loca
 ## Estrutura
 
 ```
-server/   Rust (axum + tokio) — websocket, presença, chat, SQLite
-web/      Vite + React + TS — a aplicação
+server/   Rust (axum + tokio) — auth HTTP, WebSocket, presença, social, chat, SQLite
+web/      Vite + React + TS — shell multi-servidor e aplicação
 web/src-tauri/   casca desktop (o app web roda inteiro sem ela)
 ```
 

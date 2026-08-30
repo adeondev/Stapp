@@ -1,5 +1,5 @@
 use super::credentials::{validate_password, verify_password_sync};
-use super::throttle::REGISTRATION_ATTEMPTS;
+use super::throttle::{HTTP_ATTEMPTS, REGISTRATION_ATTEMPTS};
 use super::*;
 use crate::storage::Db;
 use crate::test_support::TestDir;
@@ -89,4 +89,14 @@ async fn throttles_login_and_registration_attempts() {
             .await,
         Err(RegisterError::RateLimited(_))
     ));
+}
+
+#[test]
+fn throttles_http_bursts_per_origin() {
+    let auth = AuthService::new().unwrap();
+    let origin = "127.0.0.3".parse().unwrap();
+    for _ in 0..HTTP_ATTEMPTS {
+        assert!(auth.http_wait(origin).is_none());
+    }
+    assert!(auth.http_wait(origin).is_some());
 }

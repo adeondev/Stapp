@@ -3,14 +3,19 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use axum::Router;
+use axum::extract::Request;
+use axum::http::{HeaderName, HeaderValue};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::routing::get;
 use std::net::SocketAddr;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::config::ChannelKind;
 use crate::config::Config;
-use crate::storage::Db;
+use crate::http;
 use crate::session::AppState;
+use crate::storage::Db;
 use crate::ws;
 
 /// Monta a aplicacao sem abrir uma porta, para permitir testes do Router em memoria.
@@ -21,13 +26,52 @@ pub fn build(config: Config) -> Result<Router> {
 
     let mut app = Router::new()
         .route("/health", get(|| async { "ok" }))
-        .route("/ws", get(ws::handler));
+        .route("/ws", get(ws::handler))
+        .nest("/auth", http::auth::routes());
 
     if let Some(dir) = static_dir.as_deref() {
         app = with_static_client(app, dir);
     }
 
-    Ok(app.with_state(state))
+    Ok(app
+        .layer(middleware::from_fn(security_headers))
+        .with_state(state))
+}
+
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        HeaderName::from_static("content-security-policy"),
+        HeaderValue::from_static(
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' http: https: ws: wss:",
+        ),
+    );
+    headers.insert(
+        HeaderName::from_static("permissions-policy"),
+        HeaderValue::from_static("microphone=(self), camera=(), geolocation=()"),
+    );
+    headers.insert(
+        HeaderName::from_static("referrer-policy"),
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(
+        HeaderName::from_static("cross-origin-opener-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
+    headers.insert(
+        HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("same-origin"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-content-type-options"),
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        HeaderName::from_static("x-frame-options"),
+        HeaderValue::from_static("DENY"),
+    );
+    response
 }
 
 /// Monta a aplicacao e a serve ate o processo receber Ctrl+C.

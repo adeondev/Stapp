@@ -15,10 +15,14 @@ allow_registration = true
 # Uma conta aparece uma vez na lista online, mas pode manter algumas conexoes.
 max_sessions_per_user = 3
 # Redes onde da para autenticar sem TLS, alem do loopback (que sempre passa).
-# A senha viaja em texto claro dentro do WebSocket, entao so entre aqui rede que
-# voce controla. 26.0.0.0/8 e a faixa do Radmin VPN — o trafego entre os peers
-# ja vai cifrado pela propria VPN. Tire esta linha se sair do Radmin.
+# Sem TLS, a senha viaja no endpoint HTTP de login. So entre aqui rede que voce
+# controla. 26.0.0.0/8 e a faixa do Radmin VPN — o trafego entre os peers ja vai
+# cifrado pela propria VPN. Mesmo aqui, "Lembrar usuario" exige HTTPS.
 trusted_networks = ["26.0.0.0/8"]
+# Se o cliente web for hospedado em outra origem, declare cada origem exata.
+# Nunca use curingas. Tauri e a mesma origem do servidor ja sao reconhecidos.
+# Esta origem e a usada por `pnpm app` durante o desenvolvimento local.
+allowed_origins = ["http://localhost:5173"]
 
 [[channels]]
 id   = "geral"

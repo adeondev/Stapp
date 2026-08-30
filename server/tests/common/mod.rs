@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -64,6 +65,7 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
             allow_registration,
             max_sessions_per_user: 3,
             trusted_networks: Vec::new(),
+            allowed_origins: Vec::new(),
         },
         channels: vec![
             Channel {
@@ -108,6 +110,127 @@ pub async fn start(config: Config) -> SocketAddr {
     addr
 }
 
+pub struct AuthResponse {
+    pub status: u16,
+    pub body: Value,
+    pub cookie: Option<String>,
+    pub set_cookie: Option<String>,
+}
+
+pub async fn auth(
+    addr: SocketAddr,
+    action: &str,
+    username: &str,
+    password: &str,
+    remember: bool,
+) -> AuthResponse {
+    let body = serde_json::json!({
+        "username": username,
+        "password": password,
+        "remember": remember,
+    })
+    .to_string();
+    http_post(addr, &format!("/auth/{action}"), &body, None).await
+}
+
+pub async fn refresh(addr: SocketAddr, cookie: &str) -> AuthResponse {
+    http_post(addr, "/auth/refresh", "", Some(cookie)).await
+}
+
+pub async fn logout(addr: SocketAddr, cookie: &str) -> AuthResponse {
+    http_post(addr, "/auth/logout", "", Some(cookie)).await
+}
+
+pub async fn auth_from_origin(
+    addr: SocketAddr,
+    action: &str,
+    username: &str,
+    password: &str,
+    remember: bool,
+    origin: &str,
+) -> AuthResponse {
+    let body = serde_json::json!({
+        "username": username,
+        "password": password,
+        "remember": remember,
+    })
+    .to_string();
+    http_post_with_origin(addr, &format!("/auth/{action}"), &body, None, Some(origin)).await
+}
+
+pub async fn preflight(addr: SocketAddr, path: &str, origin: &str) -> u16 {
+    let mut stream = TcpStream::connect(addr).await.expect("conectar HTTP");
+    let request = format!(
+        "OPTIONS {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nOrigin: {origin}\r\nAccess-Control-Request-Method: POST\r\nAccess-Control-Request-Headers: content-type,x-stapp-client\r\nContent-Length: 0\r\n\r\n"
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).await.unwrap();
+    raw.lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap()
+}
+
+async fn http_post(addr: SocketAddr, path: &str, body: &str, cookie: Option<&str>) -> AuthResponse {
+    http_post_with_origin(addr, path, body, cookie, None).await
+}
+
+async fn http_post_with_origin(
+    addr: SocketAddr,
+    path: &str,
+    body: &str,
+    cookie: Option<&str>,
+    origin: Option<&str>,
+) -> AuthResponse {
+    let mut stream = TcpStream::connect(addr).await.expect("conectar HTTP");
+    let cookie_header = cookie
+        .map(|value| format!("Cookie: {value}\r\n"))
+        .unwrap_or_default();
+    let origin_header = origin
+        .map(|value| format!("Origin: {value}\r\n"))
+        .unwrap_or_default();
+    let request = format!(
+        "POST {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\nContent-Type: application/json\r\nX-Stapp-Client: stapp-web-v2\r\n{origin_header}{cookie_header}Content-Length: {}\r\n\r\n{body}",
+        body.len(),
+    );
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut raw = String::new();
+    stream.read_to_string(&mut raw).await.unwrap();
+    let (head, body) = raw.split_once("\r\n\r\n").unwrap();
+    let status = head
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .parse()
+        .unwrap();
+    let set_cookie = head.lines().find_map(|line| {
+        line.strip_prefix("set-cookie: ")
+            .or_else(|| line.strip_prefix("Set-Cookie: "))
+            .map(str::to_string)
+    });
+    let cookie = set_cookie
+        .as_deref()
+        .map(|value| value.split(';').next().unwrap().to_string());
+    AuthResponse {
+        status,
+        body: if body.is_empty() {
+            Value::Null
+        } else {
+            serde_json::from_str(body).expect("json HTTP")
+        },
+        cookie,
+        set_cookie,
+    }
+}
+
 pub struct Client {
     socket: WebSocketStream<MaybeTlsStream<TcpStream>>,
 }
@@ -127,8 +250,20 @@ impl Client {
             .expect("enviar");
     }
 
+    pub async fn authenticate(&mut self, access_token: &str) {
+        self.send(serde_json::json!({ "t": "auth.access", "access_token": access_token }))
+            .await;
+    }
+
     /// Espera ate chegar uma mensagem com este `t`, descartando as do meio.
     pub async fn wait_for(&mut self, t: &str) -> Value {
+        self.wait_for_matching(t, |_| true).await
+    }
+
+    pub async fn wait_for_matching<F>(&mut self, t: &str, mut predicate: F) -> Value
+    where
+        F: FnMut(&Value) -> bool,
+    {
         let prazo = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
             let proximo = tokio::time::timeout_at(prazo, self.socket.next())
@@ -138,7 +273,7 @@ impl Client {
             match proximo {
                 Some(Ok(Message::Text(text))) => {
                     let value: Value = serde_json::from_str(&text).expect("json valido");
-                    if value["t"] == t {
+                    if value["t"] == t && predicate(&value) {
                         return value;
                     }
                 }

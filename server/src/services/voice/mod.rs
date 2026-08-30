@@ -17,8 +17,6 @@
 //! sair sao eventos publicos. Numa direta, contar para o servidor inteiro
 //! revelaria quem esta falando com quem — entao os avisos vao so para os dois.
 
-use std::sync::Arc;
-
 use crate::config::ChannelKind;
 use crate::protocol::{PeerId, ServerMsg, UserId, VoiceConfig, VoicePeer};
 use crate::session::{AppState, Target, VoiceJoinError};
@@ -32,6 +30,22 @@ const DIRECT_PREFIX: &str = "dm:";
 /// dos dois lados, sem ninguem combinar nada.
 pub fn direct_channel(a: &UserId, b: &UserId) -> String {
     format!("{DIRECT_PREFIX}{}", conversation_id(a, b))
+}
+
+/// Remove as duas pontas de uma voz direta quando uma delas bloqueia a outra.
+/// Salas publicas nao sao afetadas.
+pub async fn disconnect_direct(state: &AppState, first: &UserId, second: &UserId) {
+    let channel = direct_channel(first, second);
+    let peers: Vec<_> = state
+        .voice_peers()
+        .await
+        .into_iter()
+        .filter(|peer| peer.channel == channel)
+        .map(|peer| peer.peer_id)
+        .collect();
+    for peer in peers {
+        leave(state, &peer).await;
+    }
 }
 
 /// As duas contas donas de um canal `dm:<a>:<b>`, se for um.
@@ -64,7 +78,7 @@ pub async fn all_peers(state: &AppState) -> Vec<VoicePeer> {
         .collect()
 }
 
-pub async fn join(state: &Arc<AppState>, peer_id: &PeerId, channel: &str) {
+pub async fn join(state: &AppState, peer_id: &PeerId, channel: &str) {
     let max_peers = match direct_participants(channel) {
         Some((a, b)) => {
             let Some(me) = state.identity_of(peer_id).await else {
@@ -124,7 +138,7 @@ pub async fn join(state: &Arc<AppState>, peer_id: &PeerId, channel: &str) {
     .await;
 }
 
-pub async fn leave(state: &Arc<AppState>, peer_id: &PeerId) {
+pub async fn leave(state: &AppState, peer_id: &PeerId) {
     let Some(channel) = state.leave_voice(peer_id).await else {
         return;
     };
@@ -139,7 +153,7 @@ pub async fn leave(state: &Arc<AppState>, peer_id: &PeerId) {
     .await;
 }
 
-pub async fn set_state(state: &Arc<AppState>, peer_id: &PeerId, muted: bool, deafened: bool) {
+pub async fn set_state(state: &AppState, peer_id: &PeerId, muted: bool, deafened: bool) {
     let Some(channel) = state.update_voice_state(peer_id, muted, deafened).await else {
         return;
     };
@@ -157,7 +171,7 @@ pub async fn set_state(state: &Arc<AppState>, peer_id: &PeerId, muted: bool, dea
 }
 
 /// Repassa offer/answer/ICE. O servidor nao le o `payload`.
-pub async fn relay(state: &Arc<AppState>, from: &PeerId, to: &PeerId, payload: serde_json::Value) {
+pub async fn relay(state: &AppState, from: &PeerId, to: &PeerId, payload: serde_json::Value) {
     // So entrega entre duas pessoas na mesma call — sem isso um cliente podia
     // disparar sinalizacao para qualquer um conectado.
     if state.shares_voice_channel(from, to).await {

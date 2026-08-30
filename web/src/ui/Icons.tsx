@@ -136,3 +136,19 @@ export function IconCheck({ size = 12 }: IconProps) {
     </svg>
   )
 }
+
+export function IconHome(props: IconProps) {
+  return <Svg {...props}><path d="M2.5 7.5 8 2.5l5.5 5v6H9.8V9.8H6.2v3.7H2.5v-6Z" /></Svg>
+}
+
+export function IconUsers(props: IconProps) {
+  return <Svg {...props}><circle cx="6" cy="5" r="2.2" /><path d="M1.8 13c.4-2.5 1.8-3.8 4.2-3.8s3.8 1.3 4.2 3.8M10.5 3.5a2 2 0 0 1 0 3.8M11 9.5c1.8.3 2.8 1.5 3.2 3.5" /></Svg>
+}
+
+export function IconPlus(props: IconProps) {
+  return <Svg {...props}><path d="M8 3v10M3 8h10" /></Svg>
+}
+
+export function IconSettings(props: IconProps) {
+  return <Svg {...props}><circle cx="8" cy="8" r="2.3" /><path d="m8 1.8.7 1.5 1.6.7 1.6-.5.7 1.2-1 1.3.2 1.8 1.4 1-.6 1.2-1.7-.2-1.4 1-.3 1.7H6.8l-.3-1.7-1.4-1-1.7.2-.6-1.2 1.4-1 .2-1.8-1-1.3.7-1.2 1.6.5 1.6-.7.7-1.5Z" /></Svg>
+}

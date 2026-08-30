@@ -51,8 +51,9 @@ server/   Rust — axum + tokio. Binário único, config em stapp.toml, SQLite e
 web/      Vite + React + TS. Roda no navegador hoje, empacotado em Tauri depois.
 ```
 
-Os dois se falam por **um** WebSocket em `/ws`, JSON, enum com tag interna `t`. A conexao recebe
-`auth.required`, autentica e so entao passa a enxergar eventos da sala.
+Login, registro, refresh e logout passam por HTTP em `/auth`. O cliente guarda o access token
+curto somente em memória e o usa para autenticar **um** WebSocket em `/ws`, JSON, enum com tag
+interna `t`. A conexão recebe `auth.required`, responde `auth.access` e só então enxerga eventos.
 
 ### Regra dura: cada camada só conhece a de dentro
 
@@ -183,7 +184,7 @@ Antes da primeira entrada, crie uma conta com `cargo run -- user add <username>`
 - **Microfone exige contexto seguro.** `getUserMedia` só funciona em `localhost` ou HTTPS.
   Abrir o cliente em `http://192.168.0.x:5173` **bloqueia o microfone silenciosamente**. Para
   testar na LAN: app Tauri (origem `tauri://` é secure context) ou TLS de verdade.
-- **Senha sem TLS só sai de rede declarada.** O servidor recusa `auth.login`/`auth.register` de
+- **Senha sem TLS só sai de rede declarada.** O servidor recusa `/auth/login` e `/auth/register` de
   qualquer origem que não seja loopback ou uma faixa em `auth.trusted_networks` (`stapp.toml`).
   Quem decide é o servidor, e ele avisa a decisão daquela conexão no `auth.required`, no campo
   `plaintext_auth_allowed` — **o cliente obedece, não repete a regra**. Se você se pegar

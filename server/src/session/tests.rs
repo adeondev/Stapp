@@ -131,7 +131,10 @@ async fn a_call_lotada_recusa_mais_um() {
         .await
         .unwrap();
     assert!(matches!(
-        server.state.join_voice(&"two".into(), "voz-a", CABE_UM).await,
+        server
+            .state
+            .join_voice(&"two".into(), "voz-a", CABE_UM)
+            .await,
         Err(VoiceJoinError::Full)
     ));
 }

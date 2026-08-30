@@ -22,8 +22,8 @@ pub fn add_user(db: &Db, username: &str, password: &str) -> Result<String> {
     }
 }
 
-/// PROTOTYPE: CLI e servidor sao processos separados. A senha nova vale na
-/// proxima autenticacao; sessoes existentes so caem ao desconectar ou reiniciar.
+/// Revoga as sessoes persistentes. Como CLI e servidor sao processos separados,
+/// conexoes WebSocket ja autenticadas permanecem ate cair ou o servidor reiniciar.
 pub fn change_password(db: &Db, username: &str, password: &str) -> Result<String> {
     let username = validate_username(username).ok_or_else(|| anyhow::anyhow!(USERNAME_INVALIDO))?;
     let hash = hash_password_sync(password)?;
@@ -33,8 +33,8 @@ pub fn change_password(db: &Db, username: &str, password: &str) -> Result<String
     Ok(username.display)
 }
 
-/// PROTOTYPE: nao existe canal administrativo para expulsar uma sessao viva.
-/// FUTURE: um painel/evento interno podera revogar as sessoes imediatamente.
+/// Desativar revoga sessoes persistentes e impede novas autenticacoes. A CLI nao
+/// consegue expulsar uma conexao WebSocket viva de outro processo imediatamente.
 pub fn set_user_disabled(db: &Db, username: &str, disabled: bool) -> Result<String> {
     let username = validate_username(username).ok_or_else(|| anyhow::anyhow!(USERNAME_INVALIDO))?;
     if !db.set_disabled(&username.key, disabled)? {

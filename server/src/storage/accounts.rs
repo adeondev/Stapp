@@ -28,8 +28,9 @@ const COLUNAS: &str = "id, username, username_key, password_hash, created_at, di
 impl Db {
     pub fn account_by_key(&self, username_key: &str) -> Result<Option<Account>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare(&format!("SELECT {COLUNAS} FROM users WHERE username_key = ?1"))?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {COLUNAS} FROM users WHERE username_key = ?1"
+        ))?;
         let mut rows = stmt.query([username_key])?;
         match rows.next()? {
             Some(row) => Ok(Some(read_account(row)?)),
@@ -76,7 +77,14 @@ impl Db {
         );
 
         match result {
-            Ok(_) => Ok(account),
+            Ok(_) => {
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_privacy (user_id, allow_member_dms) VALUES (?1, 1)",
+                    [&account.id],
+                )
+                .map_err(|error| CreateAccountError::Other(error.into()))?;
+                Ok(account)
+            }
             Err(rusqlite::Error::SqliteFailure(error, _))
                 if error.code == ErrorCode::ConstraintViolation =>
             {
@@ -88,26 +96,44 @@ impl Db {
 
     pub fn list_accounts(&self) -> Result<Vec<Account>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!("SELECT {COLUNAS} FROM users ORDER BY username_key"))?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {COLUNAS} FROM users ORDER BY username_key"
+        ))?;
         let rows = stmt.query_map([], read_account)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }
 
     pub fn update_password(&self, username_key: &str, password_hash: &str) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
-        Ok(conn.execute(
+        let changed = conn.execute(
             "UPDATE users SET password_hash = ?1 WHERE username_key = ?2",
             (password_hash, username_key),
-        )? > 0)
+        )? > 0;
+        if changed {
+            conn.execute(
+                "UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?2)
+                  WHERE user_id = (SELECT id FROM users WHERE username_key = ?1)",
+                (username_key, now_ms()),
+            )?;
+        }
+        Ok(changed)
     }
 
     pub fn set_disabled(&self, username_key: &str, disabled: bool) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         let disabled_at = disabled.then(now_ms);
-        Ok(conn.execute(
+        let changed = conn.execute(
             "UPDATE users SET disabled_at = ?1 WHERE username_key = ?2",
             (disabled_at, username_key),
-        )? > 0)
+        )? > 0;
+        if changed && disabled {
+            conn.execute(
+                "UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?2)
+                  WHERE user_id = (SELECT id FROM users WHERE username_key = ?1)",
+                (username_key, now_ms()),
+            )?;
+        }
+        Ok(changed)
     }
 }
 

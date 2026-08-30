@@ -9,6 +9,7 @@ description = "Servidor do Stapp — chat de texto e sinalizacao de voz"
 anyhow = "1"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["ws"] }
+base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 ipnet = { version = "2", features = ["serde"] }
 rpassword = "7"
@@ -16,9 +17,11 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+subtle = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time"] }
 toml = "1"
-tower-http = { version = "0.7", features = ["fs"] }
+tower-http = { version = "0.7", features = ["fs", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }

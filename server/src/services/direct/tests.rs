@@ -30,9 +30,15 @@ async fn a_mensagem_chega_so_nas_duas_pontas() {
     let entregues = coletar(&mut events);
 
     let destinos: Vec<&str> = entregues.iter().map(|(peer, _)| peer.as_str()).collect();
-    assert!(destinos.contains(&"d1"), "o autor precisa ver a propria mensagem");
+    assert!(
+        destinos.contains(&"d1"),
+        "o autor precisa ver a propria mensagem"
+    );
     assert!(destinos.contains(&"a1"), "a destinataria precisa receber");
-    assert!(!destinos.contains(&"b1"), "quem nao e da conversa nao pode receber");
+    assert!(
+        !destinos.contains(&"b1"),
+        "quem nao e da conversa nao pode receber"
+    );
 }
 
 #[tokio::test]
@@ -47,7 +53,10 @@ async fn cada_lado_recebe_o_outro_como_dono_da_conversa() {
     send(&server.state, "d1", alice.id.clone(), "oi").await;
 
     for (peer, msg) in coletar(&mut events) {
-        let ServerMsg::DmNew { user_id, unread, .. } = msg else {
+        let ServerMsg::DmNew {
+            user_id, unread, ..
+        } = msg
+        else {
             continue;
         };
         match peer.as_str() {
@@ -78,12 +87,25 @@ async fn nao_lidas_acumulam_e_zeram_ao_abrir() {
     send(&server.state, "d1", alice.id.clone(), "duas").await;
 
     let conversa = conversation_id(&daniel.id, &alice.id);
-    assert_eq!(server.state.db.direct_unread(&alice.id, &conversa).unwrap(), 2);
+    assert_eq!(
+        server.state.db.direct_unread(&alice.id, &conversa).unwrap(),
+        2
+    );
     // O que voce mesmo escreveu nunca conta.
-    assert_eq!(server.state.db.direct_unread(&daniel.id, &conversa).unwrap(), 0);
+    assert_eq!(
+        server
+            .state
+            .db
+            .direct_unread(&daniel.id, &conversa)
+            .unwrap(),
+        0
+    );
 
     open(&server.state, "a1", daniel.id.clone()).await;
-    assert_eq!(server.state.db.direct_unread(&alice.id, &conversa).unwrap(), 0);
+    assert_eq!(
+        server.state.db.direct_unread(&alice.id, &conversa).unwrap(),
+        0
+    );
 }
 
 #[tokio::test]

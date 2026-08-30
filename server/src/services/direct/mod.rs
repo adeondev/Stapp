@@ -9,6 +9,7 @@ use uuid::Uuid;
 use crate::protocol::{
     DirectMessage, DirectMessageKind, DirectSummary, DirectoryEntry, ServerMsg, UserId, now_ms,
 };
+use crate::services::social;
 use crate::session::AppState;
 use crate::storage::conversation_id;
 
@@ -62,6 +63,13 @@ pub async fn open(state: &AppState, peer_id: &str, other: UserId) {
     if !account_exists(state, &other) {
         return refuse(state, peer_id, "essa conta nao existe");
     }
+    let exists = state
+        .db
+        .direct_conversation_exists(&me.user_id, &other)
+        .unwrap_or(false);
+    if !exists && !state.db.can_direct(&me.user_id, &other).unwrap_or(false) {
+        return denied(state, peer_id, other);
+    }
 
     let conversation = conversation_id(&me.user_id, &other);
     let limit = state.config.storage.history_limit;
@@ -104,10 +112,17 @@ pub async fn send(state: &AppState, peer_id: &str, other: UserId, raw_text: &str
     if !account_exists(state, &other) {
         return refuse(state, peer_id, "essa conta nao existe");
     }
+    if !state.db.can_direct(&me.user_id, &other).unwrap_or(false) {
+        return denied(state, peer_id, other);
+    }
     let Some(text) = clean_text(raw_text) else {
         return;
     };
 
+    let first_message = !state
+        .db
+        .direct_conversation_exists(&me.user_id, &other)
+        .unwrap_or(false);
     let conversation = conversation_id(&me.user_id, &other);
     let msg = DirectMessage {
         id: Uuid::new_v4().to_string(),
@@ -127,6 +142,9 @@ pub async fn send(state: &AppState, peer_id: &str, other: UserId, raw_text: &str
     mark(state, &me.user_id, &conversation);
 
     deliver(state, &me.user_id, &other, msg).await;
+    if first_message {
+        social::refresh_pair(state, &me.user_id, &other).await;
+    }
 }
 
 /// Entrega uma mensagem ja gravada nas duas pontas.
@@ -162,7 +180,10 @@ fn summary(state: &AppState, me: &UserId, other: &UserId) -> Option<DirectSummar
         user_id: account.id,
         username: account.username,
         last: state.db.direct_last(&conversation).ok().flatten(),
-        unread: state.db.direct_unread(me, &conversation).unwrap_or_default(),
+        unread: state
+            .db
+            .direct_unread(me, &conversation)
+            .unwrap_or_default(),
     })
 }
 
@@ -197,6 +218,10 @@ fn refuse(state: &AppState, peer_id: &str, message: &str) {
             message: message.to_string(),
         },
     );
+}
+
+fn denied(state: &AppState, peer_id: &str, user_id: UserId) {
+    state.send_to(peer_id, ServerMsg::DmDenied { user_id });
 }
 
 fn clean_text(raw: &str) -> Option<String> {

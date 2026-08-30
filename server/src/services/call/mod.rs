@@ -14,9 +14,7 @@ use std::time::Duration;
 
 use uuid::Uuid;
 
-use crate::protocol::{
-    CallEndReason, DirectMessage, DirectMessageKind, ServerMsg, UserId, now_ms,
-};
+use crate::protocol::{CallEndReason, DirectMessage, DirectMessageKind, ServerMsg, UserId, now_ms};
 use crate::services::{direct, voice};
 use crate::session::{AppState, CallStartError, PendingCall};
 use crate::storage::conversation_id;
@@ -32,6 +30,9 @@ pub async fn start(state: &Arc<AppState>, peer_id: &str, to: UserId) {
         return ended_to_caller(state, &me.user_id, &to, CallEndReason::Unavailable).await;
     }
     if !direct::account_exists(state, &to) {
+        return ended_to_caller(state, &me.user_id, &to, CallEndReason::Unavailable).await;
+    }
+    if !state.db.can_direct(&me.user_id, &to).unwrap_or(false) {
         return ended_to_caller(state, &me.user_id, &to, CallEndReason::Unavailable).await;
     }
 
@@ -58,9 +59,35 @@ pub async fn start(state: &Arc<AppState>, peer_id: &str, to: UserId) {
         );
     }
     // ...e quem ligou fica sabendo que esta tocando.
-    notify(state, &me.user_id, ServerMsg::CallRinging { user_id: to.clone() }).await;
+    notify(
+        state,
+        &me.user_id,
+        ServerMsg::CallRinging {
+            user_id: to.clone(),
+        },
+    )
+    .await;
 
     arm_timeout(state, call);
+}
+
+/// Bloquear nao vira chamada perdida: encerra o toque de forma privada e
+/// generica, sem acrescentar uma mensagem nova ao historico.
+pub async fn block_pair(state: &AppState, first: &UserId, second: &UserId) {
+    let Some(call) = state.take_call(first, second).await else {
+        return;
+    };
+    for (owner, other) in [(&call.from, &call.to), (&call.to, &call.from)] {
+        notify(
+            state,
+            owner,
+            ServerMsg::CallEnded {
+                user_id: other.clone(),
+                reason: CallEndReason::Unavailable,
+            },
+        )
+        .await;
+    }
 }
 
 pub async fn accept(state: &Arc<AppState>, peer_id: &str, from: UserId) {
@@ -77,7 +104,11 @@ pub async fn accept(state: &Arc<AppState>, peer_id: &str, from: UserId) {
 
     let channel = voice::direct_channel(&call.from, &call.to);
     for lado in [&call.from, &call.to] {
-        let outro = if lado == &call.from { &call.to } else { &call.from };
+        let outro = if lado == &call.from {
+            &call.to
+        } else {
+            &call.from
+        };
         notify(
             state,
             lado,
@@ -201,12 +232,7 @@ async fn notify(state: &AppState, user_id: &UserId, msg: ServerMsg) {
     }
 }
 
-async fn ended_to_caller(
-    state: &AppState,
-    caller: &UserId,
-    other: &UserId,
-    reason: CallEndReason,
-) {
+async fn ended_to_caller(state: &AppState, caller: &UserId, other: &UserId, reason: CallEndReason) {
     notify(
         state,
         caller,

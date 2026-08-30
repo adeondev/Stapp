@@ -6,9 +6,11 @@
 //! entra como um arquivo novo, nao como mais 80 linhas aqui.
 
 mod accounts;
+mod auth_sessions;
 mod direct;
 mod messages;
 mod schema;
+mod social;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -18,6 +20,7 @@ use rusqlite::Connection;
 
 pub use accounts::{Account, CreateAccountError};
 pub use direct::conversation_id;
+pub use social::Relationship;
 
 /// Um `Mutex<Connection>` basta: o volume aqui e de um grupo de amigos, nao
 /// justifica pool nem `spawn_blocking`.
@@ -50,6 +53,15 @@ impl Db {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn server_id(&self) -> Result<String> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT value FROM server_meta WHERE key = 'server_id'",
+            [],
+            |row| row.get(0),
+        )?)
     }
 }
 

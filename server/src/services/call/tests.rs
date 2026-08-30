@@ -33,7 +33,8 @@ async fn ligar_toca_do_outro_lado_e_confirma_para_quem_ligou() {
 
     let eventos = coletar(&mut events);
     let tocou = eventos.iter().any(|(peer, msg)| {
-        peer == "a1" && matches!(msg, ServerMsg::CallIncoming { username, .. } if username == "Daniel")
+        peer == "a1"
+            && matches!(msg, ServerMsg::CallIncoming { username, .. } if username == "Daniel")
     });
     let confirmou = eventos
         .iter()
@@ -84,7 +85,10 @@ async fn recusar_avisa_os_dois_e_deixa_rastro_na_conversa() {
         })
         .map(|(peer, _)| peer.as_str())
         .collect();
-    assert!(encerrados.contains(&"d1") && encerrados.contains(&"a1"), "{encerrados:?}");
+    assert!(
+        encerrados.contains(&"d1") && encerrados.contains(&"a1"),
+        "{encerrados:?}"
+    );
 
     let conversa = conversation_id(&daniel.id, &alice.id);
     let historico = server.state.db.direct_history(&conversa, 10).unwrap();
@@ -115,7 +119,14 @@ async fn ligar_para_quem_esta_offline_nem_toca() {
         )));
     // Nao chegou a tocar, entao nao vira linha na conversa.
     let conversa = conversation_id(&daniel.id, &alice.id);
-    assert!(server.state.db.direct_history(&conversa, 10).unwrap().is_empty());
+    assert!(
+        server
+            .state
+            .db
+            .direct_history(&conversa, 10)
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[tokio::test]
@@ -139,7 +150,13 @@ async fn quem_ja_esta_tocando_aparece_ocupado() {
             }
         )));
     // E a chamada original continua de pe.
-    assert!(server.state.take_call(&daniel.id, &alice.id).await.is_some());
+    assert!(
+        server
+            .state
+            .take_call(&daniel.id, &alice.id)
+            .await
+            .is_some()
+    );
 }
 
 #[tokio::test]
@@ -176,7 +193,13 @@ async fn cair_com_o_telefone_tocando_encerra_a_chamada() {
                 ..
             }
         )));
-    assert!(server.state.take_call(&daniel.id, &alice.id).await.is_none());
+    assert!(
+        server
+            .state
+            .take_call(&daniel.id, &alice.id)
+            .await
+            .is_none()
+    );
 }
 
 #[tokio::test]

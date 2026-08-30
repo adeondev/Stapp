@@ -1,94 +1,78 @@
-/*
- * Os tokens do Stapp. Toda cor do app sai daqui — nenhum hex solto em componente.
- *
- * As regras do projeto, que valem em qualquer tela nova:
- *   - flat: `box-shadow` e proibido, sem excecao;
- *   - sem borda e sem outline: areas se separam por TOM DE FUNDO;
- *   - a unica excecao e :focus-visible, que e acessibilidade de teclado.
- */
-
+/* Toda cor do Stapp vive neste arquivo. Componentes usam apenas estes tokens. */
 :root {
-  --accent: #52a3ff;
-  --accent-hover: #70b4ff;
-  --accent-quiet: #162a42;
-  /* Texto escuro sobre o acento: branco em cima de #52a3ff da ~2.4:1 de contraste e fica ilegivel. */
-  --on-accent: #091422;
-
-  --bg-sidebar: #15181d;
-  --bg-app: #1c2026;
-  --bg-raised: #252a32;
-  --bg-input: #171b21;
-
-  --text: #eaf0f5;
-  --text-dim: #909baa;
-
-  --danger: #e4676b;
-  --danger-quiet: #341d22;
-  --online: #57c98a;
-
-  --radius: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 48px;
-  --sidebar-width: 240px;
-
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-
+  --accent: #64b5ff;
+  --accent-hover: #87c5ff;
+  --accent-quiet: #17324c;
+  --accent-glass: #64b5ff24;
+  --accent-glow: #64b5ff16;
+  --connect-blue-deep: #10275b;
+  --connect-blue-mid: #214994;
+  --connect-blue-soft: #396ec755;
+  --on-accent: #071522;
+  --bg-canvas: #080b11;
+  --bg-rail: #0b0f17e8;
+  --bg-sidebar: #111620d9;
+  --bg-app: #151b25e8;
+  --bg-raised: #222b38d9;
+  --bg-input: #0d121bd9;
+  --bg-hover: #ffffff0b;
+  --bg-active: #ffffff12;
+  --glass: #18202c9c;
+  --glass-strong: #202a389e;
+  --glass-soft: #ffffff08;
+  --glass-highlight: #ffffff18;
+  --glass-sheen: #ffffff0d;
+  --scrim: #05070bb8;
+  --text: #edf4fb;
+  --text-soft: #c4cfdb;
+  --text-dim: #8f9baa;
+  --text-faint: #667281;
+  --danger: #ff858a;
+  --danger-quiet: #4b2028a8;
+  --online: #62d99b;
+  --online-quiet: #163d31;
+  --warning: #f1c46d;
+  --radius-sm: 7px;
+  --radius: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --rail-width: 64px;
+  --sidebar-width: 248px;
+  --members-width: 260px;
+  --font: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   color-scheme: dark;
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-html,
-body,
-#root {
-  height: 100%;
-}
-
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; }
 body {
   margin: 0;
-  background: var(--bg-app);
+  overflow: hidden;
+  background: var(--bg-canvas);
   color: var(--text);
   font-family: var(--font);
   font-size: 15px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-
-button,
-input,
-textarea {
-  font: inherit;
-  color: inherit;
+button, input, textarea {
   border: 0;
-  background: none;
   border-radius: var(--radius);
+  background: none;
+  color: inherit;
+  font: inherit;
 }
+button { cursor: pointer; }
+button:disabled { cursor: default; opacity: 0.48; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::placeholder { color: var(--text-faint); }
+* { scrollbar-color: var(--bg-raised) transparent; scrollbar-width: thin; }
 
-button {
-  cursor: pointer;
-}
-
-button:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-
-/* A unica coisa no projeto autorizada a desenhar um contorno. */
-:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-
-::placeholder {
-  color: var(--text-dim);
-}
-
-/* Barra de rolagem discreta, sem borda nem sombra. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--bg-raised) transparent;
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

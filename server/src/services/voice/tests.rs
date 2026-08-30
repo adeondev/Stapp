@@ -173,6 +173,9 @@ async fn ninguem_entra_na_conversa_de_voz_dos_outros() {
         .ok()
         .map(|envelope| matches!(envelope.msg, ServerMsg::Error { .. }))
         .unwrap_or(false);
-    assert!(recusou, "entrar na call de conversa alheia tem que ser recusado");
+    assert!(
+        recusou,
+        "entrar na call de conversa alheia tem que ser recusado"
+    );
     assert!(server.state.peers_in_voice(&canal).await.is_empty());
 }

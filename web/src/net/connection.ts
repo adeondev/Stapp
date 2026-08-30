@@ -1,16 +1,10 @@
-import type { AuthMode, ClientMsg, ServerMsg } from '../protocol'
+import type { ClientMsg, ServerMsg } from '../protocol'
 
 export type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline'
 
 interface Handlers {
   onMessage(msg: ServerMsg): void
   onStatus(status: ConnectionStatus, detail?: string): void
-}
-
-interface Credentials {
-  mode: AuthMode
-  username: string
-  password: string
 }
 
 /** WebSocket unico, com autenticacao explicita e reconexao automatica. */
@@ -22,9 +16,9 @@ export class Connection {
   private authReady = false
   private authSent = false
 
-  // PROTOTYPE: a senha fica somente nesta instancia para refazer login depois de
-  // uma queda. FUTURE: trocar por token efemero sem persistir sessao em disco.
-  private credentials: Credentials | null = null
+  // Access token curto e somente em memoria. O refresh fica num cookie
+  // HttpOnly e nunca e acessivel por esta classe.
+  private accessToken: string | null = null
 
   constructor(
     private readonly url: string,
@@ -33,15 +27,19 @@ export class Connection {
     this.open()
   }
 
-  authenticate(mode: AuthMode, username: string, password: string) {
-    this.credentials = { mode, username, password }
+  authenticate(accessToken: string) {
+    this.accessToken = accessToken
     this.authSent = false
-    this.sendCredentials()
+    this.sendAccess()
   }
 
-  clearCredentials() {
-    this.credentials = null
+  clearAccess() {
+    this.accessToken = null
     this.authSent = false
+  }
+
+  hasAccess() {
+    return this.accessToken !== null
   }
 
   private open() {
@@ -67,7 +65,7 @@ export class Connection {
         const msg = JSON.parse(event.data as string) as ServerMsg
         if (msg.t === 'auth.required') {
           this.authReady = true
-          this.sendCredentials()
+          this.sendAccess()
         } else if (msg.t === 'auth.error') {
           this.authSent = false
         } else if (msg.t === 'welcome') {
@@ -86,10 +84,9 @@ export class Connection {
     ws.addEventListener('error', () => {})
   }
 
-  private sendCredentials() {
-    if (!this.authReady || this.authSent || !this.credentials) return
-    const { mode, username, password } = this.credentials
-    this.send({ t: mode === 'login' ? 'auth.login' : 'auth.register', username, password })
+  private sendAccess() {
+    if (!this.authReady || this.authSent || !this.accessToken) return
+    this.send({ t: 'auth.access', access_token: this.accessToken })
     this.authSent = true
   }
 
@@ -108,24 +105,10 @@ export class Connection {
 
   close() {
     this.closedByUs = true
-    this.clearCredentials()
+    this.clearAccess()
     if (this.timer) clearTimeout(this.timer)
     this.ws?.close()
     this.handlers.onStatus('offline')
-  }
-}
-
-export function isSecureAuthUrl(raw: string): boolean {
-  try {
-    const url = new URL(raw)
-    if (url.protocol === 'wss:') return true
-    const hostname = url.hostname.toLowerCase()
-    return (
-      url.protocol === 'ws:' &&
-      (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1')
-    )
-  } catch {
-    return false
   }
 }
 

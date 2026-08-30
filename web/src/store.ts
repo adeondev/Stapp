@@ -7,6 +7,7 @@ import type {
   OnlineUser,
   PeerId,
   ServerMsg,
+  SocialMember,
   UserId,
   VoiceConfig,
   VoicePeer,
@@ -27,6 +28,8 @@ export interface StappState {
   conversations: Record<UserId, DirectSummary>
   /** Historico ja carregado de cada conversa. Chave: o outro user_id. */
   directMessages: Record<UserId, DirectMessage[]>
+  allowMemberDms: boolean
+  socialMembers: SocialMember[]
 }
 
 export const initialState: StappState = {
@@ -41,6 +44,8 @@ export const initialState: StappState = {
   directory: [],
   conversations: {},
   directMessages: {},
+  allowMemberDms: true,
+  socialMembers: [],
 }
 
 const byUsername = (a: { username: string }, b: { username: string }) =>
@@ -154,6 +159,13 @@ export function reduce(state: StappState, msg: StappAction): StappState {
         ? { ...state, conversations: mergeConversation(state, msg.user_id, { unread: 0 }) }
         : state
 
+    case 'social.snapshot':
+      return {
+        ...state,
+        allowMemberDms: msg.allow_member_dms,
+        socialMembers: [...msg.members].sort(byUsername),
+      }
+
     case 'dm.history':
       return {
         ...state,
@@ -190,6 +202,7 @@ export function reduce(state: StappState, msg: StappAction): StappState {
     case 'call.ended':
     case 'rtc.signal':
     case 'error':
+    case 'dm.denied':
       return state
   }
 }
@@ -230,17 +243,11 @@ export function conversationList(state: StappState): DirectSummary[] {
 }
 
 /**
- * A lista de diretas: quem ja tem conversa primeiro (mais recente no topo) e,
- * depois, o resto das contas do servidor. Num grupo pequeno todo mundo fica a
- * um clique, e conversa nova sobe sozinha.
+ * A lista de diretas contem somente conversas que realmente existem. Pessoas
+ * do servidor ficam na home de amigos e no painel de membros.
  */
 export function directList(state: StappState): DirectSummary[] {
-  const conversas = conversationList(state)
-  const jaTem = new Set(conversas.map((item) => item.user_id))
-  const resto = state.directory
-    .filter((entry) => !jaTem.has(entry.user_id))
-    .map((entry) => ({ ...entry, last: null, unread: 0 }))
-  return [...conversas, ...resto]
+  return conversationList(state)
 }
 
 export function totalUnread(state: StappState): number {
@@ -264,6 +271,7 @@ export function directChannelPartner(state: StappState, channel: string): string
 
   return (
     state.conversations[outro]?.username ??
+    state.socialMembers.find((entry) => entry.user_id === outro)?.username ??
     state.directory.find((entry) => entry.user_id === outro)?.username ??
     state.users.find((user) => user.user_id === outro)?.username ??
     null

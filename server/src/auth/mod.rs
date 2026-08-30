@@ -7,6 +7,7 @@
 
 mod credentials;
 mod throttle;
+mod tokens;
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use crate::storage::{Account, CreateAccountError, Db};
 use throttle::Throttle;
 
 pub use credentials::{hash_password_sync, validate_username};
+pub use tokens::{TokenService, refresh_id};
 
 /// Quantos hashes Argon2 podem rodar em paralelo. Cada um custa memoria de
 /// proposito; sem teto, varias tentativas ao mesmo tempo derrubariam o servidor.
@@ -46,6 +48,7 @@ pub struct AuthService {
     /// inexistente e senha errada levem o mesmo tempo.
     dummy_hash: String,
     throttle: Throttle,
+    pub tokens: TokenService,
 }
 
 impl AuthService {
@@ -54,7 +57,12 @@ impl AuthService {
             hashes: Arc::new(Semaphore::new(MAX_HASH_JOBS)),
             dummy_hash: hash_password_sync("esta-senha-nao-e-de-ninguem")?,
             throttle: Throttle::default(),
+            tokens: TokenService::new(),
         })
+    }
+
+    pub fn http_wait(&self, origin: IpAddr) -> Option<Duration> {
+        self.throttle.record_http_attempt(origin)
     }
 
     pub async fn login(

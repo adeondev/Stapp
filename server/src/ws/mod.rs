@@ -24,14 +24,14 @@ use axum::response::Response;
 use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
-use crate::protocol::{AuthErrorCode, ClientMsg, PeerId, ServerMsg};
-use crate::session::AppState;
+use crate::protocol::{AuthErrorCode, ClientMsg, PROTOCOL_VERSION, PeerId, ServerMsg};
 use crate::services::{call, voice};
+use crate::session::AppState;
 
 /// Em que ponto do protocolo esta esta conexao.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Phase {
-    /// Ainda nao provou quem e: so `auth.login` e `auth.register` passam.
+    /// Ainda nao provou quem e: so `auth.access` com token curto passa.
     Anonymous,
     /// Ja provou: o resto do protocolo esta liberado.
     Authenticated,
@@ -55,6 +55,8 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
     tracing::debug!(peer = %peer_id, %origin, "conexao aberta");
 
     let hello = ServerMsg::AuthRequired {
+        server_id: state.db.server_id().unwrap_or_else(|_| "unknown".into()),
+        protocol_version: PROTOCOL_VERSION,
         server_name: state.config.server.name.clone(),
         registration_enabled: state.config.auth.allow_registration,
         plaintext_auth_allowed: state.config.auth.allows_plaintext_from(origin.ip()),

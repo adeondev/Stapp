@@ -22,6 +22,7 @@ pub mod config;
 pub mod protocol;
 
 mod auth;
+mod http;
 mod services;
 mod session;
 mod storage;

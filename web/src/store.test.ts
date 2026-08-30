@@ -104,7 +104,7 @@ describe('mensagens diretas', () => {
 })
 
 describe('lista lateral de diretas', () => {
-  it('poe quem ja tem conversa no topo e o resto do diretorio embaixo', async () => {
+  it('mostra somente conversas reais, sem transformar o diretorio em DMs', async () => {
     const { directList } = await import('./store')
     let state = reduce(initialState, {
       ...welcome,
@@ -128,8 +128,20 @@ describe('lista lateral de diretas', () => {
     })
 
     const lista = directList(state)
-    expect(lista.map((item) => item.username)).toEqual(['Bob', 'Alice'])
+    expect(lista.map((item) => item.username)).toEqual(['Bob'])
     expect(lista[0].unread).toBe(1)
-    expect(lista[1].unread).toBe(0)
+  })
+
+  it('aplica o snapshot social personalizado', () => {
+    const state = reduce(initialState, {
+      t: 'social.snapshot',
+      allow_member_dms: false,
+      members: [{
+        user_id: 'user-2', username: 'Alice', relationship: 'incoming',
+        can_start_dm: false, has_conversation: false,
+      }],
+    })
+    expect(state.allowMemberDms).toBe(false)
+    expect(state.socialMembers[0].relationship).toBe('incoming')
   })
 })

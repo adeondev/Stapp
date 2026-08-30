@@ -1,21 +1,18 @@
 //! Autenticacao de uma conexao anonima.
 //!
-//! O fluxo e sempre o mesmo: conferir o transporte, cobrar as credenciais,
-//! abrir a sessao. O que muda entre entrar e criar conta e so o servico
-//! chamado — por isso os dois caminhos se juntam logo na primeira linha.
-
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+//! Login e registro ja aconteceram por HTTP. Aqui o WebSocket recebe somente
+//! o access token curto em memoria e, se ele for valido, abre a sessao.
 
 use super::Phase;
-use crate::auth::{LoginError, RegisterError};
+use crate::protocol::{AuthErrorCode, ClientMsg, PeerId, ServerMsg};
 use crate::services::chat;
 use crate::services::direct;
-use crate::protocol::{AuthErrorCode, ClientMsg, PeerId, ServerMsg};
+use crate::services::social;
+use crate::services::voice;
 use crate::session::{AppState, SessionError, Target};
 use crate::storage::Account;
-use crate::services::voice;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
 /// Traducao de uma falha para o que o cliente ve. Sem isto cada `match` de erro
 /// repetia cinco linhas de `ServerMsg::AuthError`.
@@ -33,14 +30,6 @@ impl Failure {
             retry_after_ms: None,
         }
     }
-
-    fn rate_limited(wait: Duration) -> Self {
-        Self {
-            code: AuthErrorCode::RateLimited,
-            message: "muitas tentativas; aguarde um pouco",
-            retry_after_ms: Some(wait.as_millis().min(u64::MAX as u128) as u64),
-        }
-    }
 }
 
 pub(super) async fn handle(
@@ -49,9 +38,8 @@ pub(super) async fn handle(
     origin: SocketAddr,
     msg: ClientMsg,
 ) -> Phase {
-    let (registering, username, password) = match msg {
-        ClientMsg::AuthLogin { username, password } => (false, username, password),
-        ClientMsg::AuthRegister { username, password } => (true, username, password),
+    let access_token = match msg {
+        ClientMsg::AuthAccess { access_token } => access_token,
         _ => {
             return refuse(
                 state,
@@ -61,47 +49,17 @@ pub(super) async fn handle(
         }
     };
 
-    // A senha viaja em texto claro dentro do WebSocket. Passa o loopback (em
-    // producao quem termina o TLS e um proxy no mesmo host) e o que o servidor
-    // declarar como rede confiavel em `auth.trusted_networks`.
-    if !state.config.auth.allows_plaintext_from(origin.ip()) {
-        return refuse(
+    let _ = origin;
+    match state.auth.tokens.verify_access(&state.db, &access_token) {
+        Some(account) => open_session(state, peer_id, account).await,
+        None => refuse(
             state,
             peer_id,
             Failure::new(
-                AuthErrorCode::SecureTransportRequired,
-                "use WSS para autenticar de fora das redes confiaveis deste servidor",
+                AuthErrorCode::InvalidCredentials,
+                "sessao invalida ou expirada",
             ),
-        );
-    }
-
-    let account = if registering {
-        if !state.config.auth.allow_registration {
-            return refuse(
-                state,
-                peer_id,
-                Failure::new(
-                    AuthErrorCode::RegistrationDisabled,
-                    "este servidor nao permite criar contas pelo aplicativo",
-                ),
-            );
-        }
-        state
-            .auth
-            .register(&state.db, origin.ip(), &username, password)
-            .await
-            .map_err(register_failure)
-    } else {
-        state
-            .auth
-            .login(&state.db, &username, password)
-            .await
-            .map_err(login_failure)
-    };
-
-    match account {
-        Ok(account) => open_session(state, peer_id, account).await,
-        Err(failure) => refuse(state, peer_id, failure),
+        ),
     }
 }
 
@@ -144,6 +102,7 @@ async fn open_session(state: &Arc<AppState>, peer_id: &PeerId, account: Account)
     );
     chat::send_history(state, peer_id);
     direct::send_list(state, peer_id).await;
+    social::send_snapshot(state, &account.id).await;
 
     if registration.first_session {
         state.publish(
@@ -152,6 +111,7 @@ async fn open_session(state: &Arc<AppState>, peer_id: &PeerId, account: Account)
                 user: registration.user,
             },
         );
+        social::refresh_all_online(state).await;
     }
 
     tracing::info!(
@@ -161,48 +121,6 @@ async fn open_session(state: &Arc<AppState>, peer_id: &PeerId, account: Account)
         "entrou"
     );
     Phase::Authenticated
-}
-
-fn login_failure(error: LoginError) -> Failure {
-    match error {
-        LoginError::InvalidCredentials => Failure::new(
-            AuthErrorCode::InvalidCredentials,
-            "username ou senha incorretos",
-        ),
-        LoginError::RateLimited(wait) => Failure::rate_limited(wait),
-        LoginError::Internal(error) => {
-            tracing::error!(%error, "falha autenticando conta");
-            Failure::new(
-                AuthErrorCode::InvalidCredentials,
-                "nao foi possivel autenticar",
-            )
-        }
-    }
-}
-
-fn register_failure(error: RegisterError) -> Failure {
-    match error {
-        RegisterError::InvalidUsername => Failure::new(
-            AuthErrorCode::InvalidUsername,
-            "use de 3 a 24 letras, numeros, ponto, hifen ou sublinhado",
-        ),
-        RegisterError::InvalidPassword => Failure::new(
-            AuthErrorCode::InvalidPassword,
-            "a senha precisa ter entre 12 e 128 caracteres",
-        ),
-        RegisterError::UsernameUnavailable => Failure::new(
-            AuthErrorCode::UsernameUnavailable,
-            "esse username ja esta em uso",
-        ),
-        RegisterError::RateLimited(wait) => Failure::rate_limited(wait),
-        RegisterError::Internal(error) => {
-            tracing::error!(%error, "falha registrando conta");
-            Failure::new(
-                AuthErrorCode::InvalidCredentials,
-                "nao foi possivel criar a conta",
-            )
-        }
-    }
 }
 
 fn refuse(state: &AppState, peer_id: &PeerId, failure: Failure) -> Phase {

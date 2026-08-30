@@ -4,10 +4,10 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::hash_password_sync;
-use crate::config::{Channel, ChannelKind};
 use crate::config::{AuthConfig, Config, ServerConfig, StorageConfig, VoiceSettings};
-use crate::storage::{Account, Db};
+use crate::config::{Channel, ChannelKind};
 use crate::session::AppState;
+use crate::storage::{Account, Db};
 
 pub struct TestDir {
     path: PathBuf,
@@ -74,6 +74,7 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
             allow_registration: false,
             max_sessions_per_user: 3,
             trusted_networks: Vec::new(),
+            allowed_origins: Vec::new(),
         },
         channels: vec![
             Channel {

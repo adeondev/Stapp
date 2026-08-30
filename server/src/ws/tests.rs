@@ -6,9 +6,6 @@ fn peer() -> PeerId {
     "peer".to_string()
 }
 
-/// Consome os eventos ja enfileirados ate achar um que sirva. Depois de um
-/// welcome sobram `chat.history` e afins na fila, entao `try_recv` sozinho
-/// pegaria o evento errado.
 fn drena_ate<F>(
     events: &mut tokio::sync::broadcast::Receiver<crate::session::Envelope>,
     combina: F,
@@ -37,100 +34,41 @@ fn auth_error_codes_use_snake_case() {
 }
 
 #[tokio::test]
-async fn registration_is_configurable_and_enters_immediately() {
-    let mut server = TestServer::new(10, 4);
-    Arc::get_mut(&mut server.state)
-        .unwrap()
-        .config
-        .auth
-        .allow_registration = true;
+async fn access_token_valido_abre_a_sessao() {
+    let server = TestServer::new(10, 4);
+    let account = server.account("Daniel");
+    let access = server.state.auth.tokens.issue_access(&account);
     let mut events = server.state.subscribe();
-
     let phase = route(
         &server.state,
         &peer(),
         "127.0.0.1:1234".parse().unwrap(),
         Phase::Anonymous,
-        ClientMsg::AuthRegister {
-            username: "Daniel".into(),
-            password: "uma senha realmente segura".into(),
+        ClientMsg::AuthAccess {
+            access_token: access.token,
         },
     )
     .await;
-
     assert_eq!(phase, Phase::Authenticated);
     let event = events.try_recv().unwrap();
     assert!(matches!(event.target, Target::Peer(ref id) if id == "peer"));
-    assert!(
-        matches!(event.msg, ServerMsg::Welcome { ref self_user_id, .. } if !self_user_id.is_empty())
-    );
+    assert!(matches!(event.msg, ServerMsg::Welcome { .. }));
 }
 
 #[tokio::test]
-async fn rejects_registration_when_closed_and_remote_plaintext_auth() {
+async fn access_token_invalido_permanece_anonimo() {
     let server = TestServer::new(10, 4);
     let mut events = server.state.subscribe();
-
     let phase = route(
         &server.state,
         &peer(),
         "127.0.0.1:1234".parse().unwrap(),
         Phase::Anonymous,
-        ClientMsg::AuthRegister {
-            username: "Daniel".into(),
-            password: "uma senha realmente segura".into(),
+        ClientMsg::AuthAccess {
+            access_token: "nao-existe".into(),
         },
     )
     .await;
-    assert_eq!(phase, Phase::Anonymous);
-    assert!(matches!(
-        events.try_recv().unwrap().msg,
-        ServerMsg::AuthError {
-            code: AuthErrorCode::RegistrationDisabled,
-            ..
-        }
-    ));
-
-    let phase = route(
-        &server.state,
-        &peer(),
-        "192.168.0.2:1234".parse().unwrap(),
-        Phase::Anonymous,
-        ClientMsg::AuthLogin {
-            username: "Daniel".into(),
-            password: "uma senha realmente segura".into(),
-        },
-    )
-    .await;
-    assert_eq!(phase, Phase::Anonymous);
-    drena_ate(&mut events, |msg| {
-        matches!(
-            msg,
-            ServerMsg::AuthError {
-                code: AuthErrorCode::SecureTransportRequired,
-                ..
-            }
-        )
-    });
-}
-
-#[tokio::test]
-async fn conexao_anonima_nao_alcanca_o_resto_do_protocolo() {
-    let server = TestServer::new(10, 4);
-    let mut events = server.state.subscribe();
-
-    let phase = route(
-        &server.state,
-        &peer(),
-        "127.0.0.1:1234".parse().unwrap(),
-        Phase::Anonymous,
-        ClientMsg::ChatSend {
-            channel: "geral".into(),
-            text: "oi".into(),
-        },
-    )
-    .await;
-
     assert_eq!(phase, Phase::Anonymous);
     assert!(matches!(
         events.try_recv().unwrap().msg,
@@ -142,36 +80,50 @@ async fn conexao_anonima_nao_alcanca_o_resto_do_protocolo() {
 }
 
 #[tokio::test]
-async fn sessao_autenticada_continua_autenticada() {
-    let mut server = TestServer::new(10, 4);
-    Arc::get_mut(&mut server.state)
-        .unwrap()
-        .config
-        .auth
-        .allow_registration = true;
-
+async fn conexao_anonima_nao_alcanca_o_resto_do_protocolo() {
+    let server = TestServer::new(10, 4);
+    let mut events = server.state.subscribe();
     let phase = route(
         &server.state,
         &peer(),
         "127.0.0.1:1234".parse().unwrap(),
         Phase::Anonymous,
-        ClientMsg::AuthRegister {
-            username: "Daniel".into(),
-            password: "uma senha realmente segura".into(),
+        ClientMsg::ChatSend {
+            channel: "geral".into(),
+            text: "oi".into(),
         },
     )
     .await;
-    assert_eq!(phase, Phase::Authenticated);
+    assert_eq!(phase, Phase::Anonymous);
+    assert!(matches!(
+        events.try_recv().unwrap().msg,
+        ServerMsg::AuthError { .. }
+    ));
+}
 
-    // Reautenticar no mesmo socket e ignorado, sem derrubar a sessao.
+#[tokio::test]
+async fn sessao_autenticada_ignora_nova_tentativa_de_auth() {
+    let server = TestServer::new(10, 4);
+    let account = server.account("Daniel");
+    let first = server.state.auth.tokens.issue_access(&account);
+    let phase = route(
+        &server.state,
+        &peer(),
+        "127.0.0.1:1234".parse().unwrap(),
+        Phase::Anonymous,
+        ClientMsg::AuthAccess {
+            access_token: first.token,
+        },
+    )
+    .await;
+    let second = server.state.auth.tokens.issue_access(&account);
     let phase = route(
         &server.state,
         &peer(),
         "127.0.0.1:1234".parse().unwrap(),
         phase,
-        ClientMsg::AuthLogin {
-            username: "Daniel".into(),
-            password: "uma senha realmente segura".into(),
+        ClientMsg::AuthAccess {
+            access_token: second.token,
         },
     )
     .await;
@@ -179,50 +131,27 @@ async fn sessao_autenticada_continua_autenticada() {
 }
 
 #[tokio::test]
-async fn uma_rede_confiavel_pode_autenticar_sem_tls() {
-    let mut server = TestServer::new(10, 4);
-    {
-        let config = &mut Arc::get_mut(&mut server.state).unwrap().config;
-        config.auth.allow_registration = true;
-        config.auth.trusted_networks = vec!["26.0.0.0/8".parse().unwrap()];
-    }
+async fn welcome_dispara_snapshot_social_personalizado() {
+    let server = TestServer::new(10, 4);
+    let account = server.account("Daniel");
+    let _alice = server.account("Alice");
+    let access = server.state.auth.tokens.issue_access(&account);
     let mut events = server.state.subscribe();
-
-    // De dentro da VPN declarada: entra.
-    let phase = route(
+    route(
         &server.state,
         &peer(),
-        "26.220.166.121:1234".parse().unwrap(),
+        "127.0.0.1:1234".parse().unwrap(),
         Phase::Anonymous,
-        ClientMsg::AuthRegister {
-            username: "daniyusk".into(),
-            password: "uma senha realmente segura".into(),
+        ClientMsg::AuthAccess {
+            access_token: access.token,
         },
     )
     .await;
-    assert_eq!(phase, Phase::Authenticated);
-    drena_ate(&mut events, |msg| matches!(msg, ServerMsg::Welcome { .. }));
-
-    // De fora dela: continua barrado.
-    let phase = route(
-        &server.state,
-        &"outro".to_string(),
-        "203.0.113.7:1234".parse().unwrap(),
-        Phase::Anonymous,
-        ClientMsg::AuthLogin {
-            username: "daniyusk".into(),
-            password: "uma senha realmente segura".into(),
-        },
-    )
-    .await;
-    assert_eq!(phase, Phase::Anonymous);
-    drena_ate(&mut events, |msg| {
-        matches!(
+    assert!(matches!(
+        drena_ate(&mut events, |msg| matches!(
             msg,
-            ServerMsg::AuthError {
-                code: AuthErrorCode::SecureTransportRequired,
-                ..
-            }
-        )
-    });
+            ServerMsg::SocialSnapshot { .. }
+        )),
+        ServerMsg::SocialSnapshot { .. }
+    ));
 }

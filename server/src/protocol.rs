@@ -9,6 +9,30 @@ use crate::config::Channel;
 
 pub type PeerId = String;
 pub type UserId = String;
+pub const PROTOCOL_VERSION: u32 = 2;
+
+/// Corpo dos endpoints HTTP de login e registro. Nao derive `Debug`: carrega
+/// senha em texto apenas durante a verificacao.
+#[derive(Deserialize)]
+pub struct AuthRequest {
+    pub username: String,
+    pub password: String,
+    pub remember: bool,
+}
+
+#[derive(Serialize)]
+pub struct AuthSession {
+    pub access_token: String,
+    pub access_expires_at: i64,
+}
+
+#[derive(Serialize)]
+pub struct ApiError {
+    pub code: AuthErrorCode,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_ms: Option<u64>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OnlineUser {
@@ -78,6 +102,27 @@ pub struct DirectoryEntry {
     pub username: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RelationshipState {
+    None,
+    Incoming,
+    Outgoing,
+    Friend,
+    Blocked,
+}
+
+/// Visao personalizada de um membro para a conta autenticada. `can_start_dm`
+/// e informativo; o servidor repete a autorizacao ao receber cada acao.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SocialMember {
+    pub user_id: UserId,
+    pub username: String,
+    pub relationship: RelationshipState,
+    pub can_start_dm: bool,
+    pub has_conversation: bool,
+}
+
 /// Por que uma chamada 1:1 terminou sem virar conversa.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,15 +167,12 @@ pub enum AuthErrorCode {
 
 // ---------------------------------------------------------------- cliente -> servidor
 
-/// Nao derive `Debug`: as variantes de autenticacao carregam senha em texto na memoria.
+/// Nao derive `Debug`: `auth.access` carrega um token secreto na memoria.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "t")]
 pub enum ClientMsg {
-    #[serde(rename = "auth.login")]
-    AuthLogin { username: String, password: String },
-
-    #[serde(rename = "auth.register")]
-    AuthRegister { username: String, password: String },
+    #[serde(rename = "auth.access")]
+    AuthAccess { access_token: String },
 
     #[serde(rename = "chat.send")]
     ChatSend { channel: String, text: String },
@@ -145,6 +187,30 @@ pub enum ClientMsg {
     /// Marca lida ate agora. Usado quando chega mensagem com a conversa aberta.
     #[serde(rename = "dm.read")]
     DmRead { user_id: UserId },
+
+    #[serde(rename = "friend.request")]
+    FriendRequest { user_id: UserId },
+
+    #[serde(rename = "friend.accept")]
+    FriendAccept { user_id: UserId },
+
+    #[serde(rename = "friend.decline")]
+    FriendDecline { user_id: UserId },
+
+    #[serde(rename = "friend.cancel")]
+    FriendCancel { user_id: UserId },
+
+    #[serde(rename = "friend.remove")]
+    FriendRemove { user_id: UserId },
+
+    #[serde(rename = "user.block")]
+    UserBlock { user_id: UserId },
+
+    #[serde(rename = "user.unblock")]
+    UserUnblock { user_id: UserId },
+
+    #[serde(rename = "privacy.update")]
+    PrivacyUpdate { allow_member_dms: bool },
 
     #[serde(rename = "call.start")]
     CallStart { user_id: UserId },
@@ -184,11 +250,12 @@ pub enum ServerMsg {
     /// Primeiro frame de toda conexao; ainda nao concede acesso a sala.
     #[serde(rename = "auth.required")]
     AuthRequired {
+        server_id: String,
+        protocol_version: u32,
         server_name: String,
         registration_enabled: bool,
-        /// Se ESTA conexao pode mandar senha sem TLS. Quem decide e o servidor
-        /// (`auth.trusted_networks`), entao o cliente nao precisa repetir a
-        /// regra — ele so obedece.
+        /// Se os endpoints HTTP de autenticacao podem receber senha sem TLS
+        /// nesta rede. Quem decide e o servidor (`auth.trusted_networks`).
         plaintext_auth_allowed: bool,
     },
 
@@ -244,6 +311,15 @@ pub enum ServerMsg {
     /// conta, entao ler no celular limpa o badge do PC.
     #[serde(rename = "dm.read")]
     DmRead { user_id: UserId },
+
+    #[serde(rename = "dm.denied")]
+    DmDenied { user_id: UserId },
+
+    #[serde(rename = "social.snapshot")]
+    SocialSnapshot {
+        allow_member_dms: bool,
+        members: Vec<SocialMember>,
+    },
 
     #[serde(rename = "user.online")]
     UserOnline { user: OnlineUser },

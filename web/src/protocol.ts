@@ -4,6 +4,7 @@
 export type PeerId = string
 export type UserId = string
 export type ChannelKind = 'text' | 'voice'
+export const PROTOCOL_VERSION = 2
 
 export interface Channel {
   id: string
@@ -73,6 +74,27 @@ export interface DirectoryEntry {
   username: string
 }
 
+export type RelationshipState = 'none' | 'incoming' | 'outgoing' | 'friend' | 'blocked'
+
+export interface SocialMember {
+  user_id: UserId
+  username: string
+  relationship: RelationshipState
+  can_start_dm: boolean
+  has_conversation: boolean
+}
+
+export interface AuthSession {
+  access_token: string
+  access_expires_at: number
+}
+
+export interface ApiError {
+  code: AuthErrorCode
+  message: string
+  retry_after_ms?: number
+}
+
 /** Por que uma chamada 1:1 terminou sem virar conversa. */
 export type CallEndReason =
   | 'declined'
@@ -104,12 +126,19 @@ export type AuthErrorCode =
   | 'secure_transport_required'
 
 export type ClientMsg =
-  | { t: 'auth.login'; username: string; password: string }
-  | { t: 'auth.register'; username: string; password: string }
+  | { t: 'auth.access'; access_token: string }
   | { t: 'chat.send'; channel: string; text: string }
   | { t: 'dm.open'; user_id: UserId }
   | { t: 'dm.send'; user_id: UserId; text: string }
   | { t: 'dm.read'; user_id: UserId }
+  | { t: 'friend.request'; user_id: UserId }
+  | { t: 'friend.accept'; user_id: UserId }
+  | { t: 'friend.decline'; user_id: UserId }
+  | { t: 'friend.cancel'; user_id: UserId }
+  | { t: 'friend.remove'; user_id: UserId }
+  | { t: 'user.block'; user_id: UserId }
+  | { t: 'user.unblock'; user_id: UserId }
+  | { t: 'privacy.update'; allow_member_dms: boolean }
   | { t: 'call.start'; user_id: UserId }
   | { t: 'call.accept'; user_id: UserId }
   | { t: 'call.decline'; user_id: UserId }
@@ -122,9 +151,11 @@ export type ClientMsg =
 export type ServerMsg =
   | {
       t: 'auth.required'
+      server_id: string
+      protocol_version: number
       server_name: string
       registration_enabled: boolean
-      /** Se esta conexao pode mandar senha sem TLS. Quem decide e o servidor. */
+      /** Se os endpoints HTTP de autenticacao podem receber senha sem TLS nesta rede. */
       plaintext_auth_allowed: boolean
     }
   | { t: 'auth.error'; code: AuthErrorCode; message: string; retry_after_ms?: number }
@@ -156,6 +187,8 @@ export type ServerMsg =
       t: 'dm.read'
       user_id: UserId
     }
+  | { t: 'dm.denied'; user_id: UserId }
+  | { t: 'social.snapshot'; allow_member_dms: boolean; members: SocialMember[] }
   | { t: 'user.online'; user: OnlineUser }
   | { t: 'user.offline'; user_id: UserId }
   | { t: 'call.incoming'; user_id: UserId; username: string }

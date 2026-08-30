@@ -16,6 +16,8 @@ const LOGIN_STATE_TTL: Duration = Duration::from_secs(15 * 60);
 const LOGIN_MAX_BACKOFF_SECS: u64 = 30;
 const REGISTRATION_WINDOW: Duration = Duration::from_secs(60);
 pub(super) const REGISTRATION_ATTEMPTS: usize = 5;
+const HTTP_WINDOW: Duration = Duration::from_secs(60);
+pub(super) const HTTP_ATTEMPTS: usize = 120;
 
 struct LoginFailure {
     failures: u32,
@@ -27,6 +29,7 @@ struct LoginFailure {
 pub struct Throttle {
     login_failures: Mutex<HashMap<String, LoginFailure>>,
     registration_attempts: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
+    http_attempts: Mutex<HashMap<IpAddr, VecDeque<Instant>>>,
 }
 
 impl Throttle {
@@ -81,6 +84,27 @@ impl Throttle {
                 .and_then(|at| (*at + REGISTRATION_WINDOW).checked_duration_since(now));
         }
 
+        entries.push_back(now);
+        None
+    }
+
+    /// Teto generoso para proteger todos os endpoints HTTP de rajadas. Login e
+    /// registro ainda mantem seus freios especificos, mais restritivos.
+    pub fn record_http_attempt(&self, origin: IpAddr) -> Option<Duration> {
+        let now = Instant::now();
+        let mut attempts = self.http_attempts.lock().unwrap();
+        let entries = attempts.entry(origin).or_default();
+        while entries
+            .front()
+            .is_some_and(|at| now.duration_since(*at) >= HTTP_WINDOW)
+        {
+            entries.pop_front();
+        }
+        if entries.len() >= HTTP_ATTEMPTS {
+            return entries
+                .front()
+                .and_then(|at| (*at + HTTP_WINDOW).checked_duration_since(now));
+        }
         entries.push_back(now);
         None
     }

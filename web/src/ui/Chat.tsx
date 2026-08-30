@@ -15,15 +15,15 @@ interface Props {
   kind: 'channel' | 'direct'
   messages: ChatEntry[]
   canSend: boolean
+  disabledReason?: string
   onSend(text: string): void
   /** So existe em conversa direta: o botao de ligar. */
   onCall?: () => void
 }
 
-export function Chat({ title, kind, messages, canSend, onSend, onCall }: Props) {
+export function Chat({ title, kind, messages, canSend, disabledReason, onSend, onCall }: Props) {
   const [draft, setDraft] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
-  const composer = useRef<HTMLTextAreaElement>(null)
   const pinned = useRef(true)
 
   // So acompanha o fim se o usuario ja estava no fim — se ele subiu para ler
@@ -49,7 +49,6 @@ export function Chat({ title, kind, messages, canSend, onSend, onCall }: Props) 
     if (!text || !canSend) return
     onSend(text)
     setDraft('')
-    if (composer.current) composer.current.style.height = 'auto'
   }
 
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -108,7 +107,6 @@ export function Chat({ title, kind, messages, canSend, onSend, onCall }: Props) 
 
       <div className="chat__composer">
         <textarea
-          ref={composer}
           className="chat__input"
           value={draft}
           rows={1}
@@ -117,14 +115,10 @@ export function Chat({ title, kind, messages, canSend, onSend, onCall }: Props) 
               ? kind === 'direct'
                 ? `falar com ${title}`
                 : `falar em ${title}`
-              : 'sem conexao com o servidor'
+              : disabledReason ?? 'sem conexão com o servidor'
           }
           disabled={!canSend}
-          onChange={(e) => {
-            setDraft(e.target.value)
-            e.target.style.height = 'auto'
-            e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`
-          }}
+          onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
         />
       </div>

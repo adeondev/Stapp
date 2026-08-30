@@ -16,6 +16,12 @@ async fn health_responde_sem_autenticacao() {
 
     let corpo = reqwest_simples(&format!("http://{addr}/health")).await;
     assert!(corpo.contains("ok"), "{corpo}");
+    assert!(
+        corpo
+            .to_ascii_lowercase()
+            .contains("content-security-policy:")
+    );
+    assert!(corpo.to_ascii_lowercase().contains("x-frame-options: deny"));
 }
 
 #[tokio::test]
@@ -28,7 +34,145 @@ async fn conexao_nova_recebe_auth_required_com_o_nome_do_servidor() {
 
     assert_eq!(aviso["server_name"], "Stapp de teste");
     assert_eq!(aviso["registration_enabled"], true);
+    assert_eq!(aviso["protocol_version"], 2);
+    assert!(aviso["server_id"].as_str().is_some_and(|id| !id.is_empty()));
     cliente.close().await;
+}
+
+#[tokio::test]
+async fn refresh_rotaciona_cookie_logout_revoga_e_origem_estranha_e_rejeitada() {
+    let dir = common::TestDir::new();
+    let mut config = common::config(dir.database(), true);
+    config
+        .auth
+        .allowed_origins
+        .push("http://localhost:5173".into());
+    let addr = common::start(config).await;
+
+    assert_eq!(
+        common::preflight(addr, "/auth/login", "http://localhost:5173").await,
+        204
+    );
+    assert_eq!(
+        common::preflight(addr, "/auth/login", "https://origem-invalida.example").await,
+        403
+    );
+
+    let login = common::auth(addr, "register", "daniel", SENHA, true).await;
+    assert_eq!(login.status, 200);
+    let attributes = login.set_cookie.as_deref().unwrap();
+    assert!(attributes.starts_with("__Secure-stapp-refresh-"));
+    for attribute in [
+        "Path=/auth",
+        "HttpOnly",
+        "Secure",
+        "SameSite=Strict",
+        "Max-Age=",
+    ] {
+        assert!(
+            attributes.contains(attribute),
+            "cookie sem {attribute}: {attributes}"
+        );
+    }
+
+    let first_cookie = login.cookie.as_deref().unwrap();
+    let first_access = login.body["access_token"].as_str().unwrap();
+    let rotated = common::refresh(addr, first_cookie).await;
+    assert_eq!(rotated.status, 200);
+    assert_ne!(rotated.body["access_token"].as_str().unwrap(), first_access);
+    assert_ne!(rotated.cookie.as_deref().unwrap(), first_cookie);
+
+    // Uma resposta perdida pode repetir o token anterior durante a janela curta.
+    let concurrent = common::refresh(addr, first_cookie).await;
+    assert_eq!(concurrent.status, 200);
+    let current_cookie = concurrent.cookie.as_deref().unwrap();
+
+    let logout = common::logout(addr, current_cookie).await;
+    assert_eq!(logout.status, 204);
+    assert!(logout.set_cookie.as_deref().unwrap().contains("Max-Age=0"));
+    assert_eq!(common::refresh(addr, current_cookie).await.status, 401);
+
+    let session_cookie =
+        common::auth(addr, "register", "alice", "outra senha seguraa", false).await;
+    assert!(
+        !session_cookie
+            .set_cookie
+            .as_deref()
+            .unwrap()
+            .contains("Max-Age=")
+    );
+
+    let tauri = common::auth_from_origin(
+        addr,
+        "register",
+        "carol",
+        "mais uma senha segura",
+        true,
+        "tauri://localhost",
+    )
+    .await;
+    let tauri_cookie = tauri.set_cookie.as_deref().unwrap();
+    assert!(tauri_cookie.contains("SameSite=None"));
+    assert!(tauri_cookie.contains("Partitioned"));
+
+    let dev_login = common::auth_from_origin(
+        addr,
+        "login",
+        "daniel",
+        SENHA,
+        false,
+        "http://localhost:5173",
+    )
+    .await;
+    assert_eq!(dev_login.status, 200);
+
+    let rejected = common::auth_from_origin(
+        addr,
+        "login",
+        "daniel",
+        SENHA,
+        false,
+        "https://origem-invalida.example",
+    )
+    .await;
+    assert_eq!(rejected.status, 403);
+}
+
+#[tokio::test]
+async fn refresh_persistente_sobrevive_a_reinicio_do_estado_do_servidor() {
+    let dir = common::TestDir::new();
+    let first = common::start(common::config(dir.database(), true)).await;
+    let session = common::auth(first, "register", "daniel", SENHA, true).await;
+    let cookie = session.cookie.as_deref().unwrap();
+
+    // O novo AppState nao conhece os access tokens em memoria do anterior,
+    // mas restaura pelo refresh armazenado apenas como hash no SQLite.
+    let second = common::start(common::config(dir.database(), false)).await;
+    let restored = common::refresh(second, cookie).await;
+    assert_eq!(restored.status, 200);
+    assert!(restored.body["access_token"].as_str().is_some());
+}
+
+#[tokio::test]
+async fn duas_instancias_no_mesmo_host_usam_cookies_com_nomes_distintos() {
+    let first_dir = common::TestDir::new();
+    let second_dir = common::TestDir::new();
+    let first = common::start(common::config(first_dir.database(), true)).await;
+    let second = common::start(common::config(second_dir.database(), true)).await;
+
+    let a = common::auth(first, "register", "daniel", SENHA, true).await;
+    let b = common::auth(second, "register", "daniel", SENHA, true).await;
+    let cookie_name = |response: &common::AuthResponse| {
+        response
+            .cookie
+            .as_deref()
+            .unwrap()
+            .split('=')
+            .next()
+            .unwrap()
+            .to_string()
+    };
+    assert_ne!(cookie_name(&a), cookie_name(&b));
 }
 
 #[tokio::test]
@@ -36,15 +180,9 @@ async fn registro_desligado_recusa_criar_conta() {
     let dir = common::TestDir::new();
     let addr = common::start(common::config(dir.database(), false)).await;
 
-    let mut cliente = common::Client::connect(addr).await;
-    cliente.wait_for("auth.required").await;
-    cliente
-        .send(json!({ "t": "auth.register", "username": "daniel", "password": "uma senha bem seguraa" }))
-        .await;
-
-    let erro = cliente.wait_for("auth.error").await;
-    assert_eq!(erro["code"], "registration_disabled");
-    cliente.close().await;
+    let erro = common::auth(addr, "register", "daniel", SENHA, true).await;
+    assert_eq!(erro.status, 403);
+    assert_eq!(erro.body["code"], "registration_disabled");
 }
 
 #[tokio::test]
@@ -53,10 +191,11 @@ async fn duas_pessoas_se_veem_conversam_e_entram_na_call() {
     let addr = common::start(common::config(dir.database(), true)).await;
 
     // --- daniel entra
+    let sessao_daniel = common::auth(addr, "register", "daniel", SENHA, true).await;
     let mut daniel = common::Client::connect(addr).await;
     daniel.wait_for("auth.required").await;
     daniel
-        .send(json!({ "t": "auth.register", "username": "daniel", "password": "uma senha bem seguraa" }))
+        .authenticate(sessao_daniel.body["access_token"].as_str().unwrap())
         .await;
 
     let welcome = daniel.wait_for("welcome").await;
@@ -69,10 +208,11 @@ async fn duas_pessoas_se_veem_conversam_e_entram_na_call() {
     assert!(historico["msgs"].as_array().unwrap().is_empty());
 
     // --- alice entra e daniel e avisado
+    let sessao_alice = common::auth(addr, "register", "alice", "outra senha seguraa", true).await;
     let mut alice = common::Client::connect(addr).await;
     alice.wait_for("auth.required").await;
     alice
-        .send(json!({ "t": "auth.register", "username": "alice", "password": "outra senha seguraa" }))
+        .authenticate(sessao_alice.body["access_token"].as_str().unwrap())
         .await;
     alice.wait_for("welcome").await;
 
@@ -120,10 +260,11 @@ async fn o_historico_sobrevive_a_um_restart_do_servidor() {
 
     {
         let addr = common::start(common::config(dir.database(), true)).await;
+        let sessao = common::auth(addr, "register", "daniel", SENHA, true).await;
         let mut daniel = common::Client::connect(addr).await;
         daniel.wait_for("auth.required").await;
         daniel
-            .send(json!({ "t": "auth.register", "username": "daniel", "password": "uma senha bem seguraa" }))
+            .authenticate(sessao.body["access_token"].as_str().unwrap())
             .await;
         daniel.wait_for("welcome").await;
         daniel
@@ -135,10 +276,11 @@ async fn o_historico_sobrevive_a_um_restart_do_servidor() {
 
     // Servidor novo, mesmo arquivo de banco.
     let addr = common::start(common::config(dir.database(), false)).await;
+    let sessao = common::auth(addr, "login", "daniel", SENHA, true).await;
     let mut daniel = common::Client::connect(addr).await;
     daniel.wait_for("auth.required").await;
     daniel
-        .send(json!({ "t": "auth.login", "username": "daniel", "password": "uma senha bem seguraa" }))
+        .authenticate(sessao.body["access_token"].as_str().unwrap())
         .await;
     daniel.wait_for("welcome").await;
 
@@ -155,7 +297,10 @@ async fn reqwest_simples(url: &str) -> String {
     let (host, caminho) = sem_esquema.split_once('/').unwrap();
     let mut stream = tokio::net::TcpStream::connect(host).await.unwrap();
     stream
-        .write_all(format!("GET /{caminho} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n").as_bytes())
+        .write_all(
+            format!("GET /{caminho} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\n\r\n")
+                .as_bytes(),
+        )
         .await
         .unwrap();
 
@@ -186,8 +331,14 @@ async fn conversa_direta_chega_so_para_os_dois_e_conta_as_nao_lidas() {
         .iter()
         .map(|e| e["username"].as_str().unwrap())
         .collect();
-    assert!(nomes.contains(&"daniel") && nomes.contains(&"bob"), "{nomes:?}");
-    assert!(!nomes.contains(&"alice"), "voce nao aparece no proprio diretorio");
+    assert!(
+        nomes.contains(&"daniel") && nomes.contains(&"bob"),
+        "{nomes:?}"
+    );
+    assert!(
+        !nomes.contains(&"alice"),
+        "voce nao aparece no proprio diretorio"
+    );
 
     let id_alice = welcome_alice["self_user_id"].as_str().unwrap().to_string();
     daniel
@@ -248,10 +399,11 @@ async fn a_conversa_espera_quem_estava_offline() {
 
     // Servidor novo, mesmo banco: a conversa a espera na lista, ja com a nao lida.
     let addr = common::start(common::config(dir.database(), false)).await;
+    let sessao = common::auth(addr, "login", "alice", SENHA, true).await;
     let mut alice = common::Client::connect(addr).await;
     alice.wait_for("auth.required").await;
     alice
-        .send(json!({ "t": "auth.login", "username": "alice", "password": SENHA }))
+        .authenticate(sessao.body["access_token"].as_str().unwrap())
         .await;
     alice.wait_for("welcome").await;
 
@@ -265,14 +417,147 @@ async fn a_conversa_espera_quem_estava_offline() {
     alice.close().await;
 }
 
+#[tokio::test]
+async fn privacidade_amizade_conversa_existente_e_bloqueio_sao_autorizados_no_servidor() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+    let mut daniel = entrar(addr, "daniel").await;
+    let daniel_id = daniel.wait_for("welcome").await["self_user_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let mut alice = entrar(addr, "alice").await;
+    let alice_id = alice.wait_for("welcome").await["self_user_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    alice
+        .send(json!({ "t": "privacy.update", "allow_member_dms": false }))
+        .await;
+    alice
+        .wait_for_matching("social.snapshot", |msg| msg["allow_member_dms"] == false)
+        .await;
+    daniel
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["can_start_dm"] == false
+        })
+        .await;
+    daniel
+        .send(json!({ "t": "dm.send", "user_id": alice_id, "text": "ainda nao" }))
+        .await;
+    assert_eq!(daniel.wait_for("dm.denied").await["user_id"], alice_id);
+
+    daniel
+        .send(json!({ "t": "friend.request", "user_id": alice_id }))
+        .await;
+    daniel
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["relationship"] == "outgoing"
+        })
+        .await;
+    alice
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["relationship"] == "incoming"
+        })
+        .await;
+    alice
+        .send(json!({ "t": "friend.accept", "user_id": daniel_id }))
+        .await;
+    daniel
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["relationship"] == "friend"
+        })
+        .await;
+    alice
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["relationship"] == "friend"
+        })
+        .await;
+
+    daniel
+        .send(json!({ "t": "dm.send", "user_id": alice_id, "text": "agora sim" }))
+        .await;
+    daniel.wait_for("dm.new").await;
+    alice.wait_for("dm.new").await;
+    // O primeiro DM atualiza has_conversation nas duas sessoes.
+    daniel
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["has_conversation"] == true
+        })
+        .await;
+    alice
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["has_conversation"] == true
+        })
+        .await;
+
+    daniel
+        .send(json!({ "t": "friend.remove", "user_id": alice_id }))
+        .await;
+    daniel
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["relationship"] == "none"
+        })
+        .await;
+    alice
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["relationship"] == "none"
+        })
+        .await;
+    daniel
+        .send(json!({ "t": "dm.send", "user_id": alice_id, "text": "historico mantem a conversa" }))
+        .await;
+    daniel.wait_for("dm.new").await;
+    alice.wait_for("dm.new").await;
+
+    alice
+        .send(json!({ "t": "user.block", "user_id": daniel_id }))
+        .await;
+    alice
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["relationship"] == "blocked"
+        })
+        .await;
+    daniel
+        .wait_for_matching("social.snapshot", |msg| {
+            msg["members"][0]["can_start_dm"] == false
+        })
+        .await;
+    daniel
+        .send(json!({ "t": "dm.send", "user_id": alice_id, "text": "bloqueado" }))
+        .await;
+    daniel.wait_for("dm.denied").await;
+    daniel
+        .send(json!({ "t": "call.start", "user_id": alice_id }))
+        .await;
+    assert_eq!(daniel.wait_for("call.ended").await["reason"], "unavailable");
+
+    // O bloqueio nao apaga o historico existente.
+    daniel
+        .send(json!({ "t": "dm.open", "user_id": alice_id }))
+        .await;
+    assert_eq!(
+        daniel.wait_for("dm.history").await["msgs"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+
+    alice.close().await;
+    daniel.close().await;
+}
+
 const SENHA: &str = "uma senha bem seguraa";
 
 /// Conecta, cria a conta e devolve o cliente logo apos o `auth.required`.
 async fn entrar(addr: std::net::SocketAddr, username: &str) -> common::Client {
+    let sessao = common::auth(addr, "register", username, SENHA, true).await;
     let mut cliente = common::Client::connect(addr).await;
     cliente.wait_for("auth.required").await;
     cliente
-        .send(json!({ "t": "auth.register", "username": username, "password": SENHA }))
+        .authenticate(sessao.body["access_token"].as_str().unwrap())
         .await;
     cliente
 }

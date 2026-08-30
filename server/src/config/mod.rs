@@ -30,11 +30,17 @@ pub struct AuthConfig {
     pub max_sessions_per_user: usize,
     /// Redes onde a autenticacao sem TLS e aceita, alem do loopback.
     ///
-    /// A senha viaja em texto claro dentro do WebSocket, entao so entra aqui
-    /// rede que voce controla — uma VPN entre amigos, uma LAN atras de
-    /// firewall. Vazio por padrao: sem TLS, so a propria maquina autentica.
+    /// A senha viaja no endpoint HTTP de autenticacao. Sem TLS, so entra aqui
+    /// rede que voce controla — uma VPN entre amigos ou LAN atras de firewall.
+    /// Vazio por padrao: sem TLS, so a propria maquina autentica. Mesmo numa
+    /// rede confiavel, cookies persistentes continuam indisponiveis sem HTTPS.
     #[serde(default)]
     pub trusted_networks: Vec<IpNet>,
+    /// Origens web adicionais autorizadas a usar os endpoints HTTP de auth.
+    /// Mesmo host, Tauri e localhost de desenvolvimento sao tratados pelo
+    /// servidor; esta lista existe para clientes hospedados separadamente.
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
 }
 
 impl AuthConfig {
@@ -147,6 +153,7 @@ impl Default for AuthConfig {
             allow_registration: false,
             max_sessions_per_user: default_max_sessions_per_user(),
             trusted_networks: Vec::new(),
+            allowed_origins: Vec::new(),
         }
     }
 }

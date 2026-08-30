@@ -63,7 +63,11 @@ impl AppState {
     /// Tira a chamada da mesa. `esperado` limita a quem tem direito de encerrar:
     /// so quem ligou pode desistir, so quem recebeu pode recusar.
     pub async fn take_call(&self, a: &UserId, b: &UserId) -> Option<PendingCall> {
-        self.calls.write().await.pending.remove(&conversation_id(a, b))
+        self.calls
+            .write()
+            .await
+            .pending
+            .remove(&conversation_id(a, b))
     }
 
     /// Usada pelo timer: so encerra se ainda for a mesma tentativa.
