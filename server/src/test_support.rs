@@ -4,10 +4,10 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::hash_password_sync;
-use crate::channel::{Channel, ChannelKind};
+use crate::config::{Channel, ChannelKind};
 use crate::config::{AuthConfig, Config, ServerConfig, StorageConfig, VoiceSettings};
-use crate::db::{Account, Db};
-use crate::state::AppState;
+use crate::storage::{Account, Db};
+use crate::session::AppState;
 
 pub struct TestDir {
     path: PathBuf,

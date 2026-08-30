@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::channel::Channel;
+use crate::config::Channel;
 
 pub type PeerId = String;
 pub type UserId = String;

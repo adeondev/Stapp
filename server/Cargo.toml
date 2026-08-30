@@ -22,6 +22,11 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
 
+# So os testes de integracao em tests/ precisam de um cliente WebSocket.
+[dev-dependencies]
+futures-util = "0.3"
+tokio-tungstenite = "0.29"
+
 [profile.release]
 lto = true
 codegen-units = 1

@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::channel::{Channel, ChannelKind};
+pub mod channel;
+
+pub use channel::{Channel, ChannelKind};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -179,107 +181,4 @@ fn default_history_limit() -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::channel::ChannelKind;
-    use crate::test_support::{TestDir, config as test_config};
-
-    #[test]
-    fn accepts_a_valid_configuration() {
-        let config = test_config(PathBuf::from("test.db"), 20, 6);
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn rejects_duplicate_channels_and_missing_text_channel() {
-        let mut duplicate = test_config(PathBuf::from("test.db"), 20, 6);
-        duplicate.channels[1].id = duplicate.channels[0].id.clone();
-        assert!(
-            duplicate
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("canal duplicado")
-        );
-
-        let mut voice_only = test_config(PathBuf::from("test.db"), 20, 6);
-        for channel in &mut voice_only.channels {
-            channel.kind = ChannelKind::Voice;
-        }
-        assert!(
-            voice_only
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("pelo menos um canal de texto")
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_limits_and_voice_backend() {
-        let mut no_users = test_config(PathBuf::from("test.db"), 0, 6);
-        assert!(
-            no_users
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("max_users")
-        );
-
-        no_users.server.max_users = 20;
-        no_users.auth.max_sessions_per_user = 0;
-        assert!(
-            no_users
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("max_sessions_per_user")
-        );
-
-        no_users.auth.max_sessions_per_user = 3;
-        no_users.voice.max_peers = 0;
-        assert!(
-            no_users
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("max_peers")
-        );
-
-        no_users.voice.max_peers = 6;
-        no_users.voice.backend = "livekit".into();
-        assert!(
-            no_users
-                .validate()
-                .unwrap_err()
-                .to_string()
-                .contains("nao existe ainda")
-        );
-    }
-
-    #[test]
-    fn resolves_paths_relative_to_the_config_file() {
-        let dir = TestDir::new();
-        let path = dir.path().join("stapp.toml");
-        std::fs::write(
-            &path,
-            r#"
-                [server]
-                static_dir = "client"
-
-                [[channels]]
-                id = "geral"
-                name = "Geral"
-                kind = "text"
-
-                [storage]
-                database = "data/test.db"
-            "#,
-        )
-        .unwrap();
-
-        let config = Config::load(&path).unwrap();
-        assert_eq!(config.storage.database, dir.path().join("data/test.db"));
-        assert_eq!(config.server.static_dir, Some(dir.path().join("client")));
-    }
-}
+mod tests;

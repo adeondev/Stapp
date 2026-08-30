@@ -7,10 +7,10 @@ use axum::routing::get;
 use std::net::SocketAddr;
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::channel::ChannelKind;
+use crate::config::ChannelKind;
 use crate::config::Config;
-use crate::db::Db;
-use crate::state::AppState;
+use crate::storage::Db;
+use crate::session::AppState;
 use crate::ws;
 
 /// Monta a aplicacao sem abrir uma porta, para permitir testes do Router em memoria.

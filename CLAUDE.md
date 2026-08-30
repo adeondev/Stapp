@@ -54,6 +54,27 @@ web/      Vite + React + TS. Roda no navegador hoje, empacotado em Tauri depois.
 Os dois se falam por **um** WebSocket em `/ws`, JSON, enum com tag interna `t`. A conexao recebe
 `auth.required`, autentica e so entao passa a enxergar eventos da sala.
 
+### Regra dura: cada camada só conhece a de dentro
+
+```
+cli/        linha de comando (clap). main.rs só inicializa o log e chama Cli::run
+app.rs      monta o Router do axum e serve
+ws/         transporte: mod.rs é o cano, auth_flow.rs autentica, dispatch.rs roteia
+services/   regras de cada funcionalidade (chat/, voice/)
+session/    estado vivo: bus.rs entrega eventos, registry.rs sessões, membership.rs voz
+storage/    SQLite: schema.rs migra, accounts.rs e messages.rs consultam
+```
+
+**Onde entra coisa nova:**
+
+- comando novo → um arquivo em `cli/` e uma linha no enum `Command`;
+- funcionalidade nova → um módulo em `services/` e um braço em `ws/dispatch.rs`;
+- tabela nova → um arquivo em `storage/` e uma migração em `storage/schema.rs`.
+
+`ws/mod.rs` **não** ganha `if` novo. A conexão é uma máquina de estados de duas fases
+(`Phase::Anonymous` → `Phase::Authenticated`); anônima só alcança `auth_flow`, autenticada só
+alcança `dispatch`. Foi assim que o `handle` gigante deixou de existir — não recrie.
+
 ### Regra dura: os dois `protocol` andam juntos
 
 [`server/src/protocol.rs`](server/src/protocol.rs) é a fonte da verdade.
@@ -85,6 +106,26 @@ Não fure essas costuras por conveniência.
 Nenhuma lógica pode depender de `@tauri-apps/api`. O build web puro (`pnpm build`) tem que
 continuar funcionando sozinho. Se precisar de algo nativo, isole atrás de uma interface com
 fallback web.
+
+---
+
+## Testes
+
+Duas camadas, e as duas ficam **fora** do arquivo de implementação:
+
+- **unitários** — `src/<modulo>/tests.rs`, declarado com `#[cfg(test)] mod tests;` no `mod.rs`
+  irmão. Continuam sendo um módulo interno, então enxergam o que é privado, mas não poluem o
+  arquivo de código. É o meio-termo idiomático: nada de `#[path]` nem de teste no meio da lógica.
+- **integração** — `server/tests/`, que só enxerga a API pública (`stapp_server::build`, `Config`,
+  `admin`). `tests/fluxo_completo.rs` sobe o servidor numa porta efêmera e conversa por WebSocket
+  de verdade: autenticar, conversar, entrar na call, reiniciar e conferir o histórico.
+
+```bash
+cd server && cargo test
+```
+
+Regra prática: se o teste precisa de detalhe interno, é unitário; se ele descreve o que o cliente
+vê, é de integração. Não duplique o mesmo caso nas duas camadas.
 
 ---
 
