@@ -240,8 +240,13 @@ export function Chat({
 
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
         {messages.length === 0 && (
-          <p className="chat__empty">ninguem falou nada aqui ainda.</p>
+          <p className="chat__empty">
+            {kind === 'direct'
+              ? 'início da conversa direta.'
+              : 'nenhuma mensagem ainda. envie a primeira.'}
+          </p>
         )}
+
         {messages.map((msg, i) => {
           // Rastro de chamada nao e conversa: vira uma linha discreta, sem autor.
           if (msg.kind === 'call') {
@@ -269,7 +274,7 @@ export function Chat({
               )}
               <MarkdownRenderer content={msg.text} className="chat__text" />
               {msg.preview && <LinkPreviewCard preview={msg.preview} />}
-              {msg.attachments && <MessageAttachments attachments={msg.attachments} />}
+              {msg.attachments && <MessageAttachments attachments={msg.attachments} serverUrl={serverUrl} />}
               {msg.poll && (
                 <PollCard
                   poll={msg.poll}
@@ -283,7 +288,7 @@ export function Chat({
         })}
       </div>
 
-      <div className="chat__composer relative">
+      <div className="chat__composer">
         {isRecordingAudio && (
           <AudioRecorder
             onRecordingComplete={(file) => {
@@ -333,106 +338,110 @@ export function Chat({
             e.target.value = ''
           }}
         />
-        <textarea
-          ref={textareaRef}
-          className="chat__input pr-20"
-          value={draft}
-          rows={1}
-          placeholder={
-            canSend
-              ? kind === 'direct'
-                ? `falar com ${title}`
-                : `falar em ${title}`
-              : disabledReason ?? 'sem conexão com o servidor'
-          }
-          disabled={!canSend}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
-        <div className="flex items-center gap-1.5 absolute right-4 bottom-3">
-          <button
-            type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
-            disabled={!canSend || isRecordingAudio}
-            onClick={() => setIsRecordingAudio(true)}
-            title="Gravar mensagem de voz"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-              <line x1="12" y1="19" x2="12" y2="22" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
+        
+        {/* Discord-style integrated input container */}
+        <div className="relative flex items-end bg-[var(--bg-input)] rounded-lg px-3 py-2 gap-2">
+          <textarea
+            ref={textareaRef}
+            className="flex-1 bg-transparent border-0 outline-none resize-none text-sm text-[var(--text)] placeholder-[var(--text-faint)] max-h-36 min-h-[24px] py-1 m-0 leading-relaxed"
+            value={draft}
+            rows={1}
+            placeholder={
+              canSend
+                ? kind === 'direct'
+                  ? `falar com ${title}`
+                  : `falar em ${title}`
+                : disabledReason ?? 'sem conexão com o servidor'
+            }
             disabled={!canSend}
-            onClick={() => fileInputRef.current?.click()}
-            title="Anexar arquivo ou imagem"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors px-1.5 py-0.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40 font-bold text-[11px] tracking-wide"
-            disabled={!canSend}
-            onClick={() => setShowGifPicker((prev) => !prev)}
-            title="Escolher GIF (Klipy)"
-          >
-            GIF
-          </button>
-          <button
-            type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
-            disabled={!canSend || kind !== 'channel'}
-            onClick={() => setShowPollModal(true)}
-            title="Criar enquete (somente em canais)"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 3v18h18" />
-              <path d="M7 16h3v-4H7v4z" />
-              <path d="M12 16h3v-9h-3v9z" />
-              <path d="M17 16h3v-6h-3v6z" />
-            </svg>
-          </button>
-          <button
-            type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
-            disabled={!canSend}
-            onClick={() => setShowEmojiPicker((prev) => !prev)}
-            title="Escolher emoji"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10" />
-              <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-              <line x1="9" y1="9" x2="9.01" y2="9" />
-              <line x1="15" y1="9" x2="15.01" y2="9" />
-            </svg>
-          </button>
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+          />
+          <div className="flex items-center gap-1 shrink-0 pb-0.5">
+            <button
+              type="button"
+              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
+              disabled={!canSend || isRecordingAudio}
+              onClick={() => setIsRecordingAudio(true)}
+              title="Gravar mensagem de voz"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                <line x1="12" y1="19" x2="12" y2="22" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
+              disabled={!canSend}
+              onClick={() => fileInputRef.current?.click()}
+              title="Anexar arquivo ou imagem"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors px-1.5 py-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40 font-bold text-[11px] tracking-wide"
+              disabled={!canSend}
+              onClick={() => setShowGifPicker((prev) => !prev)}
+              title="Escolher GIF (Klipy)"
+            >
+              GIF
+            </button>
+            <button
+              type="button"
+              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
+              disabled={!canSend || kind !== 'channel'}
+              onClick={() => setShowPollModal(true)}
+              title="Criar enquete (somente em canais)"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 3v18h18" />
+                <path d="M7 16h3v-4H7v4z" />
+                <path d="M12 16h3v-9h-3v9z" />
+                <path d="M17 16h3v-6h-3v6z" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
+              disabled={!canSend}
+              onClick={() => setShowEmojiPicker((prev) => !prev)}
+              title="Escolher emoji"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+                <line x1="9" y1="9" x2="9.01" y2="9" />
+                <line x1="15" y1="9" x2="15.01" y2="9" />
+              </svg>
+            </button>
+          </div>
+          <EmojiPicker
+            isOpen={showEmojiPicker}
+            onClose={() => setShowEmojiPicker(false)}
+            onSelectEmoji={insertEmoji}
+          />
+          <GifPicker
+            isOpen={showGifPicker}
+            onClose={() => setShowGifPicker(false)}
+            onSelectGif={(gifUrl) => {
+              setShowGifPicker(false)
+              onSend(`![GIF](${gifUrl})`)
+            }}
+          />
+          <PollCreatorModal
+            isOpen={showPollModal}
+            onClose={() => setShowPollModal(false)}
+            onCreatePoll={(question, options, allowMult) => {
+              onCreatePoll?.(question, options, allowMult)
+            }}
+          />
         </div>
-        <EmojiPicker
-          isOpen={showEmojiPicker}
-          onClose={() => setShowEmojiPicker(false)}
-          onSelectEmoji={insertEmoji}
-        />
-        <GifPicker
-          isOpen={showGifPicker}
-          onClose={() => setShowGifPicker(false)}
-          onSelectGif={(gifUrl) => {
-            setShowGifPicker(false)
-            onSend(gifUrl)
-          }}
-        />
-        <PollCreatorModal
-          isOpen={showPollModal}
-          onClose={() => setShowPollModal(false)}
-          onCreatePoll={(question, options, allowMult) => {
-            onCreatePoll?.(question, options, allowMult)
-          }}
-        />
       </div>
     </section>
   )
