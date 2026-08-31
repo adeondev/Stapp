@@ -2,8 +2,8 @@
 
 const TWEMOJI_BASE_URL = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/'
 
-// Regex para capturar sequências de emojis Unicode (incluindo ZWJ, skin tones e variation selectors)
-const EMOJI_REGEX = /(?:\ud83d[\udc00-\ude4f\ude80-\udfff]|\ud83c[\udf00-\uffff]|\ud83e[\udd00-\udfff]|[\u2600-\u27bf\u2300-\u23ff\u2b50\u2b55\u200d\ufe0f])+/gu
+// Regex moderno utilizando Unicode property escapes para cobertura precisa de emojis
+const EMOJI_REGEX = /(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*)/gu
 
 /**
  * Converte uma sequência de caracteres de emoji em sua representação hex code point para o Twemoji.
@@ -25,8 +25,8 @@ export function toCodePoint(unicodeSurrogates: string): string {
     }
   }
 
-  // Filtrar variation selector fe0f para padrões comuns onde o SVG do Twemoji não o inclui no nome do arquivo
-  return points.filter((p) => p !== 'fe0f').join('-')
+  // Filtrar variation selector fe0f para padrões onde o SVG do Twemoji não o inclui no nome do arquivo
+  return points.filter((p) => p !== 'fe0f' && p !== 'fe0e').join('-')
 }
 
 /**
@@ -45,7 +45,6 @@ export function isOnlyEmojis(text: string): boolean {
   if (!trimmed) return false
   const matches = trimmed.match(EMOJI_REGEX)
   if (!matches) return false
-  // Verifica se o comprimento total de caracteres não-espaço é igual aos emojis capturados
   const stripped = trimmed.replace(EMOJI_REGEX, '').replace(/\s+/g, '')
   return stripped.length === 0 && matches.length >= 1 && matches.length <= 3
 }
