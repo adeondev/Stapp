@@ -25,7 +25,13 @@ pub fn send_history(state: &AppState, peer_id: &str) {
     }
 }
 
-pub async fn send(state: &Arc<AppState>, peer_id: &str, channel: String, raw_text: &str) {
+pub async fn send(
+    state: &Arc<AppState>,
+    peer_id: &str,
+    channel: String,
+    raw_text: &str,
+    attachment_ids: Vec<String>,
+) {
     match state.config.channel(&channel) {
         Some(ch) if ch.kind == ChannelKind::Text => {}
         _ => {
@@ -46,20 +52,32 @@ pub async fn send(state: &Arc<AppState>, peer_id: &str, channel: String, raw_tex
         return;
     };
 
+    let msg_id = Uuid::new_v4().to_string();
+    if !attachment_ids.is_empty() {
+        if let Err(err) = state.db.bind_attachments(&msg_id, &attachment_ids) {
+            tracing::error!(%err, "falha vinculando anexos");
+        }
+    }
+
+    let attachments = state
+        .db
+        .list_attachments(&msg_id, None)
+        .unwrap_or_default();
+
     let msg = Message {
-        id: Uuid::new_v4().to_string(),
+        id: msg_id.clone(),
         channel: channel.clone(),
         author_id: author.user_id,
         author_username: author.username,
         text,
         ts: now_ms(),
+        attachments,
     };
 
     // Se o disco falhar, a conversa continua — so o historico fica torto.
     if let Err(err) = state.db.insert(&msg) {
         tracing::error!(%err, "falha gravando mensagem");
     }
-    let msg_id = msg.id.clone();
     let text_for_preview = msg.text.clone();
     state.broadcast(ServerMsg::ChatNew { channel, msg });
 

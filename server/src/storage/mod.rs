@@ -6,6 +6,7 @@
 //! entra como um arquivo novo, nao como mais 80 linhas aqui.
 
 mod accounts;
+pub mod attachments;
 mod auth_sessions;
 mod direct;
 mod messages;
@@ -63,6 +64,30 @@ impl Db {
             [],
             |row| row.get(0),
         )?)
+    }
+
+    pub fn insert_attachment(
+        &self,
+        id: &str,
+        user_id: &str,
+        filename: &str,
+        content_type: &str,
+        size_bytes: usize,
+        s3_key: &str,
+        created_at: i64,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        attachments::insert_attachment(&conn, id, user_id, filename, content_type, size_bytes, s3_key, created_at)
+    }
+
+    pub fn bind_attachments(&self, message_id: &str, attachment_ids: &[String]) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        attachments::bind_attachments(&conn, message_id, attachment_ids)
+    }
+
+    pub fn list_attachments(&self, message_id: &str, public_base: Option<&str>) -> Result<Vec<crate::protocol::Attachment>> {
+        let conn = self.conn.lock().unwrap();
+        attachments::list_for_message(&conn, message_id, public_base)
     }
 }
 

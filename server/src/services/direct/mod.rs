@@ -104,7 +104,13 @@ pub async fn mark_read(state: &AppState, peer_id: &str, other: UserId) {
     mark_and_notify(state, &me.user_id, &other, &conversation).await;
 }
 
-pub async fn send(state: &Arc<AppState>, peer_id: &str, other: UserId, raw_text: &str) {
+pub async fn send(
+    state: &Arc<AppState>,
+    peer_id: &str,
+    other: UserId,
+    raw_text: &str,
+    attachment_ids: Vec<String>,
+) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
     };
@@ -126,13 +132,27 @@ pub async fn send(state: &Arc<AppState>, peer_id: &str, other: UserId, raw_text:
         .direct_conversation_exists(&me.user_id, &other)
         .unwrap_or(false);
     let conversation = conversation_id(&me.user_id, &other);
+    let msg_id = Uuid::new_v4().to_string();
+
+    if !attachment_ids.is_empty() {
+        if let Err(err) = state.db.bind_attachments(&msg_id, &attachment_ids) {
+            tracing::error!(%err, "falha vinculando anexos em DM");
+        }
+    }
+
+    let attachments = state
+        .db
+        .list_attachments(&msg_id, None)
+        .unwrap_or_default();
+
     let msg = DirectMessage {
-        id: Uuid::new_v4().to_string(),
+        id: msg_id.clone(),
         author_id: me.user_id.clone(),
         author_username: me.username.clone(),
         kind: DirectMessageKind::Text,
         text,
         ts: now_ms(),
+        attachments,
     };
 
     if let Err(err) = state.db.insert_direct(&conversation, &msg) {

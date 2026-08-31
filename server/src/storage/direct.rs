@@ -53,6 +53,11 @@ impl Db {
         ))?;
         let rows = stmt.query_map((conversation, limit as i64), ler_mensagem)?;
         let mut msgs = rows.collect::<rusqlite::Result<Vec<_>>>()?;
+        for msg in &mut msgs {
+            if let Ok(atts) = super::attachments::list_for_message(&conn, &msg.id, None) {
+                msg.attachments = atts;
+            }
+        }
         msgs.reverse();
         Ok(msgs)
     }
@@ -67,7 +72,13 @@ impl Db {
         ))?;
         let mut rows = stmt.query([conversation])?;
         match rows.next()? {
-            Some(row) => Ok(Some(ler_mensagem(row)?)),
+            Some(row) => {
+                let mut msg = ler_mensagem(row)?;
+                if let Ok(atts) = super::attachments::list_for_message(&conn, &msg.id, None) {
+                    msg.attachments = atts;
+                }
+                Ok(Some(msg))
+            }
             None => Ok(None),
         }
     }
@@ -158,5 +169,6 @@ fn ler_mensagem(row: &Row) -> rusqlite::Result<DirectMessage> {
         },
         text: row.get(4)?,
         ts: row.get(5)?,
+        attachments: Vec::new(),
     })
 }

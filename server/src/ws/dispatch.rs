@@ -21,10 +21,18 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
         // Trocar de conta e abrir outra conexao.
         ClientMsg::AuthAccess { .. } => {}
 
-        ClientMsg::ChatSend { channel, text } => chat::send(state, peer_id, channel, &text).await,
+        ClientMsg::ChatSend {
+            channel,
+            text,
+            attachment_ids,
+        } => chat::send(state, peer_id, channel, &text, attachment_ids).await,
 
         ClientMsg::DmOpen { user_id } => direct::open(state, peer_id, user_id).await,
-        ClientMsg::DmSend { user_id, text } => direct::send(state, peer_id, user_id, &text).await,
+        ClientMsg::DmSend {
+            user_id,
+            text,
+            attachment_ids,
+        } => direct::send(state, peer_id, user_id, &text, attachment_ids).await,
         ClientMsg::DmRead { user_id } => direct::mark_read(state, peer_id, user_id).await,
 
         ClientMsg::FriendRequest { user_id } => social::request(state, peer_id, user_id).await,

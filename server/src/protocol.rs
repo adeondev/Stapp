@@ -85,6 +85,16 @@ pub struct UrlPreview {
     pub site_name: Option<String>,
 }
 
+/// Informações de um anexo de mídia armazenado no S3/MinIO.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Attachment {
+    pub id: String,
+    pub filename: String,
+    pub content_type: String,
+    pub size_bytes: usize,
+    pub url: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
@@ -94,6 +104,8 @@ pub struct Message {
     pub text: String,
     /// Milissegundos desde o epoch.
     pub ts: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
 }
 
 /// Uma mensagem direta. Nao carrega canal: a conversa e o par de contas, e quem
@@ -106,6 +118,8 @@ pub struct DirectMessage {
     pub kind: DirectMessageKind,
     pub text: String,
     pub ts: i64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,14 +261,24 @@ pub enum ClientMsg {
     AuthAccess { access_token: String },
 
     #[serde(rename = "chat.send")]
-    ChatSend { channel: String, text: String },
+    ChatSend {
+        channel: String,
+        text: String,
+        #[serde(default)]
+        attachment_ids: Vec<String>,
+    },
 
     /// Abre uma conversa: pede o historico e marca tudo como lido.
     #[serde(rename = "dm.open")]
     DmOpen { user_id: UserId },
 
     #[serde(rename = "dm.send")]
-    DmSend { user_id: UserId, text: String },
+    DmSend {
+        user_id: UserId,
+        text: String,
+        #[serde(default)]
+        attachment_ids: Vec<String>,
+    },
 
     /// Marca lida ate agora. Usado quando chega mensagem com a conversa aberta.
     #[serde(rename = "dm.read")]

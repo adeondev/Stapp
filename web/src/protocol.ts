@@ -28,6 +28,14 @@ export interface VoicePeer {
   screen_sharing: boolean
 }
 
+export interface Attachment {
+  id: string
+  filename: string
+  content_type: string
+  size_bytes: number
+  url: string
+}
+
 export interface Message {
   id: string
   channel: string
@@ -36,6 +44,8 @@ export interface Message {
   text: string
   /** Milissegundos desde o epoch. */
   ts: number
+  preview?: UrlPreview
+  attachments?: Attachment[]
 }
 
 export interface UrlPreview {
@@ -56,6 +66,7 @@ export interface ChatEntry {
   /** Ausente numa mensagem de canal; 'call' e o rastro de uma chamada. */
   kind?: DirectMessageKind
   preview?: UrlPreview
+  attachments?: Attachment[]
 }
 
 export type DirectMessageKind = 'text' | 'call'
@@ -68,6 +79,8 @@ export interface DirectMessage {
   kind: DirectMessageKind
   text: string
   ts: number
+  preview?: UrlPreview
+  attachments?: Attachment[]
 }
 
 /** Uma conversa na lista lateral, ja do ponto de vista de quem recebe. */
@@ -176,9 +189,9 @@ export type AuthErrorCode =
 
 export type ClientMsg =
   | { t: 'auth.access'; access_token: string }
-  | { t: 'chat.send'; channel: string; text: string }
+  | { t: 'chat.send'; channel: string; text: string; attachment_ids?: string[] }
   | { t: 'dm.open'; user_id: UserId }
-  | { t: 'dm.send'; user_id: UserId; text: string }
+  | { t: 'dm.send'; user_id: UserId; text: string; attachment_ids?: string[] }
   | { t: 'dm.read'; user_id: UserId }
   | { t: 'friend.request'; user_id: UserId }
   | { t: 'friend.accept'; user_id: UserId }

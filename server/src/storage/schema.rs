@@ -9,7 +9,7 @@ use anyhow::{Result, bail};
 use rusqlite::Connection;
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 4;
+pub const SCHEMA_VERSION: i64 = 5;
 
 const V1: &str = "BEGIN IMMEDIATE;
      CREATE TABLE users (
@@ -129,6 +129,21 @@ const V4: &str = "BEGIN IMMEDIATE;
      PRAGMA user_version = 4;
      COMMIT;";
 
+const V5: &str = "BEGIN IMMEDIATE;
+     CREATE TABLE attachments (
+         id           TEXT PRIMARY KEY,
+         message_id   TEXT,
+         user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         filename     TEXT NOT NULL,
+         content_type TEXT NOT NULL,
+         size_bytes   INTEGER NOT NULL,
+         s3_key       TEXT NOT NULL,
+         created_at   INTEGER NOT NULL
+     );
+     CREATE INDEX idx_attachments_message ON attachments (message_id);
+     PRAGMA user_version = 5;
+     COMMIT;";
+
 pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -157,6 +172,9 @@ pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
     }
     if version < 4 {
         conn.execute_batch(V4)?;
+    }
+    if version < 5 {
+        conn.execute_batch(V5)?;
     }
 
     ensure_server_id(conn)?;
