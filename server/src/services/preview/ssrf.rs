@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 use url::Url;
 
 /// Valida se uma URL é segura para requisição de scraping pelo servidor,

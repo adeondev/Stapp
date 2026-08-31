@@ -4,6 +4,8 @@
 //! entregue so nas conexoes das duas contas envolvidas. Quem estiver offline
 //! nao perde nada — recebe pelo historico quando conectar.
 
+use std::sync::Arc;
+
 use uuid::Uuid;
 
 use crate::protocol::{
@@ -102,7 +104,7 @@ pub async fn mark_read(state: &AppState, peer_id: &str, other: UserId) {
     mark_and_notify(state, &me.user_id, &other, &conversation).await;
 }
 
-pub async fn send(state: &AppState, peer_id: &str, other: UserId, raw_text: &str) {
+pub async fn send(state: &Arc<AppState>, peer_id: &str, other: UserId, raw_text: &str) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
     };
@@ -141,9 +143,31 @@ pub async fn send(state: &AppState, peer_id: &str, other: UserId, raw_text: &str
     // Quem escreveu ja leu o que escreveu.
     mark(state, &me.user_id, &conversation);
 
+    let msg_id = msg.id.clone();
+    let text_for_preview = msg.text.clone();
     deliver(state, &me.user_id, &other, msg).await;
     if first_message {
         social::refresh_pair(state, &me.user_id, &other).await;
+    }
+
+    if let Some(target_url) = crate::services::preview::extract_first_url(&text_for_preview) {
+        let app_state = state.clone();
+        let author_id = me.user_id.clone();
+        let other_id = other.clone();
+        tokio::spawn(async move {
+            if let Some(preview) = crate::services::preview::scrape_metadata(&target_url).await {
+                let enriched_msg = ServerMsg::LinkPreviewEnriched {
+                    message_id: msg_id,
+                    preview,
+                };
+                for session_peer in app_state.sessions_of(&author_id).await {
+                    app_state.send_to(&session_peer, enriched_msg.clone());
+                }
+                for session_peer in app_state.sessions_of(&other_id).await {
+                    app_state.send_to(&session_peer, enriched_msg.clone());
+                }
+            }
+        });
     }
 }
 

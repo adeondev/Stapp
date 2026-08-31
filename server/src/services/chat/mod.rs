@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use uuid::Uuid;
 
 use crate::config::ChannelKind;
@@ -23,7 +25,7 @@ pub fn send_history(state: &AppState, peer_id: &str) {
     }
 }
 
-pub async fn send(state: &AppState, peer_id: &str, channel: String, raw_text: &str) {
+pub async fn send(state: &Arc<AppState>, peer_id: &str, channel: String, raw_text: &str) {
     match state.config.channel(&channel) {
         Some(ch) if ch.kind == ChannelKind::Text => {}
         _ => {
@@ -57,7 +59,22 @@ pub async fn send(state: &AppState, peer_id: &str, channel: String, raw_text: &s
     if let Err(err) = state.db.insert(&msg) {
         tracing::error!(%err, "falha gravando mensagem");
     }
+    let msg_id = msg.id.clone();
+    let text_for_preview = msg.text.clone();
     state.broadcast(ServerMsg::ChatNew { channel, msg });
+
+    // Dispara scraping assíncrono para links seguros em background
+    if let Some(target_url) = crate::services::preview::extract_first_url(&text_for_preview) {
+        let app_state = state.clone();
+        tokio::spawn(async move {
+            if let Some(preview) = crate::services::preview::scrape_metadata(&target_url).await {
+                app_state.broadcast(ServerMsg::LinkPreviewEnriched {
+                    message_id: msg_id,
+                    preview,
+                });
+            }
+        });
+    }
 }
 
 fn clean_text(raw: &str) -> Option<String> {
