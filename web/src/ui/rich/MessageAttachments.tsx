@@ -1,11 +1,13 @@
 import { memo, useState } from 'react'
 import type { Attachment } from '../../protocol'
 import { AudioPlayer } from './AudioPlayer'
+import { httpBaseFromWs } from '../../net/auth'
 import './attachments.css'
 import './mediaGallery.css'
 
 interface Props {
   attachments: Attachment[]
+  serverUrl?: string
 }
 
 function formatBytes(bytes: number): string {
@@ -16,7 +18,26 @@ function formatBytes(bytes: number): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`
 }
 
-export const MessageAttachments = memo(function MessageAttachments({ attachments }: Props) {
+export function resolveAttachmentUrl(rawUrl: string, serverUrl?: string): string {
+  if (!rawUrl) return ''
+  if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://') || rawUrl.startsWith('blob:') || rawUrl.startsWith('data:')) {
+    return rawUrl
+  }
+
+  if (serverUrl) {
+    try {
+      const httpBase = httpBaseFromWs(serverUrl)
+      const cleanPath = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`
+      return `${httpBase}${cleanPath}`
+    } catch {
+      // Falha ao parsear WebSocket URL; prossegue com relativo
+    }
+  }
+
+  return rawUrl
+}
+
+export const MessageAttachments = memo(function MessageAttachments({ attachments, serverUrl }: Props) {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
 
   if (!attachments || attachments.length === 0) return null
@@ -25,11 +46,36 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
     <>
       <div className="stapp-attachments-container">
         {attachments.map((att) => {
+          const resolvedUrl = resolveAttachmentUrl(att.url, serverUrl)
           const isImage = att.content_type.startsWith('image/')
-          const isAudio = att.content_type.startsWith('audio/') || att.filename.endsWith('.webm') || att.filename.endsWith('.ogg') || att.filename.endsWith('.mp3') || att.filename.endsWith('.wav')
+          const isVoiceNote =
+            att.content_type === 'audio/voice' ||
+            att.filename.startsWith('voice-note-') ||
+            att.filename.startsWith('audio-recording-')
+          const isAudio =
+            isVoiceNote ||
+            att.content_type.startsWith('audio/') ||
+            att.filename.endsWith('.webm') ||
+            att.filename.endsWith('.ogg') ||
+            att.filename.endsWith('.mp3') ||
+            att.filename.endsWith('.wav')
 
           if (isAudio) {
-            return <AudioPlayer key={att.id} src={att.url} filename={att.filename} />
+            return (
+              <div key={att.id} className={isVoiceNote ? 'stapp-voice-note-wrapper' : 'stapp-audio-attachment-wrapper'}>
+                {isVoiceNote && (
+                  <div className="flex items-center gap-1.5 mb-1 text-[11px] text-[var(--accent)] font-semibold select-none">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="22" />
+                    </svg>
+                    <span>Mensagem de voz</span>
+                  </div>
+                )}
+                <AudioPlayer src={resolvedUrl} filename={att.filename} />
+              </div>
+            )
           }
 
           if (isImage) {
@@ -37,10 +83,10 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
               <div
                 key={att.id}
                 className="stapp-attachment-image-wrapper cursor-pointer"
-                onClick={() => setLightboxImage(att.url)}
+                onClick={() => setLightboxImage(resolvedUrl)}
               >
                 <img
-                  src={att.url}
+                  src={resolvedUrl}
                   alt={att.filename}
                   loading="lazy"
                   className="stapp-attachment-image hover:opacity-95 transition-opacity"
@@ -52,7 +98,7 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
           return (
             <a
               key={att.id}
-              href={att.url}
+              href={resolvedUrl}
               target="_blank"
               rel="noopener noreferrer"
               download={att.filename}
