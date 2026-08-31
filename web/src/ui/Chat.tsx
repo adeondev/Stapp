@@ -7,6 +7,7 @@ import { LinkPreviewCard } from './rich/LinkPreviewCard'
 import { MessageAttachments } from './rich/MessageAttachments'
 import { uploadMediaFile } from '../net/mediaUpload'
 import { AudioRecorder } from './rich/AudioRecorder'
+import { GifPicker } from './rich/GifPicker'
 import './chat.css'
 import './rich/mediaGallery.css'
 
@@ -52,6 +53,7 @@ export function Chat({
 }: Props) {
   const [draft, setDraft] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [showGifPicker, setShowGifPicker] = useState(false)
   const [isRecordingAudio, setIsRecordingAudio] = useState(false)
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([])
   const [isDragging, setIsDragging] = useState(false)
@@ -355,6 +357,15 @@ export function Chat({
           </button>
           <button
             type="button"
+            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors px-1.5 py-0.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40 font-bold text-[11px] tracking-wide"
+            disabled={!canSend}
+            onClick={() => setShowGifPicker((prev) => !prev)}
+            title="Escolher GIF (Klipy)"
+          >
+            GIF
+          </button>
+          <button
+            type="button"
             className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
             disabled={!canSend}
             onClick={() => setShowEmojiPicker((prev) => !prev)}
@@ -372,6 +383,14 @@ export function Chat({
           isOpen={showEmojiPicker}
           onClose={() => setShowEmojiPicker(false)}
           onSelectEmoji={insertEmoji}
+        />
+        <GifPicker
+          isOpen={showGifPicker}
+          onClose={() => setShowGifPicker(false)}
+          onSelectGif={(gifUrl) => {
+            setShowGifPicker(false)
+            onSend(gifUrl)
+          }}
         />
       </div>
     </section>
