@@ -46,4 +46,12 @@ fn main() { println!("olá"); }
     expect(screen.getByText(/fn main/)).toBeTruthy()
     expect(screen.getByText('copiar')).toBeTruthy()
   })
+
+  it('converte shortcodes como :sob: e :smile: para Twemoji', () => {
+    const { container } = render(<MarkdownRenderer content="chorando :sob: e sorrindo :smile:" />)
+    const imgs = container.querySelectorAll('img.stapp-emoji')
+    expect(imgs.length).toBe(2)
+    expect(imgs[0].getAttribute('alt')).toBe('😭')
+    expect(imgs[1].getAttribute('alt')).toBe('😄')
+  })
 })

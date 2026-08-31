@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getTwemojiUrl, isOnlyEmojis, toCodePoint } from './twemoji'
+import { getTwemojiUrl, isOnlyEmojis, parseShortcodesToUnicode, toCodePoint } from './twemoji'
 
 describe('twemoji parser utility', () => {
   it('converte emojis comuns para code points hexadecimais', () => {
@@ -20,5 +20,9 @@ describe('twemoji parser utility', () => {
     expect(isOnlyEmojis('😀 🚀 🔥 🎉')).toBe(false)
     expect(isOnlyEmojis('olá 😀')).toBe(false)
     expect(isOnlyEmojis('')).toBe(false)
+  })
+
+  it('converte shortcodes para emojis unicode', () => {
+    expect(parseShortcodesToUnicode('chorando :sob: e sorrindo :smile:')).toBe('chorando 😭 e sorrindo 😄')
   })
 })

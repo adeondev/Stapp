@@ -2,7 +2,7 @@ import React, { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
-import { EMOJI_REGEX, getTwemojiUrl, isOnlyEmojis } from './twemoji'
+import { EMOJI_REGEX, getTwemojiUrl, isOnlyEmojis, parseShortcodesToUnicode } from './twemoji'
 import './markdown.css'
 
 interface Props {
@@ -93,7 +93,8 @@ function renderWithTwemoji(text: string, jumbo: boolean): React.ReactNode {
 }
 
 export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className = '' }: Props) {
-  const isJumbo = isOnlyEmojis(content)
+  const parsedContent = parseShortcodesToUnicode(content)
+  const isJumbo = isOnlyEmojis(parsedContent)
 
   return (
     <div className={`stapp-markdown ${isJumbo ? 'stapp-markdown-jumbo' : ''} ${className}`}>
@@ -152,7 +153,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
           },
         }}
       >
-        {content}
+        {parsedContent}
       </ReactMarkdown>
     </div>
   )

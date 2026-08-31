@@ -37,16 +37,32 @@ export function getTwemojiUrl(emoji: string): string {
   return `${TWEMOJI_BASE_URL}${codePoint}.svg`
 }
 
+import emojiShortcodes from './emojiShortcodes.json'
+
+const SHORTCODE_MAP: Record<string, string> = emojiShortcodes as Record<string, string>
+const SHORTCODE_REGEX = /:([a-zA-Z0-9_+]+):/g
+
+/**
+ * Converte shortcodes no formato :sob:, :smile:, :+1: para seus respectivos caracteres Unicode.
+ */
+export function parseShortcodesToUnicode(text: string): string {
+  if (!text.includes(':')) return text
+  return text.replace(SHORTCODE_REGEX, (match, code) => {
+    const lower = code.toLowerCase()
+    return SHORTCODE_MAP[lower] ?? match
+  })
+}
+
 /**
  * Identifica se uma mensagem é composta exclusivamente por 1 a 3 emojis (estilo jumboji).
  */
 export function isOnlyEmojis(text: string): boolean {
-  const trimmed = text.trim()
-  if (!trimmed) return false
-  const matches = trimmed.match(EMOJI_REGEX)
+  const parsed = parseShortcodesToUnicode(text).trim()
+  if (!parsed) return false
+  const matches = parsed.match(EMOJI_REGEX)
   if (!matches) return false
-  const stripped = trimmed.replace(EMOJI_REGEX, '').replace(/\s+/g, '')
+  const stripped = parsed.replace(EMOJI_REGEX, '').replace(/\s+/g, '')
   return stripped.length === 0 && matches.length >= 1 && matches.length <= 3
 }
 
-export { EMOJI_REGEX }
+export { EMOJI_REGEX, SHORTCODE_REGEX, SHORTCODE_MAP }
