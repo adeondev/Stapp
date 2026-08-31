@@ -7,9 +7,9 @@ import { hasPendingLogout, lastServer, loadServers, markLogoutPending, normalize
   removeServer, saveServer, setPendingLogout, type SavedServer } from './net/servers'
 import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
 import { PROTOCOL_VERSION } from './protocol'
-import { directChannelPartner, directChannelPartnerId, initialState, profileOf, reduce } from './store'
+import { directChannelPartner, directChannelPartnerId, initialState, profileOf, reduce, totalUnread } from './store'
 import { AccountBar } from './ui/AccountBar'
-import { avatarBaseFromWs, removeAvatar, uploadAvatar } from './net/avatars'
+import { avatarBaseFromWs, comRenovacao, removeAvatar, uploadAvatar } from './net/avatars'
 import { ProfileProvider } from './ui/Avatar'
 import { ProfileEditor } from './ui/ProfileEditor'
 import { CallPanel } from './ui/CallPanel'
@@ -23,6 +23,7 @@ import { VoiceBar } from './ui/VoiceBar'
 import { CallStage } from './ui/CallStage'
 import { CallMiniPip } from './ui/CallMiniPip'
 import { VoiceSettings } from './ui/VoiceSettings'
+import { UserMenuProvider } from './ui/UserMenu'
 import { createVoiceTransport, emptySnapshot, type VoiceSnapshot, type VoiceTransport } from './voice/VoiceTransport'
 import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
 import './ui/app.css'
@@ -59,9 +60,8 @@ export default function App() {
   const [view, setView] = useState<View | null>(null)
   const viewRef = useRef<View | null>(null)
   viewRef.current = view
+  const previousServerView = useRef<View | null>(null)
   const [call, setCall] = useState<CallState | null>(null)
-  const [callFocused, setCallFocused] = useState(false)
-  const [callMode, setCallMode] = useState<'embedded' | 'fullscreen'>('embedded')
   const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(emptySnapshot)
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
   const [_voicePreferences, setVoicePreferences] = useState<VoicePreferences>(loadVoicePreferences)
@@ -82,8 +82,7 @@ export default function App() {
     setAuthenticated(false)
     setView(null)
     setCall(null)
-    setCallFocused(false)
-    setCallMode('embedded')
+    previousServerView.current = null
     setVoiceSnapshot(emptySnapshot())
     setVoiceSettingsOpen(false)
     setRinging(null)
@@ -179,7 +178,6 @@ export default function App() {
           voice.current?.destroy()
           unsubscribeVoice.current?.()
           setCall(null)
-          setCallFocused(false)
           setRinging(null)
           setSpeaking(new Set())
           setAuthBusy(false)
@@ -204,7 +202,9 @@ export default function App() {
             setVoiceSnapshot(snapshot)
             if (snapshot.status === 'idle' && !snapshot.channel) {
               setCall(null)
-              setCallFocused(false)
+              setView((current) => current?.kind === 'voice'
+                ? (previousServerView.current ?? { kind: 'home' })
+                : current)
             }
           })
           setView((current) => current ?? { kind: 'home' })
@@ -348,18 +348,23 @@ export default function App() {
 
   const selectHome = useCallback(() => {
     setView({ kind: 'home' })
-    setCallFocused(false)
   }, [])
 
   const selectChannel = useCallback((id: string) => {
-    setView({ kind: 'channel', id })
-    setCallFocused(false)
+    const next: View = { kind: 'channel', id }
+    previousServerView.current = next
+    setView(next)
   }, [])
 
   const selectDirect = useCallback((userId: UserId) => {
     setView({ kind: 'direct', userId })
-    setCallFocused(false)
     connection.current?.send({ t: 'dm.open', user_id: userId })
+  }, [])
+
+  const openServerCallView = useCallback((channelId: string) => {
+    const current = viewRef.current
+    if (current && current.kind !== 'voice') previousServerView.current = current
+    setView({ kind: 'voice', id: channelId })
   }, [])
 
   const socialAction = useCallback((action: SocialAction, userId: UserId) => {
@@ -374,17 +379,18 @@ export default function App() {
     const started = await voice.current?.join(channelId)
     if (started) {
       setCall({ channel: channelId, muted: false, deafened: false })
-      setCallFocused(true)
+      const serverVoice = state.channels.some((channel) => channel.kind === 'voice' && channel.id === channelId)
+      if (serverVoice) openServerCallView(channelId)
     }
-  }, [])
+  }, [openServerCallView, state.channels])
 
   const handleJoinCall = useCallback(async (channelId: string) => {
     if (call?.channel === channelId) {
-      setCallFocused(true)
+      openServerCallView(channelId)
       return
     }
     await joinCall(channelId)
-  }, [call?.channel, joinCall])
+  }, [call?.channel, joinCall, openServerCallView])
 
   const startCall = useCallback((userId: UserId, username: string) => {
     setRinging({ userId, username, direction: 'outgoing' })
@@ -403,17 +409,32 @@ export default function App() {
   /** `null` remove. O token vem do Connection para nao ter duas fontes. */
   const enviarAvatar = useCallback(
     async (file: File | null) => {
-      const token = connection.current?.token
       const servidor = active?.profile.url
-      if (!token || !servidor) throw new Error('sua sessão expirou, entre de novo')
+      if (!servidor) throw new Error('sua sessão expirou, entre de novo')
       const base = avatarBaseFromWs(servidor)
-      if (file) await uploadAvatar(base, token, file)
-      else await removeAvatar(base, token)
+
+      const tentar = async (token: string) => {
+        if (file) await uploadAvatar(base, token, file)
+        else await removeAvatar(base, token)
+      }
+
+      await comRenovacao(tentar, connection.current?.token ?? null, async () => {
+        const sessao = await authApi.current?.refresh()
+        if (!sessao) return null
+        connection.current?.authenticate(sessao.access_token)
+        return sessao.access_token
+      })
     },
     [active?.profile.url],
   )
 
-  const leaveCall = useCallback(() => { voice.current?.leave(); setCall(null); setCallFocused(false) }, [])
+  const leaveCall = useCallback(() => {
+    voice.current?.leave()
+    setCall(null)
+    setView((current) => current?.kind === 'voice'
+      ? (previousServerView.current ?? { kind: 'home' })
+      : current)
+  }, [])
   const toggleMute = useCallback(() => setCall((current) => {
     if (!current) return current
     voice.current?.setMuted(!current.muted)
@@ -449,6 +470,8 @@ export default function App() {
     : null
   const canDirect = status === 'online' && Boolean(socialMember?.can_start_dm)
   const callChannel = call ? state.channels.find((item) => item.id === call.channel) : undefined
+  const homeNotificationCount = totalUnread(state)
+    + state.socialMembers.filter((member) => member.relationship === 'incoming').length
   const callName = call ? callChannel?.name ?? directChannelPartner(state, call.channel) ?? call.channel : ''
   const self = state.users.find((user) => user.user_id === state.selfUserId)
   const onlineIds = new Set(state.users.map((user) => user.user_id))
@@ -461,34 +484,19 @@ export default function App() {
   const isCallView = Boolean(
     call &&
     ((view?.kind === 'direct' && view.userId === callPartnerId) ||
-     (view?.kind === 'channel' && view.id === call.channel))
+     (view?.kind === 'voice' && view.id === call.channel))
   )
-
-  const sideChatComponent = channel ? (
-    <Chat
-      title={channel.name}
-      kind="channel"
-      messages={state.messages[channel.id] ?? []}
-      canSend={status === 'online'}
-      onSend={sendMessage}
-    />
-  ) : conversation ? (
-    <Chat
-      title={conversation.username}
-      kind="direct"
-      messages={state.directMessages[conversation.user_id] ?? []}
-      canSend={canDirect}
-      disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
-      onSend={sendMessage}
-    />
-  ) : null
 
   // Sem isto todo avatar cai no provisorio: e daqui que qualquer tela alcanca
   // o perfil de qualquer pessoa sem receber o estado por prop.
   return (
     <ProfileProvider profiles={state.profiles} avatarBase={avatarBase}>
+    <UserMenuProvider members={state.socialMembers} selfUserId={state.selfUserId}
+      onMessage={selectDirect} onCall={startCall} onAction={socialAction}
+      onEditSelf={() => setEditingProfile(true)}>
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
       <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
+        homeNotificationCount={homeNotificationCount}
         onHome={selectHome} onSelect={selectServer} onAdd={backToServers} />
       <Sidebar state={state} status={status} view={view} mode={sidebarMode}
         onSelectHome={selectHome}
@@ -499,8 +507,7 @@ export default function App() {
             onToggleMute={toggleMute} onToggleDeafen={toggleDeafen} onLeave={leaveCall}
             onOpen={() => {
               if (callPartnerId) selectDirect(callPartnerId)
-              else if (call?.channel) selectChannel(call.channel)
-              setCallFocused(true)
+              else if (call?.channel) openServerCallView(call.channel)
             }} />}
           <AccountBar onOpenProfile={() => setEditingProfile(true)} userId={state.selfUserId} username={self?.username ?? attemptedUsername.current} onLogout={logout}
             onRemoveServer={() => removeSaved(active.profile.url)} />
@@ -508,19 +515,16 @@ export default function App() {
 
       <main className="main">
         {notice && <div className="notice" role="status">{notice}</div>}
-        {call && voice.current && ((callFocused && callMode === 'fullscreen') || (!isCallView && callFocused)) ? (
+        {call && voice.current && view?.kind === 'voice' && view.id === call.channel ? (
           <CallStage
             channelName={callName}
             snapshot={voiceSnapshot}
             transport={voice.current}
-            onMinimize={() => setCallFocused(false)}
             onLeave={leaveCall}
             onOpenSettings={() => setVoiceSettingsOpen(true)}
-            chatPanel={sideChatComponent}
             resolveUserId={resolveUserId}
             selfUserId={state.selfUserId}
             variant="fullscreen"
-            onToggleVariant={isCallView ? () => { setCallMode('embedded'); setCallFocused(false) } : undefined}
           />
         ) : (
           <>
@@ -530,13 +534,11 @@ export default function App() {
                 channelName={callName}
                 snapshot={voiceSnapshot}
                 transport={voice.current}
-                onMinimize={() => setCallFocused(false)}
                 onLeave={leaveCall}
                 onOpenSettings={() => setVoiceSettingsOpen(true)}
                 resolveUserId={resolveUserId}
                 selfUserId={state.selfUserId}
                 variant="embedded"
-                onToggleVariant={() => { setCallMode('fullscreen'); setCallFocused(true) }}
               />
             )}
 
@@ -560,15 +562,14 @@ export default function App() {
       </main>
 
       {/* Mini-player flutuante estilo Discord */}
-      {call && !callFocused && !isCallView && voice.current && (
+      {call && !isCallView && voice.current && (
         <CallMiniPip
           channelName={callName}
           snapshot={voiceSnapshot}
           transport={voice.current}
           onExpand={() => {
             if (callPartnerId) selectDirect(callPartnerId)
-            else if (call?.channel) selectChannel(call.channel)
-            setCallFocused(true)
+            else if (call?.channel) openServerCallView(call.channel)
           }}
           onLeave={leaveCall}
           resolveUserId={resolveUserId}
@@ -577,7 +578,8 @@ export default function App() {
       )}
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
-        onMessage={selectDirect} onAction={socialAction} />}
+        selfUserId={state.selfUserId} selfUsername={self?.username ?? attemptedUsername.current}
+        onEditSelf={() => setEditingProfile(true)} onMessage={selectDirect} onAction={socialAction} />}
       <ProfileEditor isOpen={editingProfile} profile={meuPerfil} avatarBase={avatarBase}
         onClose={() => setEditingProfile(false)}
         onSave={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
@@ -595,6 +597,7 @@ export default function App() {
         />
       )}
     </div>
+    </UserMenuProvider>
     </ProfileProvider>
   )
 }
