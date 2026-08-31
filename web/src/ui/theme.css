@@ -1,3 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-quiet: var(--accent-quiet);
+  --color-accent-glass: var(--accent-glass);
+  --color-accent-glow: var(--accent-glow);
+  --color-on-accent: var(--on-accent);
+
+  --color-bg-canvas: var(--bg-canvas);
+  --color-bg-rail: var(--bg-rail);
+  --color-bg-sidebar: var(--bg-sidebar);
+  --color-bg-app: var(--bg-app);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-input: var(--bg-input);
+  --color-bg-hover: var(--bg-hover);
+  --color-bg-active: var(--bg-active);
+
+  --color-text: var(--text);
+  --color-text-soft: var(--text-soft);
+  --color-text-dim: var(--text-dim);
+  --color-text-faint: var(--text-faint);
+
+  --color-danger: var(--danger);
+  --color-danger-quiet: var(--danger-quiet);
+  --color-online: var(--online);
+  --color-online-quiet: var(--online-quiet);
+  --color-warning: var(--warning);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-pill: var(--radius-pill);
+
+  /* Proibição estrita de box-shadow no design system do Stapp */
+  --shadow-none: none;
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-md: none;
+  --shadow-lg: none;
+  --shadow-xl: none;
+  --shadow-2xl: none;
+  --shadow-inner: none;
+}
+
 /* Toda cor do Stapp vive neste arquivo. Grafite liquido com acento azul. */
 :root {
   --accent: #209cee;
