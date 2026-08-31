@@ -83,3 +83,43 @@ fn limits_text_to_two_thousand_characters() {
     assert_eq!(clean_text(&text).unwrap().len(), 2000);
     assert_eq!(clean_text("\0\r\t"), None);
 }
+
+#[tokio::test]
+async fn envia_mensagem_sem_texto_se_houver_anexos() {
+    let server = TestServer::new(10, 4);
+    let account = server.account("Daniel");
+    server
+        .state
+        .register_session("peer", &account)
+        .await
+        .unwrap();
+
+    // Insere um anexo no banco para teste
+    server
+        .state
+        .db
+        .insert_attachment(
+            "att-1",
+            &account.id,
+            "imagem.png",
+            "image/png",
+            1024,
+            "uploads/att-1.png",
+            crate::protocol::now_ms(),
+        )
+        .unwrap();
+
+    let mut events = server.state.subscribe();
+    send(&server.state, "peer", "geral".into(), "", vec!["att-1".into()]).await;
+
+    let event = events.try_recv().unwrap();
+    match event.msg {
+        ServerMsg::ChatNew { channel, msg } => {
+            assert_eq!(channel, "geral");
+            assert_eq!(msg.text, "");
+            assert_eq!(msg.attachments.len(), 1);
+            assert_eq!(msg.attachments[0].id, "att-1");
+        }
+        other => panic!("evento inesperado: {other:?}"),
+    }
+}

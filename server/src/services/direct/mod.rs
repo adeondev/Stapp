@@ -123,9 +123,10 @@ pub async fn send(
     if !state.db.can_direct(&me.user_id, &other).unwrap_or(false) {
         return denied(state, peer_id, other);
     }
-    let Some(text) = clean_text(raw_text) else {
+    let text = clean_text(raw_text).unwrap_or_default();
+    if text.is_empty() && attachment_ids.is_empty() {
         return;
-    };
+    }
 
     let first_message = !state
         .db

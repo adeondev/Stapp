@@ -45,9 +45,10 @@ pub async fn send(
         }
     }
 
-    let Some(text) = clean_text(raw_text) else {
+    let text = clean_text(raw_text).unwrap_or_default();
+    if text.is_empty() && attachment_ids.is_empty() {
         return;
-    };
+    }
     let Some(author) = state.identity_of(peer_id).await else {
         return;
     };
