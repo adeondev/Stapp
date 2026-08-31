@@ -10,12 +10,12 @@
 
 use std::sync::Arc;
 
+use axum::Router;
 use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use axum::Router;
 
 use super::auth::{OriginContext, attach_common_headers, origin_context};
 
@@ -34,11 +34,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .layer(DefaultBodyLimit::max(LIMITE))
 }
 
-async fn upload(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    bytes: Bytes,
-) -> Response {
+async fn upload(State(state): State<Arc<AppState>>, headers: HeaderMap, bytes: Bytes) -> Response {
     let Some(contexto) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };

@@ -739,6 +739,76 @@ async fn o_upload_responde_o_preflight_do_navegador() {
     assert_eq!(status, 204, "o preflight de /avatars precisa passar");
 }
 
+#[tokio::test]
+async fn fluxo_e2e_enquetes_no_canal() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let mut daniel = entrar(addr, "daniel").await;
+    let mut alice = entrar(addr, "alice").await;
+
+    // Daniel cria uma enquete
+    daniel
+        .send(json!({
+            "t": "poll.create",
+            "channel": "geral",
+            "question": "Qual sua cor favorita?",
+            "options": ["Azul", "Vermelho"],
+            "allow_mult": false
+        }))
+        .await;
+
+    // Daniel e Alice recebem a mensagem da nova enquete
+    let nova_msg = daniel.wait_for("chat.new").await;
+    assert_eq!(nova_msg["channel"], "geral");
+    assert!(nova_msg["msg"]["poll"].is_object());
+    assert_eq!(
+        nova_msg["msg"]["poll"]["question"],
+        "Qual sua cor favorita?"
+    );
+    assert_eq!(
+        nova_msg["msg"]["poll"]["options"].as_array().unwrap().len(),
+        2
+    );
+
+    let poll_id = nova_msg["msg"]["poll"]["id"].as_str().unwrap();
+    let opt_id = nova_msg["msg"]["poll"]["options"][0]["id"]
+        .as_str()
+        .unwrap();
+
+    // Alice vota na primeira opção
+    alice
+        .send(json!({
+            "t": "poll.vote",
+            "poll_id": poll_id,
+            "option_id": opt_id
+        }))
+        .await;
+
+    let update = alice.wait_for("chat.poll_update").await;
+    assert_eq!(update["poll"]["total_votes"], 1);
+
+    daniel.close().await;
+    alice.close().await;
+}
+
+#[tokio::test]
+async fn attachments_endpoints_sem_auth_sao_rejeitados() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("http://{addr}/attachments/presign"))
+        .header("content-type", "application/json")
+        .body(r#"{"filename":"foto.png","content_type":"image/png","size_bytes":100}"#)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status().as_u16(), 401);
+}
+
 const SENHA: &str = "uma senha bem seguraa";
 
 /// Conecta, cria a conta e devolve o cliente logo apos o `auth.required`.
@@ -750,4 +820,172 @@ async fn entrar(addr: std::net::SocketAddr, username: &str) -> common::Client {
         .authenticate(sessao.body["access_token"].as_str().unwrap())
         .await;
     cliente
+}
+
+/// Os tetos saem do `stapp.toml`, viram protocolo e chegam ao cliente no
+/// `welcome`. Sem isso o cliente teria que adivinhar o limite, ou repetir a
+/// regra do servidor — que e exatamente o que o CLAUDE.md proibe.
+#[tokio::test]
+async fn o_welcome_entrega_os_limites_do_stapp_toml() {
+    let dir = common::TestDir::new();
+    let mut config = common::config(dir.database(), true);
+    // Valores fora do default, senao o teste passaria mesmo se o caminho
+    // config -> protocolo estivesse quebrado.
+    config.limits.max_upload_mb = 7;
+    config.limits.max_text_chars = 123;
+    let addr = common::start(config).await;
+
+    let sessao = common::auth(addr, "register", "daniel", SENHA, true).await;
+    let mut daniel = common::Client::connect(addr).await;
+    daniel.wait_for("auth.required").await;
+    daniel
+        .authenticate(sessao.body["access_token"].as_str().unwrap())
+        .await;
+
+    let welcome = daniel.wait_for("welcome").await;
+    assert_eq!(welcome["limits"]["max_upload_bytes"], 7 * 1024 * 1024);
+    assert_eq!(welcome["limits"]["max_text_chars"], 123);
+
+    // E o servidor recusa de verdade quem passa do teto, em vez de cortar calado.
+    daniel
+        .send(json!({ "t": "chat.send", "channel": "geral", "text": "a".repeat(124) }))
+        .await;
+    let erro = daniel.wait_for("error").await;
+    assert!(erro["message"].as_str().unwrap().contains("123"));
+
+    daniel.close().await;
+}
+
+/// O roteiro que o cliente vive: responder, editar, reagir e apagar, com o
+/// outro lado vendo cada passo.
+#[tokio::test]
+async fn responder_editar_reagir_e_apagar_chegam_para_os_dois() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let s_daniel = common::auth(addr, "register", "daniel", SENHA, true).await;
+    let s_alice = common::auth(addr, "register", "alice", SENHA, true).await;
+
+    let mut daniel = common::Client::connect(addr).await;
+    daniel.wait_for("auth.required").await;
+    daniel
+        .authenticate(s_daniel.body["access_token"].as_str().unwrap())
+        .await;
+    daniel.wait_for("welcome").await;
+
+    let mut alice = common::Client::connect(addr).await;
+    alice.wait_for("auth.required").await;
+    alice
+        .authenticate(s_alice.body["access_token"].as_str().unwrap())
+        .await;
+    alice.wait_for("welcome").await;
+
+    // Cada acao rende um evento para os DOIS lados. Quem age tambem precisa
+    // consumir o proprio, senao a fila desalinha e o teste le o evento errado.
+
+    // --- mensagem original, com mencao
+    daniel
+        .send(json!({ "t": "chat.send", "channel": "geral", "text": "fala @alice" }))
+        .await;
+    let nova = alice.wait_for("chat.new").await;
+    daniel.wait_for("chat.new").await;
+    let id = nova["msg"]["id"].as_str().unwrap().to_string();
+    // O texto nao e reescrito; a citacao vem ao lado, resolvida em user_id.
+    assert_eq!(nova["msg"]["text"], "fala @alice");
+    assert_eq!(nova["msg"]["mentions"].as_array().unwrap().len(), 1);
+
+    // --- responder
+    alice
+        .send(json!({
+            "t": "chat.send", "channel": "geral", "text": "oi!", "reply_to": id
+        }))
+        .await;
+    let resposta = daniel.wait_for("chat.new").await;
+    alice.wait_for("chat.new").await;
+    assert_eq!(resposta["msg"]["reply_to"]["message_id"], id);
+    // O trecho citado ja vem resolvido no proprio evento de envio.
+    assert_eq!(resposta["msg"]["reply_to"]["excerpt"], "fala @alice");
+
+    // --- editar
+    daniel
+        .send(json!({ "t": "message.edit", "message_id": id, "text": "fala @alice, tudo bem?" }))
+        .await;
+    let editada = alice.wait_for("chat.updated").await;
+    daniel.wait_for("chat.updated").await;
+    assert_eq!(editada["msg"]["text"], "fala @alice, tudo bem?");
+    assert!(editada["msg"]["edited_at"].is_number());
+
+    // --- reagir
+    alice
+        .send(json!({ "t": "message.react", "message_id": id, "emoji": "👍" }))
+        .await;
+    let reagida = daniel.wait_for("chat.updated").await;
+    alice.wait_for("chat.updated").await;
+    assert_eq!(reagida["msg"]["reactions"][0]["emoji"], "👍");
+    assert_eq!(
+        reagida["msg"]["reactions"][0]["users"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+
+    // --- apagar
+    daniel
+        .send(json!({ "t": "message.delete", "message_id": id }))
+        .await;
+    let apagada = alice.wait_for("chat.deleted").await;
+    daniel.wait_for("chat.deleted").await;
+    assert_eq!(apagada["message_id"], id);
+
+    daniel.close().await;
+    alice.close().await;
+}
+
+/// Apagar e definitivo: o historico depois de reiniciar e a prova.
+#[tokio::test]
+async fn mensagem_apagada_nao_volta_no_historico_depois_de_reiniciar() {
+    let dir = common::TestDir::new();
+
+    {
+        let addr = common::start(common::config(dir.database(), true)).await;
+        let sessao = common::auth(addr, "register", "daniel", SENHA, true).await;
+        let mut daniel = common::Client::connect(addr).await;
+        daniel.wait_for("auth.required").await;
+        daniel
+            .authenticate(sessao.body["access_token"].as_str().unwrap())
+            .await;
+        daniel.wait_for("welcome").await;
+
+        daniel
+            .send(json!({ "t": "chat.send", "channel": "geral", "text": "fica" }))
+            .await;
+        daniel.wait_for("chat.new").await;
+        daniel
+            .send(json!({ "t": "chat.send", "channel": "geral", "text": "sai" }))
+            .await;
+        let sai = daniel.wait_for("chat.new").await;
+
+        daniel
+            .send(json!({ "t": "message.delete", "message_id": sai["msg"]["id"] }))
+            .await;
+        daniel.wait_for("chat.deleted").await;
+        daniel.close().await;
+    }
+
+    let addr = common::start(common::config(dir.database(), true)).await;
+    let sessao = common::auth(addr, "login", "daniel", SENHA, true).await;
+    let mut daniel = common::Client::connect(addr).await;
+    daniel.wait_for("auth.required").await;
+    daniel
+        .authenticate(sessao.body["access_token"].as_str().unwrap())
+        .await;
+    daniel.wait_for("welcome").await;
+
+    let historico = daniel.wait_for("chat.history").await;
+    let msgs = historico["msgs"].as_array().unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0]["text"], "fica");
+
+    daniel.close().await;
 }

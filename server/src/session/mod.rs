@@ -40,6 +40,7 @@ pub struct AppState {
     pub config: Config,
     pub db: Db,
     pub auth: AuthService,
+    pub media: Option<crate::services::media::MediaStorageService>,
     sessions: RwLock<HashMap<PeerId, SessionEntry>>,
     calls: RwLock<calls::Calls>,
     tx: broadcast::Sender<Envelope>,
@@ -48,10 +49,17 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config, db: Db) -> anyhow::Result<Arc<Self>> {
         let (tx, _) = broadcast::channel(512);
+        let media = config
+            .storage
+            .s3
+            .as_ref()
+            .map(crate::services::media::MediaStorageService::new);
+
         Ok(Arc::new(Self {
             config,
             db,
             auth: AuthService::new()?,
+            media,
             sessions: RwLock::new(HashMap::new()),
             calls: RwLock::new(calls::Calls::default()),
             tx,

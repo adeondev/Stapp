@@ -61,6 +61,10 @@ export default function App() {
   const viewRef = useRef<View | null>(null)
   viewRef.current = view
   const previousServerView = useRef<View | null>(null)
+  // O `onMessage` e montado uma vez e nao enxerga o estado atual; a ref e o que
+  // deixa a citacao saber se e voce sem remontar a conexao a cada render.
+  const selfUserIdRef = useRef<UserId | null>(null)
+  selfUserIdRef.current = state.selfUserId
   const [call, setCall] = useState<CallState | null>(null)
   const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(emptySnapshot)
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
@@ -222,6 +226,15 @@ export default function App() {
         if (msg.t === 'social.snapshot' && friendRequests.update(msg.members).length > 0) {
           notificationSound.play()
         }
+        // Mensagem de canal nunca tocava nada — so a direta tocava. Citacao e a
+        // excecao: e o unico jeito de chamar alguem num canal que ele nao esta
+        // olhando. A propria mensagem nao toca para quem a escreveu.
+        if (msg.t === 'chat.new') {
+          const eu = selfUserIdRef.current
+          const meChama =
+            (eu !== null && msg.msg.mentions?.includes(eu)) || Boolean(msg.msg.mentions_everyone)
+          if (meChama && msg.msg.author_id !== eu) notificationSound.play()
+        }
         if (msg.t === 'dm.new') {
           const current = viewRef.current
           if (msg.unread > 0 && msg.msg.kind === 'text') notificationSound.play()
@@ -349,10 +362,71 @@ export default function App() {
     setAuthError(null)
   }, [resetRoom])
 
-  const sendMessage = useCallback((text: string) => {
+  const sendMessage = useCallback(
+    (text: string, attachmentIds?: string[], replyTo?: string) => {
+      const current = viewRef.current
+      if (current?.kind === 'channel') {
+        connection.current?.send({
+          t: 'chat.send',
+          channel: current.id,
+          text,
+          attachment_ids: attachmentIds,
+          reply_to: replyTo,
+        })
+      }
+      if (current?.kind === 'direct') {
+        connection.current?.send({
+          t: 'dm.send',
+          user_id: current.userId,
+          text,
+          attachment_ids: attachmentIds,
+          reply_to: replyTo,
+        })
+      }
+    },
+    [],
+  )
+
+  // Editar, apagar e reagir nao dizem o escopo: o id de mensagem e unico e quem
+  // descobre onde ela mora e o servidor.
+  const editMessage = useCallback((messageId: string, text: string) => {
+    connection.current?.send({ t: 'message.edit', message_id: messageId, text })
+  }, [])
+
+  const deleteMessage = useCallback((messageId: string) => {
+    connection.current?.send({ t: 'message.delete', message_id: messageId })
+  }, [])
+
+  const reactMessage = useCallback((messageId: string, emoji: string) => {
+    connection.current?.send({ t: 'message.react', message_id: messageId, emoji })
+  }, [])
+
+  const votePoll = useCallback((pollId: string, optionId: string) => {
+    connection.current?.send({
+      t: 'poll.vote',
+      poll_id: pollId,
+      option_id: optionId,
+    })
+  }, [])
+
+  const createPoll = useCallback((question: string, options: string[], allowMult: boolean) => {
     const current = viewRef.current
-    if (current?.kind === 'channel') connection.current?.send({ t: 'chat.send', channel: current.id, text })
-    if (current?.kind === 'direct') connection.current?.send({ t: 'dm.send', user_id: current.userId, text })
+    if (current?.kind === 'channel') {
+      connection.current?.send({
+        t: 'poll.create',
+        channel: current.id,
+        question,
+        options,
+        allow_mult: allowMult,
+      })
+    }
+  }, [])
+
+  const closePoll = useCallback((pollId: string) => {
+    connection.current?.send({
+      t: 'poll.close',
+      poll_id: pollId,
+    })
   }, [])
 
   const selectHome = useCallback(() => {
@@ -555,13 +629,43 @@ export default function App() {
               <FriendsHome members={state.socialMembers} onlineIds={onlineIds}
                 onOpenDirect={selectDirect} onAction={socialAction} />
             ) : channel ? (
-              <Chat title={channel.name} kind="channel" messages={state.messages[channel.id] ?? []}
-                canSend={status === 'online'} onSend={sendMessage} />
+              <Chat
+                title={channel.name}
+                kind="channel"
+                messages={state.messages[channel.id] ?? []}
+                canSend={status === 'online'}
+                serverUrl={active?.profile.url}
+                accessToken={connection.current?.token}
+                selfUserId={state.selfUserId ?? undefined}
+                limits={state.limits}
+                mentionables={state.directory}
+                onEdit={editMessage}
+                onDelete={deleteMessage}
+                onReact={reactMessage}
+                onSend={sendMessage}
+                onVotePoll={votePoll}
+                onCreatePoll={createPoll}
+                onClosePoll={closePoll}
+              />
             ) : conversation ? (
-              <Chat title={conversation.username} kind="direct"
-                messages={state.directMessages[conversation.user_id] ?? []} canSend={canDirect}
+              <Chat
+                title={conversation.username}
+                kind="direct"
+                messages={state.directMessages[conversation.user_id] ?? []}
+                canSend={canDirect}
                 disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
-                onSend={sendMessage} onCall={canDirect ? () => startCall(conversation.user_id, conversation.username) : undefined} />
+                serverUrl={active?.profile.url}
+                accessToken={connection.current?.token}
+                selfUserId={state.selfUserId ?? undefined}
+                limits={state.limits}
+                mentionables={state.directory}
+                onEdit={editMessage}
+                onDelete={deleteMessage}
+                onReact={reactMessage}
+                onSend={sendMessage}
+                onVotePoll={votePoll}
+                onCall={canDirect ? () => startCall(conversation.user_id, conversation.username) : undefined}
+              />
             ) : (
               <div className="placeholder"><img src={stappLogo} alt="" className="placeholder__logo" />
                 <strong>Escolha onde quer conversar</strong><span>Um canal, uma conversa ou a área de amigos.</span></div>

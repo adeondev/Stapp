@@ -4,7 +4,7 @@
 export type PeerId = string
 export type UserId = string
 export type ChannelKind = 'text' | 'voice'
-export const PROTOCOL_VERSION = 3
+export const PROTOCOL_VERSION = 4
 
 export interface Channel {
   id: string
@@ -28,6 +28,59 @@ export interface VoicePeer {
   screen_sharing: boolean
 }
 
+export interface Attachment {
+  id: string
+  filename: string
+  content_type: string
+  size_bytes: number
+  url: string
+}
+
+export interface PollOption {
+  id: string
+  text: string
+  votes: number
+  voted_by_me?: boolean
+}
+
+export interface Poll {
+  id: string
+  message_id: string
+  author_id: UserId
+  question: string
+  allow_mult: boolean
+  closed: boolean
+  total_votes: number
+  options: PollOption[]
+  created_at: number
+}
+
+/**
+ * A mensagem que esta sendo respondida, ja resolvida pelo servidor.
+ *
+ * **Campos internos ausentes = o alvo foi apagado.** Apagar e definitivo e nao
+ * deixa lapide, entao e assim que a tela sabe que deve escrever "mensagem
+ * apagada" no lugar da citacao.
+ */
+export interface ReplyRef {
+  message_id: string
+  author_id?: UserId
+  author_username?: string
+  excerpt?: string
+}
+
+/**
+ * As reacoes de um emoji, agrupadas.
+ *
+ * Carrega `user_id`, nunca perfil — nome e cor saem do mapa de perfis. Nao
+ * existe um `reacted_by_me`: o payload e o mesmo para todo mundo, e quem quer
+ * saber se ja reagiu procura o proprio id em `users`. Contagem e `users.length`.
+ */
+export interface Reaction {
+  emoji: string
+  users: UserId[]
+}
+
 export interface Message {
   id: string
   channel: string
@@ -36,6 +89,24 @@ export interface Message {
   text: string
   /** Milissegundos desde o epoch. */
   ts: number
+  preview?: UrlPreview
+  attachments?: Attachment[]
+  poll?: Poll
+  reply_to?: ReplyRef
+  /** Presente = foi editada. E o que vira a marca "(editado)". */
+  edited_at?: number
+  reactions?: Reaction[]
+  /** Contas citadas, resolvidas pelo servidor. So `user_id`. */
+  mentions?: UserId[]
+  mentions_everyone?: boolean
+}
+
+export interface UrlPreview {
+  url: string
+  title?: string
+  description?: string
+  image?: string
+  site_name?: string
 }
 
 /** O que Chat sabe renderizar. Message e DirectMessage servem os dois. */
@@ -47,6 +118,16 @@ export interface ChatEntry {
   ts: number
   /** Ausente numa mensagem de canal; 'call' e o rastro de uma chamada. */
   kind?: DirectMessageKind
+  preview?: UrlPreview
+  attachments?: Attachment[]
+  poll?: Poll
+  reply_to?: ReplyRef
+  /** Presente = foi editada. E o que vira a marca "(editado)". */
+  edited_at?: number
+  reactions?: Reaction[]
+  /** Contas citadas, resolvidas pelo servidor. So `user_id`. */
+  mentions?: UserId[]
+  mentions_everyone?: boolean
 }
 
 export type DirectMessageKind = 'text' | 'call'
@@ -59,6 +140,16 @@ export interface DirectMessage {
   kind: DirectMessageKind
   text: string
   ts: number
+  preview?: UrlPreview
+  attachments?: Attachment[]
+  poll?: Poll
+  reply_to?: ReplyRef
+  /** Presente = foi editada. E o que vira a marca "(editado)". */
+  edited_at?: number
+  reactions?: Reaction[]
+  /** Contas citadas, resolvidas pelo servidor. So `user_id`. */
+  mentions?: UserId[]
+  mentions_everyone?: boolean
 }
 
 /** Uma conversa na lista lateral, ja do ponto de vista de quem recebe. */
@@ -130,6 +221,17 @@ export type CallEndReason =
   | 'offline'
   | 'unavailable'
 
+/**
+ * Tetos do servidor. **Conveniencia de interface, nao autorizacao**: o servidor
+ * confere de novo no presign e no envio. O cliente obedece, nao repete a regra
+ * — mesma postura de `plaintext_auth_allowed`.
+ */
+export interface Limits {
+  max_upload_bytes: number
+  /** Em caracteres, nao bytes. */
+  max_text_chars: number
+}
+
 export type VoiceConfig =
   | { backend: 'mesh'; ice_servers: string[]; max_peers: number }
   | {
@@ -167,9 +269,36 @@ export type AuthErrorCode =
 
 export type ClientMsg =
   | { t: 'auth.access'; access_token: string }
-  | { t: 'chat.send'; channel: string; text: string }
+  | {
+      t: 'chat.send'
+      channel: string
+      text: string
+      attachment_ids?: string[]
+      /** Id da mensagem respondida. */
+      reply_to?: string
+    }
+  | {
+      t: 'poll.create'
+      channel: string
+      question: string
+      options: string[]
+      allow_mult: boolean
+    }
+  | { t: 'poll.vote'; poll_id: string; option_id: string }
+  | { t: 'poll.close'; poll_id: string }
+  // Servem canal e conversa: o id e unico, e quem descobre onde a mensagem
+  // mora e o servidor.
+  | { t: 'message.edit'; message_id: string; text: string }
+  | { t: 'message.delete'; message_id: string }
+  | { t: 'message.react'; message_id: string; emoji: string }
   | { t: 'dm.open'; user_id: UserId }
-  | { t: 'dm.send'; user_id: UserId; text: string }
+  | {
+      t: 'dm.send'
+      user_id: UserId
+      text: string
+      attachment_ids?: string[]
+      reply_to?: string
+    }
   | { t: 'dm.read'; user_id: UserId }
   | { t: 'friend.request'; user_id: UserId }
   | { t: 'friend.accept'; user_id: UserId }
@@ -226,9 +355,19 @@ export type ServerMsg =
       profiles: Profile[]
       voice: VoiceConfig
       voice_peers: VoicePeer[]
+      limits: Limits
     }
   | { t: 'chat.history'; channel: string; msgs: Message[] }
   | { t: 'chat.new'; channel: string; msg: Message }
+  /** A mensagem mudou. Vem inteira: o cliente troca por id, sem delta. */
+  | { t: 'chat.updated'; channel: string; msg: Message }
+  | { t: 'chat.deleted'; channel: string; message_id: string }
+  /** `user_id` e sempre a OUTRA pessoa, como no `dm.new`. */
+  | { t: 'dm.updated'; user_id: UserId; msg: DirectMessage }
+  /** Apagar muda a contagem de nao-lidas, entao ela vem recalculada. */
+  | { t: 'dm.deleted'; user_id: UserId; message_id: string; unread: number }
+  | { t: 'chat.preview'; message_id: string; preview: UrlPreview }
+  | { t: 'chat.poll_update'; channel: string; poll: Poll }
   | { t: 'dm.list'; conversations: DirectSummary[] }
   | { t: 'dm.history'; user_id: UserId; msgs: DirectMessage[] }
   | {

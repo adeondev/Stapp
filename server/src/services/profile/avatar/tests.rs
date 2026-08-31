@@ -16,7 +16,10 @@ fn png(largura: u32, altura: u32) -> Vec<u8> {
     }
     let mut bytes = Vec::new();
     image::DynamicImage::ImageRgba8(imagem)
-        .write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .write_to(
+            &mut std::io::Cursor::new(&mut bytes),
+            image::ImageFormat::Png,
+        )
         .unwrap();
     bytes
 }
@@ -44,8 +47,14 @@ fn imagem_alta_e_cortada_no_centro_em_vez_de_esticada() {
     let gravada = ler_gravado(dir.path(), "u1").to_rgba8();
     let esquerda = gravada.get_pixel(30, LADO / 2);
     let direita = gravada.get_pixel(LADO - 30, LADO / 2);
-    assert!(esquerda[0] > 200 && esquerda[2] < 60, "esquerda vermelha: {esquerda:?}");
-    assert!(direita[2] > 200 && direita[0] < 60, "direita azul: {direita:?}");
+    assert!(
+        esquerda[0] > 200 && esquerda[2] < 60,
+        "esquerda vermelha: {esquerda:?}"
+    );
+    assert!(
+        direita[2] > 200 && direita[0] < 60,
+        "direita azul: {direita:?}"
+    );
 }
 
 #[test]
@@ -62,7 +71,10 @@ fn o_que_nao_e_imagem_e_recusado() {
         store(dir.path(), "u1", b"texto puro"),
         Err(AvatarError::NaoEImagem)
     ));
-    assert!(read(dir.path(), "u1").is_none(), "nada pode ter sido gravado");
+    assert!(
+        read(dir.path(), "u1").is_none(),
+        "nada pode ter sido gravado"
+    );
 }
 
 #[test]

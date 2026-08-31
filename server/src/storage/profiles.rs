@@ -36,8 +36,9 @@ impl Db {
     /// Os perfis de todas as contas ativas. E o que vai no `welcome`.
     pub fn all_profiles(&self) -> Result<Vec<Profile>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare(&format!("{SELECT} WHERE u.disabled_at IS NULL ORDER BY u.username_key"))?;
+        let mut stmt = conn.prepare(&format!(
+            "{SELECT} WHERE u.disabled_at IS NULL ORDER BY u.username_key"
+        ))?;
         let rows = stmt.query_map([], ler_perfil)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     }

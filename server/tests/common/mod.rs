@@ -15,7 +15,8 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use stapp_server::config::{
-    AuthConfig, Channel, ChannelKind, Config, ServerConfig, StorageConfig, VoiceSettings,
+    AuthConfig, Channel, ChannelKind, Config, LimitsConfig, ServerConfig, StorageConfig,
+    VoiceSettings,
 };
 
 /// Diretorio temporario que se apaga sozinho no fim do teste.
@@ -91,6 +92,11 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
         storage: StorageConfig {
             database,
             history_limit: 50,
+            s3: None,
+        },
+        limits: LimitsConfig {
+            max_upload_mb: 15,
+            max_text_chars: 4000,
         },
     }
 }

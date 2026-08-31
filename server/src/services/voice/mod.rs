@@ -23,9 +23,7 @@ pub fn direct_channel(a: &UserId, b: &UserId) -> String {
 pub async fn disconnect_direct(state: &AppState, first: &UserId, second: &UserId) {
     state.close_direct_call(first, second).await;
     let channel = direct_channel(first, second);
-    let peers = state
-        .voice_sessions_including_reservations(&channel)
-        .await;
+    let peers = state.voice_sessions_including_reservations(&channel).await;
     for peer in peers {
         leave(state, &peer).await;
     }

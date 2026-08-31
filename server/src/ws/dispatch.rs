@@ -10,6 +10,7 @@ use crate::protocol::{ClientMsg, PeerId};
 use crate::services::call;
 use crate::services::chat;
 use crate::services::direct;
+use crate::services::messages;
 use crate::services::profile;
 use crate::services::social;
 use crate::services::voice;
@@ -21,10 +22,48 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
         // Trocar de conta e abrir outra conexao.
         ClientMsg::AuthAccess { .. } => {}
 
-        ClientMsg::ChatSend { channel, text } => chat::send(state, peer_id, channel, &text).await,
+        ClientMsg::ChatSend {
+            channel,
+            text,
+            attachment_ids,
+            reply_to,
+        } => chat::send(state, peer_id, channel, &text, attachment_ids, reply_to).await,
+
+        ClientMsg::MessageEdit { message_id, text } => {
+            messages::edit(state, peer_id, message_id, &text).await
+        }
+        ClientMsg::MessageDelete { message_id } => {
+            messages::delete(state, peer_id, message_id).await
+        }
+        ClientMsg::MessageReact { message_id, emoji } => {
+            messages::react(state, peer_id, message_id, emoji).await
+        }
+
+        ClientMsg::PollCreate {
+            channel,
+            question,
+            options,
+            allow_mult,
+        } => {
+            crate::services::polls::create(state, peer_id, channel, question, options, allow_mult)
+                .await
+        }
+
+        ClientMsg::PollVote { poll_id, option_id } => {
+            crate::services::polls::vote(state, peer_id, poll_id, option_id).await
+        }
+
+        ClientMsg::PollClose { poll_id } => {
+            crate::services::polls::close(state, peer_id, poll_id).await
+        }
 
         ClientMsg::DmOpen { user_id } => direct::open(state, peer_id, user_id).await,
-        ClientMsg::DmSend { user_id, text } => direct::send(state, peer_id, user_id, &text).await,
+        ClientMsg::DmSend {
+            user_id,
+            text,
+            attachment_ids,
+            reply_to,
+        } => direct::send(state, peer_id, user_id, &text, attachment_ids, reply_to).await,
         ClientMsg::DmRead { user_id } => direct::mark_read(state, peer_id, user_id).await,
 
         ClientMsg::FriendRequest { user_id } => social::request(state, peer_id, user_id).await,

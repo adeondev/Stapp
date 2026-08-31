@@ -1,0 +1,79 @@
+.stapp-gif-picker-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  height: 380px;
+  background: var(--bg-raised);
+  border: 1px solid var(--bg-input);
+  border-radius: var(--radius);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.stapp-gif-header {
+  padding: 0.5rem;
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--bg-input);
+}
+
+.stapp-gif-search-input {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid transparent;
+  color: var(--text);
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--radius-sm);
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.stapp-gif-search-input:focus {
+  border-color: var(--accent);
+}
+
+.stapp-gif-grid {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.4rem;
+  background: var(--bg-raised);
+}
+
+.stapp-gif-item {
+  position: relative;
+  width: 100%;
+  height: 95px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--bg-input);
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  transition: opacity 0.15s ease;
+}
+
+.stapp-gif-item:hover {
+  opacity: 0.88;
+}
+
+.stapp-gif-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.stapp-gif-attribution {
+  font-size: 10px;
+  text-align: right;
+  color: var(--text-dim);
+  padding: 0.25rem 0.5rem;
+  background: var(--bg-raised);
+  border-top: 1px solid var(--bg-input);
+}

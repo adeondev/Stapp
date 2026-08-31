@@ -120,6 +120,7 @@ describe('App', () => {
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 },
       voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
     }))
 
     expect(await screen.findByText('Nada por aqui ainda.')).toBeTruthy()
@@ -141,6 +142,7 @@ describe('App', () => {
         bio: '', has_avatar: false, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
     }))
 
     await user.click(screen.getByRole('button', { name: 'Stapp local' }))

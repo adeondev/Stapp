@@ -21,6 +21,13 @@ fn message(author: &Account, id: &str, ts: i64) -> Message {
         author_username: author.username.clone(),
         text: id.into(),
         ts,
+        attachments: Vec::new(),
+        poll: None,
+        reply_to: None,
+        edited_at: None,
+        reactions: Vec::new(),
+        mentions: Vec::new(),
+        mentions_everyone: false,
     }
 }
 
@@ -191,4 +198,71 @@ fn perfil_editado_sobrevive_a_reabertura_do_banco() {
     assert_eq!(perfil.display_name, "Deon");
     assert_eq!(perfil.accent, "purple");
     assert_eq!(perfil.updated_at, 777);
+}
+
+#[test]
+fn vincula_e_lista_anexos_de_mensagem() {
+    let dir = TestDir::new();
+    let db = Db::open(&dir.database()).unwrap();
+    let author = account(&db, "Alice");
+
+    let att_id = "anexo-uuid-1";
+    db.insert_attachment(
+        att_id,
+        &author.id,
+        "screenshot.png",
+        "image/png",
+        2048,
+        "uploads/alice/screenshot.png",
+        1000,
+    )
+    .unwrap();
+
+    let msg = message(&author, "msg-com-anexo", 1005);
+    db.insert(&msg).unwrap();
+    db.bind_attachments(&msg.id, &[att_id.to_string()]).unwrap();
+
+    let history = db.history("geral", 10).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].attachments.len(), 1);
+    assert_eq!(history[0].attachments[0].id, att_id);
+    assert_eq!(history[0].attachments[0].filename, "screenshot.png");
+    assert_eq!(history[0].attachments[0].content_type, "image/png");
+    assert_eq!(history[0].attachments[0].size_bytes, 2048);
+}
+
+#[test]
+fn cria_vota_e_encerra_enquete() {
+    let dir = TestDir::new();
+    let db = Db::open(&dir.database()).unwrap();
+    let author = account(&db, "daniel");
+
+    let msg = message(&author, "msg-enquete", 2000);
+    db.insert(&msg).unwrap();
+
+    let options = vec!["Opcao A".to_string(), "Opcao B".to_string()];
+    let poll = db
+        .insert_poll(
+            &msg.id,
+            Some("geral"),
+            &author.id,
+            "Qual a melhor opção?",
+            false,
+            &options,
+            2000,
+        )
+        .unwrap();
+
+    assert_eq!(poll.question, "Qual a melhor opção?");
+    assert_eq!(poll.options.len(), 2);
+    assert_eq!(poll.total_votes, 0);
+
+    let opt_a_id = &poll.options[0].id;
+    let updated = db.vote_poll(&poll.id, opt_a_id, &author.id, 2005).unwrap();
+    assert_eq!(updated.total_votes, 1);
+    assert_eq!(updated.options[0].votes, 1);
+    assert_eq!(updated.options[0].voted_by_me, Some(true));
+
+    let closed = db.close_poll(&poll.id, &author.id).unwrap();
+    assert!(closed.closed);
 }

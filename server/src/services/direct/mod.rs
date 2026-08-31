@@ -4,14 +4,17 @@
 //! entregue so nas conexoes das duas contas envolvidas. Quem estiver offline
 //! nao perde nada — recebe pelo historico quando conectar.
 
+use std::sync::Arc;
+
 use uuid::Uuid;
 
 use crate::protocol::{
     DirectMessage, DirectMessageKind, DirectSummary, DirectoryEntry, ServerMsg, UserId, now_ms,
 };
+use crate::services::messages;
 use crate::services::social;
 use crate::session::AppState;
-use crate::storage::conversation_id;
+use crate::storage::{MessageLocation, conversation_id};
 
 /// Todo mundo com conta neste servidor, menos voce. E a lista de quem da para
 /// chamar numa conversa nova.
@@ -102,7 +105,14 @@ pub async fn mark_read(state: &AppState, peer_id: &str, other: UserId) {
     mark_and_notify(state, &me.user_id, &other, &conversation).await;
 }
 
-pub async fn send(state: &AppState, peer_id: &str, other: UserId, raw_text: &str) {
+pub async fn send(
+    state: &Arc<AppState>,
+    peer_id: &str,
+    other: UserId,
+    raw_text: &str,
+    attachment_ids: Vec<String>,
+    reply_to: Option<String>,
+) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
     };
@@ -115,22 +125,58 @@ pub async fn send(state: &AppState, peer_id: &str, other: UserId, raw_text: &str
     if !state.db.can_direct(&me.user_id, &other).unwrap_or(false) {
         return denied(state, peer_id, other);
     }
-    let Some(text) = clean_text(raw_text) else {
+    let text = messages::clean_text(raw_text).unwrap_or_default();
+    if !messages::fits(&text, state.config.limits.max_text_chars) {
+        return messages::reject_too_long(state, peer_id, state.config.limits.max_text_chars);
+    }
+    if text.is_empty() && attachment_ids.is_empty() {
         return;
-    };
+    }
 
     let first_message = !state
         .db
         .direct_conversation_exists(&me.user_id, &other)
         .unwrap_or(false);
     let conversation = conversation_id(&me.user_id, &other);
+
+    // Mesma guarda do canal, na outra direcao: responder um id de canal dentro
+    // da conversa colaria um trecho publico onde ele nao foi escrito.
+    let resposta = reply_to.and_then(|alvo| {
+        let mesmo_escopo = matches!(
+            state.db.locate_message(&alvo),
+            Ok(Some(MessageLocation::Direct { conversation_id: ref c, .. })) if *c == conversation
+        );
+        // mesma_conversa: fora do escopo, a resposta simplesmente nao existe.
+        mesmo_escopo
+            .then(|| state.db.reply_ref(&alvo).ok().flatten())
+            .flatten()
+    });
+
+    let citadas = messages::mentions::resolve(state, &text);
+    let msg_id = Uuid::new_v4().to_string();
+
+    if !attachment_ids.is_empty() {
+        if let Err(err) = state.db.bind_attachments(&msg_id, &attachment_ids) {
+            tracing::error!(%err, "falha vinculando anexos em DM");
+        }
+    }
+
+    let attachments = state.db.list_attachments(&msg_id, None).unwrap_or_default();
+
     let msg = DirectMessage {
-        id: Uuid::new_v4().to_string(),
+        id: msg_id.clone(),
         author_id: me.user_id.clone(),
         author_username: me.username.clone(),
         kind: DirectMessageKind::Text,
         text,
         ts: now_ms(),
+        attachments,
+        poll: None,
+        reply_to: resposta,
+        edited_at: None,
+        reactions: Vec::new(),
+        mentions: citadas.user_ids,
+        mentions_everyone: citadas.everyone,
     };
 
     if let Err(err) = state.db.insert_direct(&conversation, &msg) {
@@ -141,9 +187,31 @@ pub async fn send(state: &AppState, peer_id: &str, other: UserId, raw_text: &str
     // Quem escreveu ja leu o que escreveu.
     mark(state, &me.user_id, &conversation);
 
+    let msg_id = msg.id.clone();
+    let text_for_preview = msg.text.clone();
     deliver(state, &me.user_id, &other, msg).await;
     if first_message {
         social::refresh_pair(state, &me.user_id, &other).await;
+    }
+
+    if let Some(target_url) = crate::services::preview::extract_first_url(&text_for_preview) {
+        let app_state = state.clone();
+        let author_id = me.user_id.clone();
+        let other_id = other.clone();
+        tokio::spawn(async move {
+            if let Some(preview) = crate::services::preview::scrape_metadata(&target_url).await {
+                let enriched_msg = ServerMsg::LinkPreviewEnriched {
+                    message_id: msg_id,
+                    preview,
+                };
+                for session_peer in app_state.sessions_of(&author_id).await {
+                    app_state.send_to(&session_peer, enriched_msg.clone());
+                }
+                for session_peer in app_state.sessions_of(&other_id).await {
+                    app_state.send_to(&session_peer, enriched_msg.clone());
+                }
+            }
+        });
     }
 }
 
@@ -222,16 +290,6 @@ fn refuse(state: &AppState, peer_id: &str, message: &str) {
 
 fn denied(state: &AppState, peer_id: &str, user_id: UserId) {
     state.send_to(peer_id, ServerMsg::DmDenied { user_id });
-}
-
-fn clean_text(raw: &str) -> Option<String> {
-    let text: String = raw
-        .chars()
-        .filter(|c| *c == '\n' || !c.is_control())
-        .take(2000)
-        .collect();
-    let text = text.trim().to_string();
-    (!text.is_empty()).then_some(text)
 }
 
 #[cfg(test)]

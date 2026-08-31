@@ -14,6 +14,8 @@
     "app:build": "tauri build"
   },
   "dependencies": {
+    "@emoji-mart/data": "^1.2.1",
+    "@emoji-mart/react": "^1.1.1",
     "@hugeicons/core-free-icons": "^4.3.0",
     "@hugeicons/react": "^1.1.10",
     "@jitsi/rnnoise-wasm": "0.2.1",
@@ -22,9 +24,14 @@
     "hugeicons-react": "^0.4.0",
     "livekit-client": "2.22.1",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1",
+    "twemoji-colr-font": "^15.0.3"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
     "@tauri-apps/cli": "^2.11.4",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.6",
@@ -32,6 +39,7 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.1.1",
     "jsdom": "^30.0.1",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"

@@ -1,8 +1,11 @@
 import {
   Add01Icon,
   ArrowRight01Icon,
+  ArrowTurnBackwardIcon,
   Call02Icon,
   Cancel01Icon,
+  Delete02Icon,
+  Edit02Icon,
   HashtagIcon,
   HeadphoneMuteIcon,
   HeadphonesIcon,
@@ -15,11 +18,14 @@ import {
   ServerStack01Icon,
   Setting07Icon,
   Shield01Icon,
+  SmileIcon,
   UserAccountIcon,
   UserGroupIcon,
   ViewIcon,
   ViewOffSlashIcon,
   VolumeHighIcon,
+  VolumeLowIcon,
+  VolumeOffIcon,
 } from 'hugeicons-react'
 
 interface IconProps {
@@ -260,4 +266,29 @@ export function IconStappLogo({ size = 48, className }: { size?: number; classNa
       <path d="M126.31 0C-30.1899 0 -28.6903 219.5 62.3097 219.5C153.31 219.5 161.31 102.5 126.31 102.5C91.3096 102.5 95.9784 131.704 65.81 127C35.6415 122.295 64.8985 45.7406 132.31 53.4998C214.31 70.4998 154.31 191 197.31 191C258.31 191 263.31 0 126.31 0Z" />
     </svg>
   )
+}
+
+// Barra de acoes que aparece no hover da mensagem.
+export function IconReply({ size = 16, className }: IconProps) {
+  return <ArrowTurnBackwardIcon size={size} className={className} />
+}
+
+export function IconEdit({ size = 16, className }: IconProps) {
+  return <Edit02Icon size={size} className={className} />
+}
+
+export function IconTrash({ size = 16, className }: IconProps) {
+  return <Delete02Icon size={size} className={className} />
+}
+
+export function IconReaction({ size = 16, className }: IconProps) {
+  return <SmileIcon size={size} className={className} />
+}
+
+export function IconVolumeLow({ size = 16, className }: IconProps) {
+  return <VolumeLowIcon size={size} className={className} />
+}
+
+export function IconVolumeOff({ size = 16, className }: IconProps) {
+  return <VolumeOffIcon size={size} className={className} />
 }

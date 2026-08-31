@@ -95,6 +95,25 @@ export function httpBaseFromWs(raw: string): string {
   return url.origin
 }
 
+/**
+ * Base HTTP do servidor a partir do endereco guardado no perfil.
+ *
+ * O perfil guarda o endereco como WebSocket (`ws://host:8787`), mas anexo e
+ * avatar sobem por HTTP. Sem esta conversao o `fetch` ia para
+ * `ws://host:8787/attachments/presign` e falhava calado — o anexo nunca ficava
+ * pronto e a mensagem saia so com texto. Aceita tambem `http(s)://` porque os
+ * testes e o modo de mesma origem passam a URL ja em HTTP.
+ */
+export function httpBaseFrom(raw: string): string {
+  const url = new URL(raw)
+  if (url.protocol === 'wss:') url.protocol = 'https:'
+  else if (url.protocol === 'ws:') url.protocol = 'http:'
+  else if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('endereco de servidor invalido')
+  }
+  return url.origin
+}
+
 export function canPersistSession(raw: string): boolean {
   try {
     const url = new URL(raw)

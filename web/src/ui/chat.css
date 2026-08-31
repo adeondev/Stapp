@@ -43,12 +43,58 @@
   text-align: center;
 }
 
+/* Duas colunas: calha do avatar e corpo. A mensagem seguida do mesmo autor
+   mantem a calha vazia em vez de recuar o texto — e o que alinha o bloco
+   inteiro na mesma coluna. */
 .chat__msg {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  gap: 12px;
   padding: 2px 0;
 }
 
 .chat__msg:not(.is-grouped) {
   margin-top: 16px;
+}
+
+.chat__gutter {
+  display: flex;
+  justify-content: center;
+}
+
+.chat__avatar {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  width: 40px;
+  height: 40px;
+  margin-top: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--avatar-accent, var(--accent));
+  color: var(--avatar-ink, var(--on-accent));
+  font-size: 15px;
+  font-weight: 700;
+  user-select: none;
+}
+
+/* Hora da mensagem seguida: so aparece quando o mouse passa, senao a coluna
+   viraria uma parede de horarios repetidos. */
+.chat__hovertime {
+  margin-top: 3px;
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1.4;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+
+.chat__msg:hover .chat__hovertime {
+  opacity: 1;
+}
+
+/* Sem isto o texto longo estica a coluna e estoura a largura da conversa. */
+.chat__body {
+  min-width: 0;
 }
 
 .chat__meta {
@@ -122,4 +168,192 @@
   color: var(--text-faint);
   font-size: 12px;
   text-align: center;
+}
+
+/* Enviar de forma explicita. Sem ele o unico caminho era o Enter, e quem so
+   anexava um arquivo nao tinha como saber que ja dava para mandar sem texto. */
+.chat .stapp-composer-send {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.chat .stapp-composer-send:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.chat .stapp-composer-send:disabled {
+  background: transparent;
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.stapp-voice-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  margin-bottom: 0.35rem;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.stapp-voice-status__erro {
+  color: var(--danger);
+}
+
+.stapp-voice-status__fechar {
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.stapp-voice-status__fechar:hover {
+  color: var(--text);
+}
+
+/* Contador de caracteres. So aparece perto do teto — mostrar sempre viraria
+   ruido, e o numero so interessa a quem esta chegando no limite. */
+.chat__contador {
+  position: absolute;
+  right: 12px;
+  bottom: -18px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.chat__contador.is-estourado {
+  color: var(--danger);
+}
+
+/* A mensagem precisa ser o ancoradouro da barra de acoes e do seletor de
+   reacao, que sao posicionados nela. */
+.chat__msg {
+  position: relative;
+}
+
+/* Mensagem que cita voce. Tom de fundo, nunca borda ou sombra. */
+.chat__msg.is-mencao {
+  background: var(--accent-quiet);
+  border-radius: var(--radius-sm);
+}
+
+/* Piscada ao pular para uma mensagem citada. */
+.chat__msg.is-destacada {
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  transition: background 0.6s ease;
+}
+
+/* Barra de acoes: so aparece no hover, e no foco de teclado — quem navega sem
+   mouse tambem precisa alcancar responder e editar. */
+.chat__acoes {
+  position: absolute;
+  top: -12px;
+  right: 8px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-app);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease;
+}
+
+.chat__msg:hover .chat__acoes,
+.chat__acoes:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.chat__acao {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.chat__acao:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.chat__acao--perigo:hover {
+  color: var(--danger);
+}
+
+.chat__editada {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.chat__editor {
+  margin-top: 4px;
+}
+
+.chat__editor-input {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  max-height: 240px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.4;
+  field-sizing: content;
+  resize: none;
+}
+
+.chat__editor-dica {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.chat__respondendo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  margin-bottom: 4px;
+  border-radius: var(--radius) var(--radius) 0 0;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.chat__respondendo-alvo {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat__respondendo-fechar {
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chat__respondendo-fechar:hover {
+  color: var(--text);
 }

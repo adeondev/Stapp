@@ -4,7 +4,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::hash_password_sync;
-use crate::config::{AuthConfig, Config, ServerConfig, StorageConfig, VoiceSettings};
+use crate::config::{AuthConfig, Config, LimitsConfig, ServerConfig, StorageConfig, VoiceSettings};
 use crate::config::{Channel, ChannelKind};
 use crate::session::AppState;
 use crate::storage::{Account, Db};
@@ -105,6 +105,11 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
         storage: StorageConfig {
             database,
             history_limit: 20,
+            s3: None,
+        },
+        limits: LimitsConfig {
+            max_upload_mb: 15,
+            max_text_chars: 4000,
         },
     }
 }

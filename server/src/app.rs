@@ -30,7 +30,8 @@ pub fn build(config: Config) -> Result<Router> {
         .route("/health", get(|| async { "ok" }))
         .route("/ws", get(ws::handler))
         .nest("/auth", http::auth::routes())
-        .nest("/avatars", http::avatars::routes());
+        .nest("/avatars", http::avatars::routes())
+        .nest("/attachments", http::attachments::routes());
 
     if let Some(dir) = static_dir.as_deref() {
         app = with_static_client(app, dir);
@@ -47,7 +48,7 @@ async fn security_headers(request: Request, next: Next) -> Response {
     headers.insert(
         HeaderName::from_static("content-security-policy"),
         HeaderValue::from_static(
-            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' http: https: ws: wss:",
+            "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; font-src 'self' data:; media-src 'self' blob: http: https:; connect-src 'self' http: https: ws: wss:",
         ),
     );
     headers.insert(

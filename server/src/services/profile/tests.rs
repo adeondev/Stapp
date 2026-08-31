@@ -63,9 +63,23 @@ async fn campo_ausente_nao_mexe_no_que_ja_estava() {
     let daniel = server.account("Daniel");
     server.state.register_session("d1", &daniel).await.unwrap();
 
-    update(&server.state, "d1", Some("Deon".into()), Some("red".into()), None).await;
+    update(
+        &server.state,
+        "d1",
+        Some("Deon".into()),
+        Some("red".into()),
+        None,
+    )
+    .await;
     // So a bio desta vez.
-    update(&server.state, "d1", None, None, Some("mudei so a bio".into())).await;
+    update(
+        &server.state,
+        "d1",
+        None,
+        None,
+        Some("mudei so a bio".into()),
+    )
+    .await;
 
     let perfil = server.state.db.profile_of(&daniel.id).unwrap().unwrap();
     assert_eq!(perfil.display_name, "Deon", "o nome tinha que continuar");
@@ -81,14 +95,26 @@ async fn nome_vazio_volta_para_o_username() {
 
     update(&server.state, "d1", Some("Deon".into()), None, None).await;
     assert_eq!(
-        server.state.db.profile_of(&daniel.id).unwrap().unwrap().display_name,
+        server
+            .state
+            .db
+            .profile_of(&daniel.id)
+            .unwrap()
+            .unwrap()
+            .display_name,
         "Deon"
     );
 
     // Vazio nao e "nao mexe": e apagar a escolha.
     update(&server.state, "d1", Some("   ".into()), None, None).await;
     assert_eq!(
-        server.state.db.profile_of(&daniel.id).unwrap().unwrap().display_name,
+        server
+            .state
+            .db
+            .profile_of(&daniel.id)
+            .unwrap()
+            .unwrap()
+            .display_name,
         "Daniel"
     );
 }

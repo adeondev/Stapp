@@ -1,0 +1,200 @@
+.stapp-audio-player {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--bg-raised);
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius);
+  max-width: 380px;
+  width: 100%;
+  margin-top: 0.4rem;
+  border-left: 3px solid var(--accent);
+}
+
+.stapp-audio-play-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+
+.stapp-audio-play-btn:hover {
+  opacity: 0.9;
+}
+
+.stapp-audio-waveform-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.stapp-audio-slider {
+  width: 100%;
+  height: 6px;
+  margin: 0;
+  padding: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  /* O trilho ja mostra o quanto tocou: nao ha barra sobreposta, so um gradiente
+     que para exatamente em --progresso. */
+  background: linear-gradient(
+    to right,
+    var(--accent) 0,
+    var(--accent) var(--progresso, 0%),
+    var(--bg-input) var(--progresso, 0%),
+    var(--bg-input) 100%
+  );
+}
+
+.stapp-audio-slider:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.stapp-audio-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.stapp-audio-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+.stapp-audio-slider:disabled::-webkit-slider-thumb {
+  background: var(--text-faint);
+}
+
+.stapp-audio-slider:disabled::-moz-range-thumb {
+  background: var(--text-faint);
+}
+
+.stapp-audio-time {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.stapp-audio-recorder-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-raised);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--accent);
+}
+
+.stapp-audio-record-pulse {
+  width: 10px;
+  height: 10px;
+  background: #ef4444;
+  border-radius: 50%;
+  animation: stapp-pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes stapp-pulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+}
+/* Controle de volume. Fica compacto: o slider so cresce no hover, senao roubaria
+   a largura da barra de posicao num player de 380px. */
+.stapp-audio-volume {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.stapp-audio-volume-btn {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.stapp-audio-volume-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.stapp-audio-volume-slider {
+  width: 0;
+  height: 4px;
+  padding: 0;
+  margin: 0;
+  border-radius: 999px;
+  opacity: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: width 0.15s ease, opacity 0.15s ease;
+  background: linear-gradient(
+    to right,
+    var(--text-dim) 0,
+    var(--text-dim) var(--progresso, 100%),
+    var(--bg-input) var(--progresso, 100%),
+    var(--bg-input) 100%
+  );
+}
+
+.stapp-audio-player:hover .stapp-audio-volume-slider,
+.stapp-audio-volume-slider:focus-visible {
+  width: 56px;
+  opacity: 1;
+}
+
+.stapp-audio-volume-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text);
+  cursor: pointer;
+}
+
+.stapp-audio-volume-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: none;
+  border-radius: 50%;
+  background: var(--text);
+  cursor: pointer;
+}
