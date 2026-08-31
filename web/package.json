@@ -22,7 +22,10 @@
     "hugeicons-react": "^0.4.0",
     "livekit-client": "2.22.1",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "rehype-sanitize": "^6.0.0",
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
