@@ -93,11 +93,29 @@ pub struct VoiceSettings {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct S3Config {
+    #[serde(default = "default_s3_endpoint")]
+    pub endpoint: String,
+    #[serde(default = "default_s3_bucket")]
+    pub bucket: String,
+    #[serde(default = "default_s3_region")]
+    pub region: String,
+    #[serde(default = "default_s3_access_key")]
+    pub access_key: String,
+    #[serde(default = "default_s3_secret_key")]
+    pub secret_key: String,
+    #[serde(default = "default_s3_public_url")]
+    pub public_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct StorageConfig {
     #[serde(default = "default_database")]
     pub database: PathBuf,
     #[serde(default = "default_history_limit")]
     pub history_limit: usize,
+    #[serde(default)]
+    pub s3: Option<S3Config>,
 }
 
 impl Config {
@@ -254,6 +272,24 @@ fn default_database() -> PathBuf {
 }
 fn default_history_limit() -> usize {
     200
+}
+fn default_s3_endpoint() -> String {
+    "http://127.0.0.1:9000".into()
+}
+fn default_s3_bucket() -> String {
+    "stapp-media".into()
+}
+fn default_s3_region() -> String {
+    "us-east-1".into()
+}
+fn default_s3_access_key() -> String {
+    "minioadmin".into()
+}
+fn default_s3_secret_key() -> String {
+    "minioadminpassword".into()
+}
+fn default_s3_public_url() -> Option<String> {
+    None
 }
 
 #[cfg(test)]
