@@ -28,6 +28,7 @@ pub fn run() {
             screen_sources::capture_screen_source_thumbnail,
             screen_capture::start_screen_capture,
             screen_capture::stop_screen_capture,
+            screen_capture::validate_screen_audio_exclusion,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

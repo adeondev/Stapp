@@ -228,6 +228,14 @@ export function IconChevronDown({ size = 14, className }: IconProps) {
   )
 }
 
+export function IconChevronUp({ size = 14, className }: IconProps) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
+      <path d="m18 15-6-6-6 6" />
+    </svg>
+  )
+}
+
 export function IconExpand({ size = 16, className }: IconProps) {
   return (
     <StrokeIcon size={size} className={className}>

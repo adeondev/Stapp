@@ -1,0 +1,8 @@
+diff --git a/dist/rnnoise-sync.js b/dist/rnnoise-sync.js
+index 1cf6ff0..455bd3c 100644
+--- a/dist/rnnoise-sync.js
++++ b/dist/rnnoise-sync.js
+@@ -2,2 +2,2 @@
+ var createRNNWasmModuleSync = (() => {
+-  var _scriptDir = import.meta.url;
++  var _scriptDir = "";

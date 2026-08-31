@@ -9,7 +9,7 @@ interface Props {
   transport: VoiceTransport
   initialPreset: ScreenPreset
   onClose(): void
-  onShare(sourceId: string | undefined, preset: ScreenPreset): Promise<boolean>
+  onShare(sourceId: string | undefined, preset: ScreenPreset, includeAudio: boolean): Promise<boolean>
 }
 
 const PRESETS: Array<{ id: ScreenPreset; title: string; detail: string }> = [
@@ -25,6 +25,7 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
   const [thumbnails, setThumbnails] = useState<Record<string, string | null>>({})
   const [selected, setSelected] = useState<string | null>(null)
   const [preset, setPreset] = useState(initialPreset)
+  const [includeAudio, setIncludeAudio] = useState(() => transport.getPreferences().shareAudio)
   const [tab, setTab] = useState<'screen' | 'window'>('screen')
   const [loading, setLoading] = useState(native)
   const [sharing, setSharing] = useState(false)
@@ -58,7 +59,7 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
     if (native && !selected) return
     setSharing(true)
     setError(null)
-    const ok = await onShare(selected ?? undefined, preset)
+    const ok = await onShare(selected ?? undefined, preset, includeAudio)
     setSharing(false)
     if (ok) onClose()
     else setError('Não consegui iniciar o compartilhamento dessa fonte.')
@@ -119,7 +120,16 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
           ))}
         </div>
 
-        {native && <p className="screenpicker__note">A captura do app envia vídeo sem abrir o WebView2. Áudio do computador ainda não entra nesta versão.</p>}
+        <label className="screenpicker__audio">
+          <input type="checkbox" checked={includeAudio} onChange={(event) => setIncludeAudio(event.target.checked)} />
+          <span><strong>Compartilhar áudio</strong>
+            <small>{native && tab === 'window'
+              ? 'Envia somente o som do aplicativo escolhido.'
+              : native
+                ? 'Envia o som do computador sem as vozes da call do Stapp.'
+                : 'O navegador informa quais fontes podem fornecer áudio.'}</small></span>
+        </label>
+        {native && <p className="screenpicker__note">Se o Windows não permitir separar o áudio com segurança, a transmissão continua apenas com vídeo.</p>}
         {error && <p className="screenpicker__error" role="alert">{error}</p>}
 
         <footer className="screenpicker__footer">

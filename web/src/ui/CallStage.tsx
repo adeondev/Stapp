@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PeerId, UserId } from '../protocol'
 import type { VoiceMediaState, VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
-import type { ScreenPreset, StreamQuality } from '../voice/preferences'
+import type { ScreenPreset } from '../voice/preferences'
 import { Avatar } from './Avatar'
 import { ScreenSharePicker } from './ScreenSharePicker'
+import { useUserMenu, type UserMenuRequest } from './UserMenu'
+import { MenuDivider, MenuItem, MenuLabel, PopupMenu, type MenuPosition } from './Menu'
 import {
-  IconCamera, IconCameraOff, IconChat, IconChevronDown, IconExpand, IconFullscreen, IconGrid,
-  IconHeadphones, IconHeadphonesOff, IconLeave, IconMic, IconMicOff, IconMinimize,
-  IconMore, IconPictureInPicture, IconScreen, IconSettings, IconSignal,
+  IconCamera, IconCameraOff, IconChevronDown, IconChevronUp,
+  IconFullscreen, IconHeadphones, IconHeadphonesOff, IconLeave, IconMic, IconMicOff,
+  IconMinimize, IconMore, IconScreen, IconSettings, IconSignal,
 } from './Icons'
 import './callstage.css'
 
@@ -15,31 +17,23 @@ interface Props {
   channelName: string
   snapshot: VoiceSnapshot
   transport: VoiceTransport
-  onMinimize(): void
   onLeave(): void
   onOpenSettings(): void
-  chatPanel?: React.ReactNode
   resolveUserId?: (peerId: PeerId) => UserId | undefined
   selfUserId?: UserId | null
   variant?: 'embedded' | 'fullscreen'
-  onToggleVariant?: () => void
 }
 
 type Tile =
-  | { id: string; kind: 'media'; media: VoiceMediaState }
+  | { id: string; kind: 'media'; media: VoiceMediaState; userId?: UserId }
   | { id: string; kind: 'avatar'; peerId: PeerId; userId?: UserId; name: string; local: boolean; speaking: boolean; muted: boolean }
 
-export function CallStage({ channelName, snapshot, transport, onMinimize, onLeave, onOpenSettings, chatPanel, resolveUserId, selfUserId, variant = 'fullscreen', onToggleVariant }: Props) {
+export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSettings, resolveUserId, selfUserId, variant = 'fullscreen' }: Props) {
   const root = useRef<HTMLDivElement>(null)
   const preferences = transport.getPreferences()
   const [focused, setFocused] = useState<string | null>(null)
-  const [showSelf, setShowSelf] = useState(preferences.showSelf)
-  const [showVideoOff, setShowVideoOff] = useState(preferences.showVideoOffParticipants)
-  const [menu, setMenu] = useState<string | null>(null)
   const [sharePicker, setSharePicker] = useState(false)
-  const [cameraMenu, setCameraMenu] = useState(false)
-  const [audioMenu, setAudioMenu] = useState(false)
-  const [chatOpen, setChatOpen] = useState(false)
+  const [quickMenu, setQuickMenu] = useState<{ kind: 'audio' | 'camera'; position: MenuPosition } | null>(null)
   const [pingMs, setPingMs] = useState<number | null>(null)
 
   const [devices, setDevices] = useState<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[]; cameras: MediaDeviceInfo[] }>({
@@ -62,22 +56,29 @@ export function CallStage({ channelName, snapshot, transport, onMinimize, onLeav
   }, [transport])
 
   useEffect(() => {
-    setShowSelf(preferences.showSelf)
-    setShowVideoOff(preferences.showVideoOffParticipants)
-  }, [preferences.showSelf, preferences.showVideoOffParticipants])
-
-  useEffect(() => {
     void transport.enumerateDevices().then(setDevices).catch(() => {})
-  }, [transport, cameraMenu, audioMenu])
+  }, [transport, quickMenu?.kind])
 
   const tiles = useMemo<Tile[]>(() => {
     const media = snapshot.media
-      .filter((publication) => showSelf || !publication.local)
-      .map((publication) => ({ id: `media:${publication.id}`, kind: 'media' as const, media: publication }))
-    const peopleWithMedia = new Set(media.map((tile) => tile.media.peerId))
-    const avatars = showVideoOff
-      ? snapshot.participants
-          .filter((participant) => (showSelf || !participant.local) && !peopleWithMedia.has(participant.peerId))
+      .filter((publication) => (preferences.showSelf || !publication.local)
+        && (publication.kind !== 'camera' || !publication.muted))
+      .map((publication) => ({
+        id: `media:${publication.id}`,
+        kind: 'media' as const,
+        media: publication,
+        userId: resolveUserId?.(publication.peerId) ?? (publication.local ? (selfUserId ?? undefined) : undefined),
+      }))
+    const peopleWithCamera = new Set(media
+      .filter((tile) => tile.media.kind === 'camera')
+      .map((tile) => tile.media.peerId))
+    const peopleWithScreen = new Set(media
+      .filter((tile) => tile.media.kind === 'screen')
+      .map((tile) => tile.media.peerId))
+    const avatars = snapshot.participants
+          .filter((participant) => (preferences.showSelf || !participant.local)
+            && !peopleWithCamera.has(participant.peerId)
+            && (preferences.showVideoOffParticipants || participant.screen || peopleWithScreen.has(participant.peerId)))
           .map((participant) => ({
             id: `peer:${participant.peerId}`,
             kind: 'avatar' as const,
@@ -88,51 +89,155 @@ export function CallStage({ channelName, snapshot, transport, onMinimize, onLeav
             speaking: participant.speaking,
             muted: !participant.microphone,
           }))
-      : []
     return [...media, ...avatars]
-  }, [showSelf, showVideoOff, snapshot.media, snapshot.participants, resolveUserId, selfUserId])
+  }, [preferences.showSelf, preferences.showVideoOffParticipants, snapshot.media, snapshot.participants, resolveUserId, selfUserId])
+
+  const [isAppFullscreen, setIsAppFullscreen] = useState(false)
+  const [isTrayCollapsed, setIsTrayCollapsed] = useState(false)
+
+  const toggleFullscreen = async (targetTileId?: string) => {
+    if (targetTileId) {
+      setFocused(targetTileId)
+    }
+
+    if ('__TAURI_INTERNALS__' in window) {
+      try {
+        const { getCurrentWindow } = await import('@tauri-apps/api/window')
+        const win = getCurrentWindow()
+        const isFs = await win.isFullscreen()
+        await win.setFullscreen(!isFs)
+        setIsAppFullscreen(!isFs)
+        return
+      } catch {}
+    }
+
+    const doc = document as Document & {
+      webkitFullscreenElement?: Element | null
+      mozFullScreenElement?: Element | null
+      msFullscreenElement?: Element | null
+      exitFullscreen?: () => Promise<void>
+      webkitExitFullscreen?: () => Promise<void>
+      mozCancelFullScreen?: () => Promise<void>
+      msExitFullscreen?: () => Promise<void>
+    }
+    const isCurrentlyFs = Boolean(
+      doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement,
+    ) || isAppFullscreen
+
+    if (!isCurrentlyFs) {
+      setIsAppFullscreen(true)
+      try {
+        const docEl = document.documentElement as HTMLElement & {
+          webkitRequestFullscreen?: () => Promise<void>
+          mozRequestFullScreen?: () => Promise<void>
+          msRequestFullscreen?: () => Promise<void>
+        }
+        if (docEl.requestFullscreen) {
+          await docEl.requestFullscreen()
+        } else if (docEl.webkitRequestFullscreen) {
+          await docEl.webkitRequestFullscreen()
+        } else if (docEl.mozRequestFullScreen) {
+          await docEl.mozRequestFullScreen()
+        } else if (docEl.msRequestFullscreen) {
+          await docEl.msRequestFullscreen()
+        }
+      } catch {}
+    } else {
+      setIsAppFullscreen(false)
+      try {
+        if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement) {
+          if (doc.exitFullscreen) {
+            await doc.exitFullscreen()
+          } else if (doc.webkitExitFullscreen) {
+            await doc.webkitExitFullscreen()
+          } else if (doc.mozCancelFullScreen) {
+            await doc.mozCancelFullScreen()
+          } else if (doc.msExitFullscreen) {
+            await doc.msExitFullscreen()
+          }
+        }
+      } catch {}
+    }
+  }
 
   useEffect(() => {
-    if (focused && !tiles.some((tile) => tile.id === focused)) setFocused(null)
-  }, [focused, tiles])
+    const onFsChange = () => {
+      const doc = document as Document & {
+        webkitFullscreenElement?: Element | null
+        mozFullScreenElement?: Element | null
+        msFullscreenElement?: Element | null
+      }
+      const isFs = Boolean(
+        doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement,
+      )
+      setIsAppFullscreen(isFs)
+    }
+    document.addEventListener('fullscreenchange', onFsChange)
+    document.addEventListener('webkitfullscreenchange', onFsChange)
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange)
+      document.removeEventListener('webkitfullscreenchange', onFsChange)
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      const doc = document as Document & {
+        webkitFullscreenElement?: Element | null
+        exitFullscreen?: () => Promise<void>
+        webkitExitFullscreen?: () => Promise<void>
+      }
+      if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+        doc.exitFullscreen?.().catch?.(() => {})
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        const doc = document as Document & {
+          webkitFullscreenElement?: Element | null
+          exitFullscreen?: () => Promise<void>
+          webkitExitFullscreen?: () => Promise<void>
+        }
+        if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+          void (doc.exitFullscreen?.() || doc.webkitExitFullscreen?.())?.catch?.(() => {})
+          setIsAppFullscreen(false)
+          event.stopPropagation()
+          return
+        }
+        if (isAppFullscreen) {
+          setIsAppFullscreen(false)
+          event.stopPropagation()
+          return
+        }
+        if (isTrayCollapsed) {
+          setIsTrayCollapsed(false)
+          event.stopPropagation()
+          return
+        }
+        if (focused) {
+          setFocused(null)
+          event.stopPropagation()
+        }
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [focused, isAppFullscreen, isTrayCollapsed])
 
   const ordered = focused
     ? [...tiles.filter((tile) => tile.id === focused), ...tiles.filter((tile) => tile.id !== focused)]
     : tiles
 
-  const startShare = (sourceId: string | undefined, preset: ScreenPreset) =>
-    transport.setScreenShareEnabled(true, preset, sourceId)
-
-  const popOut = async () => {
-    const media = focused?.startsWith('media:')
-      ? snapshot.media.find((item) => `media:${item.id}` === focused)
-      : snapshot.media.find((item) => item.subscribed)
-    if (!media) return
-    const documentPip = (window as Window & {
-      documentPictureInPicture?: { requestWindow(options: { width: number; height: number }): Promise<Window> }
-    }).documentPictureInPicture
-    if (documentPip) {
-      const pip = await documentPip.requestWindow({ width: 640, height: 400 })
-      for (const node of document.querySelectorAll('style, link[rel="stylesheet"]')) {
-        pip.document.head.append(node.cloneNode(true))
-      }
-      pip.document.body.className = 'call-popout'
-      const video = pip.document.createElement('video')
-      video.autoplay = true
-      video.playsInline = true
-      pip.document.body.append(video)
-      const detach = transport.attachMedia(media.id, video)
-      pip.addEventListener('pagehide', detach, { once: true })
-      return
-    }
-    const video = root.current?.querySelector<HTMLVideoElement>(`video[data-publication="${media.id}"]`)
-    if (video?.requestPictureInPicture) await video.requestPictureInPicture()
-  }
+  const startShare = (sourceId: string | undefined, preset: ScreenPreset, includeAudio: boolean) =>
+    transport.setScreenShareEnabled(true, { preset, sourceId, includeAudio })
 
   const isPartyOnly = ordered.length > 0 && ordered.every((t) => t.kind === 'avatar')
 
   return (
-    <div className={`callstage ${variant === 'embedded' ? 'callstage--embedded' : 'callstage--fullscreen'} ${focused ? 'callstage--focus' : ''} ${chatOpen && chatPanel ? 'callstage--with-chat' : ''} ${isPartyOnly ? 'callstage--party-mode' : ''}`} ref={root}
+    <div className={`callstage ${variant === 'embedded' ? 'callstage--embedded' : 'callstage--fullscreen'} ${isAppFullscreen ? 'callstage--app-fullscreen' : ''} ${focused ? 'callstage--focus' : ''} ${isPartyOnly ? 'callstage--party-mode' : ''} ${isTrayCollapsed ? 'callstage--tray-collapsed' : ''}`} ref={root}
       onPointerDownCapture={() => { void transport.resumeAudio() }}
       role="region" aria-label={`Chamada em ${channelName}`}>
       <header className="callstage__header">
@@ -148,67 +253,6 @@ export function CallStage({ channelName, snapshot, transport, onMinimize, onLeav
             </div>
           )}
           <h1>{channelName}</h1>
-        </div>
-
-        <div className="callstage__window-actions">
-          {onToggleVariant && (
-            <button
-              className="callstage__action-pill"
-              onClick={onToggleVariant}
-              title={variant === 'embedded' ? 'Expandir chamada para tela cheia' : 'Embutir chamada no topo do chat'}
-              aria-label={variant === 'embedded' ? 'tela cheia' : 'embutir'}
-            >
-              {variant === 'embedded' ? <IconExpand size={16} /> : <IconPictureInPicture size={16} />}
-              <span>{variant === 'embedded' ? 'Tela cheia' : 'Embutir'}</span>
-            </button>
-          )}
-
-          {variant === 'fullscreen' && chatPanel && (
-            <button
-              className={`callstage__action-pill ${chatOpen ? 'is-active' : ''}`}
-              onClick={() => setChatOpen((open) => !open)}
-              title="Alternar chat de texto do canal"
-              aria-label="chat do canal"
-              aria-pressed={chatOpen}
-            >
-              <IconChat size={16} />
-              <span>Chat</span>
-            </button>
-          )}
-
-          {focused && (
-            <button
-              className="callstage__action-pill"
-              onClick={() => setFocused(null)}
-              title="Voltar para a visualização em grade"
-              aria-label="modo grade"
-            >
-              <IconGrid size={16} />
-              <span>Grade</span>
-            </button>
-          )}
-
-          {variant === 'fullscreen' && (
-            <>
-              <button onClick={() => setShowVideoOff((value) => !value)} aria-pressed={showVideoOff}
-                title="Mostrar ou ocultar participantes sem vídeo">
-                Sem vídeo
-              </button>
-              <button onClick={() => setShowSelf((value) => !value)} aria-pressed={showSelf}
-                title="Mostrar ou ocultar sua própria imagem">
-                Minha prévia
-              </button>
-              <button onClick={popOut} title="Abrir chamada em uma janela flutuante" aria-label="pop-out">
-                <IconPictureInPicture />
-              </button>
-              <button onClick={() => root.current?.requestFullscreen()} title="Tela cheia" aria-label="tela cheia">
-                <IconFullscreen />
-              </button>
-            </>
-          )}
-          <button onClick={onMinimize} title="Minimizar para continuar navegando" aria-label="minimizar">
-            <IconMinimize />
-          </button>
         </div>
       </header>
 
@@ -226,101 +270,93 @@ export function CallStage({ channelName, snapshot, transport, onMinimize, onLeav
                 {ordered.map((tile) => (
                   <CallTile key={tile.id} tile={tile} primary={false}
                     focused={false} transport={transport}
-                    onFocus={() => {}}
-                    menuOpen={menu === tile.id} onMenu={() => setMenu((current) => current === tile.id ? null : tile.id)} />
+                    isFullscreen={isAppFullscreen}
+                    onToggleFullscreen={() => toggleFullscreen(tile.id)}
+                    onFocus={() => {}} />
                 ))}
               </div>
             </div>
+          ) : focused ? (
+            <div className={`callstage__focus-layout ${ordered.length === 1 ? 'is-solo' : ''} ${isTrayCollapsed ? 'is-tray-collapsed' : ''}`}>
+              <CallTile tile={ordered[0]} primary focused transport={transport}
+                isFullscreen={isAppFullscreen}
+                onToggleFullscreen={() => toggleFullscreen(ordered[0].id)}
+                onFocus={() => setFocused(null)} />
+              {ordered.length > 1 && !isTrayCollapsed && (
+                <div className="callstage__focus-tray-wrap">
+                  <div className="callstage__focus-tray" aria-label="outros participantes">
+                    {ordered.slice(1).map((tile) => (
+                      <CallTile key={tile.id} tile={tile} primary={false} focused={false} transport={transport}
+                        isFullscreen={isAppFullscreen}
+                        onToggleFullscreen={() => toggleFullscreen(tile.id)}
+                        onFocus={() => setFocused(tile.id)} />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           ) : (
-            <div className="callstage__layout">
-              {ordered.map((tile, index) => (
-                <CallTile key={tile.id} tile={tile} primary={Boolean(focused && index === 0)}
-                  focused={tile.id === focused} transport={transport}
-                  onFocus={() => setFocused((current) => current === tile.id ? null : tile.id)}
-                  menuOpen={menu === tile.id} onMenu={() => setMenu((current) => current === tile.id ? null : tile.id)} />
+            <div className={`callstage__layout callstage__layout--count-${Math.min(ordered.length, 12)}`}>
+              {ordered.map((tile) => (
+                <CallTile key={tile.id} tile={tile} primary={false}
+                  focused={false} transport={transport}
+                  isFullscreen={isAppFullscreen}
+                  onToggleFullscreen={() => toggleFullscreen(tile.id)}
+                  onFocus={() => setFocused(tile.id)} />
               ))}
             </div>
           )}
         </div>
-
-        {variant === 'fullscreen' && chatOpen && chatPanel && (
-          <aside className="callstage__sidechat">
-            {chatPanel}
-          </aside>
-        )}
       </div>
 
-      <div className="callstage__dock-wrap">
-        {(cameraMenu || audioMenu) && (
-          <div className="callstage__submenu" role="menu">
-            {audioMenu ? (
-              <>
-                <strong>Dispositivos de Áudio</strong>
-                <div className="callstage__submenu-section">
-                  <small>Microfone</small>
-                  {devices.inputs.map((d) => (
-                    <button
-                      key={d.deviceId}
-                      role="menuitem"
-                      className={preferences.inputDeviceId === d.deviceId ? 'is-selected' : ''}
-                      onClick={() => { void transport.setInputDevice(d.deviceId); setAudioMenu(false) }}
-                    >
-                      <span>{d.label || `Microfone (${d.deviceId.slice(0, 5)})`}</span>
-                    </button>
-                  ))}
-                  {devices.inputs.length === 0 && <small className="callstage__submenu-empty">Nenhum microfone detectado</small>}
-                </div>
-                <div className="callstage__submenu-section">
-                  <small>Dispositivo de Saída</small>
-                  {devices.outputs.map((d) => (
-                    <button
-                      key={d.deviceId}
-                      role="menuitem"
-                      className={preferences.outputDeviceId === d.deviceId ? 'is-selected' : ''}
-                      onClick={() => { void transport.setOutputDevice(d.deviceId); setAudioMenu(false) }}
-                    >
-                      <span>{d.label || `Alto-falante (${d.deviceId.slice(0, 5)})`}</span>
-                    </button>
-                  ))}
-                  {devices.outputs.length === 0 && <small className="callstage__submenu-empty">Padrão do sistema operacional</small>}
-                </div>
-              </>
-            ) : (
-              <>
-                <strong>Câmera & Qualidade</strong>
-                <div className="callstage__submenu-section">
-                  {devices.cameras.map((d) => (
-                    <button
-                      key={d.deviceId}
-                      role="menuitem"
-                      className={preferences.cameraDeviceId === d.deviceId ? 'is-selected' : ''}
-                      onClick={() => { void transport.setCameraDevice(d.deviceId); setCameraMenu(false) }}
-                    >
-                      <span>{d.label || `Câmera (${d.deviceId.slice(0, 5)})`}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="callstage__submenu-divider" />
-                <button
-                  role="menuitem"
-                  className={preferences.cameraQuality === '720p' ? 'is-selected' : ''}
-                  onClick={() => { void transport.updatePreferences({ cameraQuality: '720p' }); setCameraMenu(false) }}
-                >
-                  <span>720p / 30 FPS</span>
-                  <small>Padrão e econômico</small>
-                </button>
-                <button
-                  role="menuitem"
-                  className={preferences.cameraQuality === '1080p' ? 'is-selected' : ''}
-                  onClick={() => { void transport.updatePreferences({ cameraQuality: '1080p' }); setCameraMenu(false) }}
-                >
-                  <span>1080p / 30 FPS</span>
-                  <small>Alta definição</small>
-                </button>
-              </>
-            )}
-          </div>
-        )}
+      {/* Botão de alternar barra inferior (chevron para baixo/cima) para deixar tela REALMENTE cheia */}
+      {focused && (
+        <div className="callstage__tray-toggle-bar">
+          <button
+            className="callstage__tray-toggle-btn"
+            onClick={() => setIsTrayCollapsed((prev) => !prev)}
+            title={isTrayCollapsed ? 'Mostrar participantes e barra (v)' : 'Ocultar barra e deixar tela realmente cheia (v)'}
+            aria-label={isTrayCollapsed ? 'mostrar barra de participantes' : 'ocultar barra de participantes'}
+          >
+            {isTrayCollapsed ? <IconChevronUp size={16} /> : <IconChevronDown size={16} />}
+          </button>
+        </div>
+      )}
+
+      <div className={`callstage__dock-wrap ${isTrayCollapsed ? 'is-collapsed' : ''}`}>
+        {quickMenu && <PopupMenu position={quickMenu.position}
+          label={quickMenu.kind === 'audio' ? 'Dispositivos de áudio' : 'Câmera e qualidade'}
+          onClose={() => setQuickMenu(null)}>
+          {quickMenu.kind === 'audio' ? <>
+            <MenuLabel>Microfone</MenuLabel>
+            {devices.inputs.map((device, index) => <MenuItem key={device.deviceId}
+              icon={<IconMic />} checked={preferences.inputDeviceId === device.deviceId} onClick={() => {
+                void transport.setInputDevice(device.deviceId); setQuickMenu(null)
+              }}>{device.label || `Microfone ${index + 1}`}</MenuItem>)}
+            {devices.inputs.length === 0 && <MenuLabel>Nenhum microfone detectado</MenuLabel>}
+            <MenuDivider />
+            <MenuLabel>Saída</MenuLabel>
+            {devices.outputs.map((device, index) => <MenuItem key={device.deviceId}
+              icon={<IconHeadphones />} checked={preferences.outputDeviceId === device.deviceId} onClick={() => {
+                void transport.setOutputDevice(device.deviceId); setQuickMenu(null)
+              }}>{device.label || `Alto-falante ${index + 1}`}</MenuItem>)}
+            {devices.outputs.length === 0 && <MenuLabel>Padrão do sistema operacional</MenuLabel>}
+          </> : <>
+            <MenuLabel>Câmera</MenuLabel>
+            {devices.cameras.map((device, index) => <MenuItem key={device.deviceId}
+              icon={<IconCamera />} checked={preferences.cameraDeviceId === device.deviceId} onClick={() => {
+                void transport.setCameraDevice(device.deviceId); setQuickMenu(null)
+              }}>{device.label || `Câmera ${index + 1}`}</MenuItem>)}
+            <MenuDivider />
+            <MenuLabel>Qualidade</MenuLabel>
+            <MenuItem icon={<IconCamera />} checked={preferences.cameraQuality === '720p'} onClick={() => {
+              void transport.updatePreferences({ cameraQuality: '720p' }); setQuickMenu(null)
+            }}>720p · 30 FPS</MenuItem>
+            <MenuItem icon={<IconCamera />} checked={preferences.cameraQuality === '1080p'} onClick={() => {
+              void transport.updatePreferences({ cameraQuality: '1080p' }); setQuickMenu(null)
+            }}>1080p · 30 FPS</MenuItem>
+          </>}
+        </PopupMenu>}
 
         <div className="callstage__dock" aria-label="controles da chamada">
           {/* Microfone */}
@@ -334,7 +370,12 @@ export function CallStage({ channelName, snapshot, transport, onMinimize, onLeav
             />
             <button
               className="callstage__dock-chevron"
-              onClick={() => { setAudioMenu((v) => !v); setCameraMenu(false); setSharePicker(false) }}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect()
+                setQuickMenu((current) => current?.kind === 'audio' ? null
+                  : { kind: 'audio', position: { x: rect.left - 110, y: rect.top - 330 } })
+                setSharePicker(false)
+              }}
               title="Dispositivos de áudio"
               aria-label="opções do microfone"
             >
@@ -362,7 +403,12 @@ export function CallStage({ channelName, snapshot, transport, onMinimize, onLeav
             />
             <button
               className="callstage__dock-chevron"
-              onClick={() => { setCameraMenu((v) => !v); setAudioMenu(false); setSharePicker(false) }}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect()
+                setQuickMenu((current) => current?.kind === 'camera' ? null
+                  : { kind: 'camera', position: { x: rect.left - 110, y: rect.top - 280 } })
+                setSharePicker(false)
+              }}
               title="opções da câmera"
               aria-label="opções da câmera"
             >
@@ -383,7 +429,7 @@ export function CallStage({ channelName, snapshot, transport, onMinimize, onLeav
             />
             <button
               className="callstage__dock-chevron"
-              onClick={() => { setSharePicker(true); setCameraMenu(false); setAudioMenu(false) }}
+              onClick={() => { setSharePicker(true); setQuickMenu(null) }}
               title="opções do compartilhamento"
               aria-label="opções do compartilhamento"
             >
@@ -420,15 +466,52 @@ export function CallStage({ channelName, snapshot, transport, onMinimize, onLeav
   )
 }
 
-function CallTile({ tile, primary, focused, transport, onFocus, menuOpen, onMenu }: {
-  tile: Tile; primary: boolean; focused: boolean; transport: VoiceTransport
-  onFocus(): void; menuOpen: boolean; onMenu(): void
+function CallTile({ tile, primary, focused, transport, onFocus, isFullscreen, onToggleFullscreen }: {
+  tile: Tile; primary: boolean; focused: boolean; transport: VoiceTransport; onFocus(): void
+  isFullscreen?: boolean; onToggleFullscreen?(): void
 }) {
-  const [voiceVolume, setVoiceVolume] = useState(100)
-  const [streamVolume, setStreamVolume] = useState(100)
+  const userMenu = useUserMenu()
+  const activate = (event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
+    if (event.target instanceof Element && event.target.closest('button, input, label, [role="menu"]')) return
+    if (tile.kind === 'media' && tile.media.kind === 'screen' && !tile.media.local && !tile.media.subscribed) {
+      transport.setPublicationSubscribed(tile.media.id, true)
+    }
+    onFocus()
+  }
+  const menuRequest = (): UserMenuRequest => tile.kind === 'avatar'
+    ? { userId: tile.userId, name: tile.name,
+        call: { peerId: tile.peerId, transport, local: tile.local, focused, onFocus, kind: 'person' } }
+    : { userId: tile.userId, name: tile.media.name,
+        call: { peerId: tile.media.peerId, transport, local: tile.media.local, focused, onFocus,
+          publicationId: tile.media.id, kind: tile.media.kind === 'screen' ? 'screen' : 'person' } }
+  const toggleMenuFromButton = (button: HTMLButtonElement) => {
+    const rect = button.getBoundingClientRect()
+    userMenu.open({
+      x: rect.right - 220,
+      y: rect.bottom + 4,
+      menuKey: `calltile:${tile.id}`,
+      trigger: button,
+    }, menuRequest())
+  }
+  const moreButtonProps = {
+    onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      toggleMenuFromButton(event.currentTarget)
+    },
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation()
+      // Enter/Space generate a click without a preceding pointer event.
+      if (event.detail === 0) toggleMenuFromButton(event.currentTarget)
+    },
+  }
 
   if (tile.kind === 'avatar') return (
-    <article className={`calltile calltile--avatar ${tile.speaking ? 'is-speaking' : ''} ${primary ? 'is-primary' : ''}`}>
+    <article className={`calltile calltile--avatar ${tile.speaking ? 'is-speaking' : ''} ${primary ? 'is-primary' : ''}`}
+      role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${tile.name}` : `focar mídia de ${tile.name}`} onClick={activate}
+      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activate(event) }}
+      onContextMenu={(event) => userMenu.open(event, menuRequest())}>
       <div className={`calltile__avatar-container ${tile.speaking ? 'is-speaking' : ''}`}>
         <Avatar userId={tile.userId ?? tile.peerId} fallbackName={tile.name} className="calltile__avatar-img" />
       </div>
@@ -436,48 +519,65 @@ function CallTile({ tile, primary, focused, transport, onFocus, menuOpen, onMenu
         <span className="calltile__meta-name">{tile.name}</span>
         {tile.muted && <IconMicOff size={14} className="calltile__meta-icon" />}
       </div>
-      <button className="calltile__more" onClick={onMenu} aria-label={`opções de ${tile.name}`}><IconMore /></button>
-      {menuOpen && <ParticipantMenu name={tile.name} focused={focused} onFocus={onFocus}
-        canAdjustAudio={!tile.local}
-        voiceVolume={voiceVolume} onVoiceVolume={(value) => { setVoiceVolume(value); transport.setParticipantVolume(tile.peerId, value) }} />}
+      <div className="calltile__top-actions">
+        {onToggleFullscreen && (primary || isFullscreen) && (
+          <button
+            className="calltile__fullscreen-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleFullscreen()
+            }}
+            title={isFullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
+            aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${tile.name}`}
+          >
+            {isFullscreen ? <IconMinimize size={16} /> : <IconFullscreen size={16} />}
+          </button>
+        )}
+        <button className="calltile__more" {...moreButtonProps} aria-haspopup="menu"
+          aria-label={`opções de ${tile.name}`}><IconMore /></button>
+      </div>
     </article>
   )
 
   const media = tile.media
+  const showFullscreenBtn = onToggleFullscreen && (media.kind === 'screen' || primary)
+  const isUnsubscribed = !media.subscribed && !media.local
+
   return (
-    <article className={`calltile ${primary ? 'is-primary' : ''} ${media.kind === 'screen' ? 'calltile--screen' : ''}`}>
+    <article className={`calltile ${primary ? 'is-primary' : ''} ${media.kind === 'screen' ? 'calltile--screen' : ''} ${isUnsubscribed ? 'calltile--unsubscribed' : ''}`}
+      role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${media.name}` : `focar mídia de ${media.name}`} onClick={activate}
+      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activate(event) }}
+      onContextMenu={(event) => userMenu.open(event, menuRequest())}>
       {media.subscribed || media.local
         ? <MediaVideo publication={media} transport={transport} />
-        : (
-          <div className="calltile__watch-panel">
-            <div className="calltile__watch-icon-wrap">
-              <IconScreen size={36} />
-            </div>
+        : <div className="calltile__watch-panel">
+            <div className="calltile__watch-icon-wrap"><IconScreen size={36} /></div>
             <strong>{media.name} está transmitindo</strong>
-            <button className="calltile__watch-button" onClick={() => transport.setPublicationSubscribed(media.id, true)}>
+            <button className="calltile__watch-button" onClick={() => { transport.setPublicationSubscribed(media.id, true); onFocus() }}>
               Assistir transmissão
             </button>
-          </div>
-        )}
-
-      {media.kind === 'screen' && (
-        <span className="calltile__badge-live">
-          <IconScreen size={11} /> AO VIVO
-        </span>
+          </div>}
+      {media.kind === 'screen' && (media.subscribed || media.local) && (
+        <span className="calltile__badge-live"><IconScreen size={11} /> AO VIVO</span>
       )}
-
-      <div className="calltile__meta">
-        <span className="calltile__meta-name">{media.name}</span>
+      <div className="calltile__meta"><span className="calltile__meta-name">{media.name}</span></div>
+      <div className="calltile__top-actions">
+        {showFullscreenBtn && (
+          <button
+            className="calltile__fullscreen-btn"
+            onClick={(e) => {
+              e.stopPropagation()
+              onToggleFullscreen()
+            }}
+            title={isFullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
+            aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${media.name}`}
+          >
+            {isFullscreen ? <IconMinimize size={16} /> : <IconFullscreen size={16} />}
+          </button>
+        )}
+        <button className="calltile__more" {...moreButtonProps} aria-haspopup="menu"
+          aria-label={`opções de ${media.name}`}><IconMore /></button>
       </div>
-
-      <button className="calltile__more" onClick={onMenu} aria-label={`opções de ${media.name}`}><IconMore /></button>
-      {menuOpen && <ParticipantMenu name={media.name} focused={focused} onFocus={onFocus}
-        canAdjustAudio={!media.local}
-        voiceVolume={voiceVolume} onVoiceVolume={(value) => { setVoiceVolume(value); transport.setParticipantVolume(media.peerId, value) }}
-        streamVolume={media.local ? undefined : streamVolume}
-        onStreamVolume={media.local ? undefined : (value) => { setStreamVolume(value); transport.setPublicationVolume(media.id, value) }}
-        quality={media.local ? undefined : (quality) => transport.setPublicationQuality(media.id, quality)}
-        onStop={media.local ? undefined : () => transport.setPublicationSubscribed(media.id, false)} />}
     </article>
   )
 }
@@ -494,30 +594,6 @@ function MediaVideo({ publication, transport }: { publication: VoiceMediaState; 
       ? 'is-mirrored' : ''} />
 }
 
-function ParticipantMenu({ name, focused, onFocus, canAdjustAudio, voiceVolume, onVoiceVolume,
-  streamVolume, onStreamVolume, quality, onStop }: {
-  name: string; focused: boolean; onFocus(): void; canAdjustAudio: boolean
-  voiceVolume: number; onVoiceVolume(value: number): void
-  streamVolume?: number; onStreamVolume?(value: number): void; quality?(quality: StreamQuality): void; onStop?(): void
-}) {
-  return <div className="calltile__menu" role="menu" aria-label={`opções de ${name}`}>
-    <button role="menuitem" onClick={onFocus}>{focused ? 'Voltar para a grade' : 'Focar'}</button>
-    {canAdjustAudio && <button role="menuitem" onClick={() => onVoiceVolume(voiceVolume === 0 ? 100 : 0)}>
-      {voiceVolume === 0 ? 'Ativar som local' : 'Silenciar localmente'}
-    </button>}
-    {canAdjustAudio && <label>Volume da voz <output>{voiceVolume}%</output>
-      <input type="range" min="0" max="200" value={voiceVolume}
-        onChange={(event) => onVoiceVolume(Number(event.target.value))} /></label>}
-    {onStreamVolume && <label>Volume da transmissão <output>{streamVolume}%</output>
-      <input type="range" min="0" max="200" value={streamVolume}
-        onChange={(event) => onStreamVolume(Number(event.target.value))} /></label>}
-    {quality && <div className="calltile__quality" aria-label="qualidade da transmissão">
-      {(['auto', 'low', 'high', 'original'] as StreamQuality[]).map((value) =>
-        <button key={value} onClick={() => quality(value)}>{qualityLabel(value)}</button>)}</div>}
-    {onStop && <button role="menuitem" onClick={onStop}>Parar de assistir</button>}
-  </div>
-}
-
 function DockButton({ active, off, danger = false, label, onClick, icon }: {
   active: boolean; off: boolean; danger?: boolean; label: string; onClick(): void; icon: React.ReactNode
 }) {
@@ -528,8 +604,4 @@ function DockButton({ active, off, danger = false, label, onClick, icon }: {
 function statusLabel(status: VoiceSnapshot['status']) {
   return ({ idle: 'Desconectado', requesting: 'Conectando…', connecting: 'Conectando áudio…',
     connected: 'Voz Conectada', reconnecting: 'Reconectando…' })[status]
-}
-
-function qualityLabel(quality: StreamQuality) {
-  return ({ auto: 'Auto', low: 'Baixo', high: 'Alto', original: 'Original' })[quality]
 }

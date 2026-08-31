@@ -73,6 +73,15 @@ export default function App() {
   const voice = useRef<VoiceTransport | null>(null)
   const unsubscribeVoice = useRef<(() => void) | null>(null)
 
+  useEffect(() => {
+    const preventNativeContextMenu = (event: MouseEvent) => {
+      const root = document.getElementById('root')
+      if (root && event.target instanceof Node && root.contains(event.target)) event.preventDefault()
+    }
+    document.addEventListener('contextmenu', preventNativeContextMenu)
+    return () => document.removeEventListener('contextmenu', preventNativeContextMenu)
+  }, [])
+
   const resetRoom = useCallback(() => {
     voice.current?.destroy()
     voice.current = null

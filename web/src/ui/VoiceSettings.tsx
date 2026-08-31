@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DiagnosticReport, MediaDeviceLists, VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import { DEFAULT_VOICE_PREFERENCES, resetVoicePreferences, type VoicePreferences } from '../voice/preferences'
-import { IconCamera, IconMic, IconScreen, IconX } from './Icons'
+import { IconCamera, IconHeadphones, IconMic, IconScreen, IconX } from './Icons'
+import { DropdownSelect } from './Menu'
 import './voicesettings.css'
 
 interface Props {
@@ -89,9 +90,9 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
         <SettingsGroup icon={<IconMic />} title="Dispositivos de voz">
           <div className="voicesettings__columns">
             <Select label="Entrada" value={preferences.inputDeviceId}
-              onChange={(value) => update('inputDeviceId', value)} devices={devices.inputs} />
+              icon={<IconMic />} onChange={(value) => update('inputDeviceId', value)} devices={devices.inputs} />
             <Select label="Saída" value={preferences.outputDeviceId}
-              onChange={(value) => update('outputDeviceId', value)} devices={devices.outputs} />
+              icon={<IconHeadphones />} onChange={(value) => update('outputDeviceId', value)} devices={devices.outputs} />
           </div>
           <Range label="Volume de entrada" value={preferences.inputVolume} min={0} max={200}
             onChange={(value) => update('inputVolume', value)} suffix="%" />
@@ -129,11 +130,12 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
               <button key={mode} className={preferences.noiseMode === mode ? 'is-active' : ''}
                 onClick={() => update('noiseMode', mode)}>{({ off: 'Desligado', standard: 'Padrão', enhanced: 'RNNoise' })[mode]}</button>)}</div>
             <small>RNNoise roda localmente em WASM; nenhuma amostra sai do dispositivo.</small></div>
+          {preferences.noiseMode === 'enhanced' && <ProcessorStatus snapshot={snapshot} />}
         </SettingsGroup>
 
         <SettingsGroup icon={<IconCamera />} title="Câmera">
           <Select label="Câmera" value={preferences.cameraDeviceId}
-            onChange={(value) => update('cameraDeviceId', value)} devices={devices.cameras} />
+            icon={<IconCamera />} onChange={(value) => update('cameraDeviceId', value)} devices={devices.cameras} />
           <div className="voicesettings__choice">
             <Choice active={preferences.cameraQuality === '720p'} onClick={() => update('cameraQuality', '720p')}
               title="720p / 30" detail="Padrão e mais leve." />
@@ -155,16 +157,15 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
         </SettingsGroup>
 
         <SettingsGroup icon={<IconScreen />} title="Transmissão e aparência">
-          <label>Qualidade padrão<select value={preferences.screenPreset}
-            onChange={(event) => update('screenPreset', event.target.value as VoicePreferences['screenPreset'])}>
-            <option value="economy">Econômico · 720p/15</option><option value="balanced">Equilibrado · 1080p/30</option>
-            <option value="fluid">Fluido · 720p/60</option><option value="original">Original · até 60 FPS</option>
-          </select></label>
-          <label>Qualidade ao assistir<select value={preferences.streamQuality}
-            onChange={(event) => update('streamQuality', event.target.value as VoicePreferences['streamQuality'])}>
-            <option value="auto">Automático</option><option value="low">Baixo</option>
-            <option value="high">Alto</option><option value="original">Original</option>
-          </select></label>
+          <DropdownSelect label="Qualidade padrão" value={preferences.screenPreset} onChange={(value) =>
+            update('screenPreset', value as VoicePreferences['screenPreset'])} options={[
+              { value: 'economy', label: 'Econômico', detail: '720p · 15 FPS', icon: <IconScreen /> },
+              { value: 'balanced', label: 'Equilibrado', detail: '1080p · 30 FPS', icon: <IconScreen /> },
+              { value: 'fluid', label: 'Fluido', detail: '720p · até 60 FPS', icon: <IconScreen /> },
+              { value: 'original', label: 'Original', detail: 'Resolução original', icon: <IconScreen /> },
+            ]} />
+          <Toggle checked={preferences.shareAudio} onChange={(value) => update('shareAudio', value)}
+            title="Compartilhar áudio por padrão" detail="O seletor lembra a última escolha feita." />
           <Toggle checked={preferences.showVideoOffParticipants}
             onChange={(value) => update('showVideoOffParticipants', value)}
             title="Mostrar pessoas sem vídeo" detail="Exibe o avatar delas na grade." />
@@ -194,10 +195,33 @@ function SettingsGroup({ icon, title, children }: { icon?: React.ReactNode; titl
   return <section className="voicesettings__group"><h3>{icon}{title}</h3>{children}</section>
 }
 
-function Select({ label, value, devices, onChange }: { label: string; value: string; devices: MediaDeviceInfo[]; onChange(value: string): void }) {
-  return <label>{label}<select value={value} onChange={(event) => onChange(event.target.value)}>
-    <option value="">Padrão do sistema</option>{devices.map((device, index) =>
-      <option key={device.deviceId} value={device.deviceId}>{device.label || `${label} ${index + 1}`}</option>)}</select></label>
+function Select({ label, value, devices, icon, onChange }: {
+  label: string
+  value: string
+  devices: MediaDeviceInfo[]
+  icon: React.ReactNode
+  onChange(value: string): void
+}) {
+  return <DropdownSelect label={label} value={value} onChange={onChange}
+    options={[{ value: '', label: 'Padrão do sistema', icon }, ...devices.map((device, index) => ({
+      value: device.deviceId, label: device.label || `${label} ${index + 1}`, icon,
+    }))]} />
+}
+
+function ProcessorStatus({ snapshot }: { snapshot: VoiceSnapshot }) {
+  const processor = snapshot.audioProcessor
+  if (processor.status === 'starting') {
+    return <small className="voicesettings__processor-status">Iniciando RNNoise em 48 kHz…</small>
+  }
+  if (processor.status === 'active' && processor.effective === 'rnnoise') {
+    return <small className="voicesettings__processor-status is-active">RNNoise ativo em 48 kHz.</small>
+  }
+  if (processor.status === 'fallback') {
+    return <small className="voicesettings__processor-status is-fallback">
+      RNNoise indisponível nesta tentativa; supressão padrão ativa. Sua preferência foi mantida.
+    </small>
+  }
+  return null
 }
 
 function Range({ label, value, min, max, suffix, onChange }: {

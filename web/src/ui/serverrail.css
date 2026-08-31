@@ -47,6 +47,22 @@
   color: var(--text-soft);
 }
 
+.serverrail__notification {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  display: grid;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: var(--on-accent);
+  font-size: 9px;
+  font-weight: 800;
+}
+
 .serverrail__home:hover,
 .serverrail__home.is-active {
   color: var(--on-accent);

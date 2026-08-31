@@ -1,0 +1,5 @@
+packages:
+  - .
+
+patchedDependencies:
+  '@jitsi/rnnoise-wasm@0.2.1': patches/@jitsi__rnnoise-wasm@0.2.1.patch

@@ -1,5 +1,6 @@
 import { Avatar, useProfile } from './Avatar'
 import { IconLeave, IconPhone } from './Icons'
+import { useUserMenu } from './UserMenu'
 import './callpanel.css'
 
 interface Props {
@@ -17,10 +18,12 @@ interface Props {
  */
 export function CallPanel({ userId, username, direction, onAccept, onDecline }: Props) {
   const perfil = useProfile(userId, username)
+  const userMenu = useUserMenu()
   const chegando = direction === 'incoming'
 
   return (
-    <div className="callpanel" role="alertdialog" aria-label="chamada">
+    <div className="callpanel" role="alertdialog" aria-label="chamada"
+      onContextMenu={(event) => userMenu.open(event, { userId, name: username })}>
       <div className="callpanel__who">
         <Avatar userId={userId} className="callpanel__avatar" fallbackName={username} />
         <div className="callpanel__text">

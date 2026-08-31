@@ -1,4 +1,5 @@
 import { Avatar, useProfile } from './Avatar'
+import { useUserMenu } from './UserMenu'
 import './accountbar.css'
 
 interface Props {
@@ -11,10 +12,12 @@ interface Props {
 
 export function AccountBar({ userId, username, onLogout, onRemoveServer, onOpenProfile }: Props) {
   const perfil = useProfile(userId, username)
+  const userMenu = useUserMenu()
 
   return (
     <div className="accountbar">
       <button className="accountbar__identity" type="button" onClick={onOpenProfile}
+        onContextMenu={(event) => userMenu.open(event, { userId: userId ?? undefined, name: username })}
         title="editar seu perfil">
         <Avatar userId={userId} className="accountbar__avatar" fallbackName={username} />
         <span className="accountbar__username">{perfil.display_name}</span>

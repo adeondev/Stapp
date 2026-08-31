@@ -53,5 +53,13 @@ describe('Sidebar', () => {
   it('mantem uma conversa direta dentro do Home, nao dentro do servidor', () => {
     expect(sidebarModeFor({ kind: 'direct', userId: 'user-2' })).toBe('home')
     expect(sidebarModeFor({ kind: 'channel', id: 'geral' })).toBe('server')
+    expect(sidebarModeFor({ kind: 'voice', id: 'sala' })).toBe('server')
+  })
+
+  it('abre a voz sem marcar um canal de texto como ativo', () => {
+    renderSidebar({ kind: 'voice', id: 'sala' }, 'server')
+
+    expect(screen.getByRole('button', { name: 'geral' }).className).not.toContain('is-active')
+    expect(screen.getByRole('button', { name: 'Sala de voz' })).toBeTruthy()
   })
 })

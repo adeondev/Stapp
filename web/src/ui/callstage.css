@@ -10,6 +10,82 @@
   color: var(--text);
   user-select: none;
 }
+
+/* Modo Tela Cheia estilo Discord (cobre todo o app: rail, sidebar e chat) */
+.callstage--app-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 100 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  background: var(--call-stage);
+}
+
+/* Header some no modo tela cheia e surge suavemente APENAS ao encostar o mouse no topo da tela */
+.callstage--app-fullscreen .callstage__header {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 25;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-100%);
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+/* Área sensível invisível no topo para acionar o header apenas na beirada superior */
+.callstage--app-fullscreen .callstage__header::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 18px;
+  pointer-events: auto;
+}
+
+.callstage--app-fullscreen .callstage__header:hover,
+.callstage--app-fullscreen .callstage__header:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* Quando em tela cheia, área dos participantes e do dock ficam mais compactos dando foco total à transmissão */
+.callstage--app-fullscreen .callstage__focus-layout {
+  grid-template-rows: minmax(0, 1fr) clamp(74px, 11vh, 98px);
+  gap: 8px;
+}
+
+.callstage--app-fullscreen .callstage__focus-tray .calltile {
+  width: clamp(110px, 14vw, 150px);
+  min-width: clamp(110px, 14vw, 150px);
+}
+
+.callstage--app-fullscreen .callstage__dock-wrap {
+  padding: 6px;
+}
+
+.callstage--app-fullscreen .callstage__dock {
+  padding: 4px 8px;
+  gap: 6px;
+}
+
+.callstage--app-fullscreen .callstage__dock-button {
+  width: 36px;
+  height: 36px;
+}
+
+.callstage--app-fullscreen .callstage__dock-chevron {
+  height: 36px;
+  width: 16px;
+}
+
+.callstage--app-fullscreen .callstage__tray-toggle-bar {
+  bottom: 56px;
+}
+
 .callstage__header {
   display: flex;
   align-items: center;
@@ -19,6 +95,30 @@
   padding: 0 16px;
   background: var(--call-header);
   border-bottom: 1px solid var(--call-tile);
+}
+
+.callstage__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.callstage__header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  background: var(--call-control);
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.callstage__header-btn:hover {
+  background: var(--call-control-hover);
+  color: var(--text);
 }
 
 .callstage__channel-info {
@@ -66,7 +166,7 @@
 }
 
 .callstage__ping-badge.is-fair {
-  color: #E5A93B;
+  color: var(--warning);
 }
 
 .callstage__ping-badge.is-poor {
@@ -133,7 +233,7 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
-  padding: 16px;
+  padding: var(--callstage-space, 16px);
   overflow-y: auto;
 }
 
@@ -227,25 +327,115 @@
 }
 
 .callstage__layout {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
-  grid-auto-rows: minmax(190px, 1fr);
-  gap: 12px;
+  --callstage-columns: 3;
+  --callstage-rows: 2;
+  --callstage-gap: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: center;
+  justify-content: center;
+  gap: var(--callstage-gap);
   height: 100%;
+  min-height: 0;
+}
+
+.callstage__layout > .calltile {
+  width: calc((100% - (var(--callstage-columns) - 1) * var(--callstage-gap)) / var(--callstage-columns));
+  height: calc((100% - (var(--callstage-rows) - 1) * var(--callstage-gap)) / var(--callstage-rows));
+  flex: 0 1 calc((100% - (var(--callstage-columns) - 1) * var(--callstage-gap)) / var(--callstage-columns));
+}
+
+.callstage__layout--count-1 {
+  --callstage-columns: 1;
+  --callstage-rows: 1;
+  width: min(100%, 1100px);
+  margin-inline: auto;
+}
+
+.callstage__layout--count-2 {
+  --callstage-columns: 2;
+  --callstage-rows: 1;
+}
+
+.callstage__layout--count-3,
+.callstage__layout--count-4 {
+  --callstage-columns: 2;
+  --callstage-rows: 2;
+}
+
+.callstage__layout--count-5,
+.callstage__layout--count-6,
+.callstage__layout--count-7 {
+  --callstage-columns: 3;
+  --callstage-rows: 2;
+}
+
+.callstage__layout--count-8 {
+  --callstage-columns: 4;
+  --callstage-rows: 2;
+}
+
+.callstage__layout--count-9,
+.callstage__layout--count-10,
+.callstage__layout--count-11,
+.callstage__layout--count-12 {
+  --callstage-columns: 4;
+  --callstage-rows: 3;
 }
 
 .callstage--embedded .callstage__layout {
-  grid-auto-rows: minmax(140px, 1fr);
+  --callstage-gap: 8px;
 }
 
-.callstage--focus .callstage__layout {
-  grid-template-columns: minmax(0, 1fr) 200px;
-  grid-template-rows: repeat(auto-fit, minmax(110px, 1fr));
-}
-
-.callstage--focus .calltile.is-primary {
-  grid-row: 1 / -1;
+.callstage__focus-layout {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) clamp(112px, 18vh, 172px);
+  gap: var(--callstage-space, 16px);
+  height: 100%;
   min-height: 0;
+  transition: grid-template-rows 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.callstage__focus-layout.is-solo,
+.callstage__focus-layout.is-tray-collapsed {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.callstage__focus-layout > .calltile.is-primary {
+  min-height: 0;
+}
+
+.callstage__focus-tray-wrap {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.callstage__focus-tray {
+  display: flex;
+  justify-content: safe center;
+  width: 100%;
+  max-width: 100%;
+  gap: 10px;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+
+.callstage__focus-tray .calltile {
+  flex: 1 1 164px;
+  width: auto;
+  min-width: 164px;
+  max-width: 258px;
+  min-height: 0;
+  aspect-ratio: 16 / 9;
+}
+
+.callstage--focus .callstage__viewport {
+  overflow: hidden;
 }
 
 /* Card / Tile de Participante e Transmissão */
@@ -347,11 +537,25 @@
   letter-spacing: 0.05em;
 }
 
-.calltile__more {
+.calltile__top-actions {
   position: absolute;
   top: 10px;
   right: 10px;
-  z-index: 2;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.calltile:hover .calltile__top-actions,
+.calltile__top-actions:focus-within {
+  opacity: 1;
+}
+
+.calltile__fullscreen-btn,
+.calltile__more {
   display: grid;
   place-items: center;
   width: 28px;
@@ -359,15 +563,10 @@
   border-radius: var(--radius-sm);
   background: var(--call-label);
   color: var(--text-dim);
-  opacity: 0;
-  transition: opacity 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
-.calltile:hover .calltile__more,
-.calltile__more:focus-visible {
-  opacity: 1;
-}
-
+.calltile__fullscreen-btn:hover,
 .calltile__more:hover {
   background: var(--bg-hover);
   color: var(--text);
@@ -409,6 +608,37 @@
 
 .calltile__watch-button:hover {
   filter: brightness(1.1);
+}
+
+/* Estado não-inscrito em miniaturas do focus-tray ou quando pequeno */
+.callstage__focus-tray .calltile--unsubscribed .calltile__meta {
+  display: none;
+}
+
+.callstage__focus-tray .calltile--unsubscribed .calltile__watch-panel {
+  padding: 6px 8px;
+  gap: 4px;
+}
+
+.callstage__focus-tray .calltile--unsubscribed .calltile__watch-icon-wrap {
+  width: 28px;
+  height: 28px;
+}
+
+.callstage__focus-tray .calltile--unsubscribed .calltile__watch-icon-wrap svg {
+  width: 16px;
+  height: 16px;
+}
+
+.callstage__focus-tray .calltile--unsubscribed .calltile__watch-panel strong {
+  display: none;
+}
+
+.callstage__focus-tray .calltile--unsubscribed .calltile__watch-button {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
 }
 
 /* Dropdown Menu de Participante */
@@ -478,12 +708,61 @@
   font-size: 16px;
 }
 
+/* Botão colapsador da barra inferior (estilo Discord chevron down/up) */
+.callstage__tray-toggle-bar {
+  position: absolute;
+  bottom: 84px;
+  left: 50%;
+  z-index: 15;
+  translate: -50% 0;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  transition: bottom 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.callstage--tray-collapsed .callstage__tray-toggle-bar {
+  bottom: 12px;
+}
+
+.callstage--tray-collapsed .callstage__viewport {
+  padding-bottom: 36px;
+}
+
+.callstage__tray-toggle-btn {
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--call-dock);
+  color: var(--text-dim);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+  cursor: pointer;
+}
+
+.callstage__tray-toggle-btn:hover {
+  background: var(--call-control-hover);
+  color: var(--text);
+}
+
 /* Dock Flutuante Inferior Estilo Discord */
 .callstage__dock-wrap {
   position: relative;
   display: flex;
   justify-content: center;
   padding: 14px;
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1), transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.callstage__dock-wrap.is-collapsed {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(20px);
+  position: absolute;
+  bottom: 0;
+  visibility: hidden;
 }
 
 .callstage__dock {
@@ -652,18 +931,54 @@
 }
 
 @media (max-width: 950px) {
-  .callstage__window-actions button:nth-child(-n+2) {
-    display: none;
+  .callstage__layout--count-5,
+  .callstage__layout--count-6,
+  .callstage__layout--count-7,
+  .callstage__layout--count-8,
+  .callstage__layout--count-9 {
+    --callstage-columns: 3;
+    --callstage-rows: 3;
   }
-  .callstage--focus .callstage__layout {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(300px, 1fr) 120px;
-    grid-auto-flow: column;
+
+  .callstage__layout--count-10,
+  .callstage__layout--count-11,
+  .callstage__layout--count-12 {
+    --callstage-columns: 3;
+    --callstage-rows: 4;
   }
-  .callstage--focus .calltile.is-primary {
-    grid-row: auto;
-  }
+
   .callstage__sidechat {
     width: 280px;
+  }
+}
+
+@media (max-width: 820px), (max-height: 560px) {
+  .callstage {
+    --callstage-space: 10px;
+  }
+
+  .callstage__focus-layout {
+    grid-template-rows: minmax(0, 1fr) 106px;
+  }
+
+  .callstage__focus-tray .calltile {
+    flex-basis: 136px;
+    min-width: 136px;
+  }
+
+  .callstage__layout--count-5,
+  .callstage__layout--count-6,
+  .callstage__layout--count-7,
+  .callstage__layout--count-8 {
+    --callstage-columns: 2;
+    --callstage-rows: 4;
+  }
+
+  .callstage__layout--count-9,
+  .callstage__layout--count-10,
+  .callstage__layout--count-11,
+  .callstage__layout--count-12 {
+    --callstage-columns: 2;
+    --callstage-rows: 6;
   }
 }

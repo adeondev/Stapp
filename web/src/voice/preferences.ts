@@ -2,7 +2,6 @@ export type NoiseMode = 'off' | 'standard' | 'enhanced'
 export type InputMode = 'voice_activity' | 'push_to_talk'
 export type CameraQuality = '720p' | '1080p'
 export type ScreenPreset = 'economy' | 'balanced' | 'fluid' | 'original'
-export type StreamQuality = 'auto' | 'low' | 'high' | 'original'
 
 export interface VoicePreferences {
   inputDeviceId: string
@@ -24,7 +23,7 @@ export interface VoicePreferences {
   showSelf: boolean
   showVideoOffParticipants: boolean
   screenPreset: ScreenPreset
-  streamQuality: StreamQuality
+  shareAudio: boolean
 }
 
 export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
@@ -47,7 +46,7 @@ export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
   showSelf: true,
   showVideoOffParticipants: true,
   screenPreset: 'balanced',
-  streamQuality: 'auto',
+  shareAudio: true,
 }
 
 const STORAGE_KEY = 'stapp.voice.preferences.v1'
@@ -93,7 +92,7 @@ function sanitize(value: VoicePreferences): VoicePreferences {
     showSelf: booleanValue(value.showSelf, true),
     showVideoOffParticipants: booleanValue(value.showVideoOffParticipants, true),
     screenPreset: oneOf(value.screenPreset, ['economy', 'balanced', 'fluid', 'original'], DEFAULT_VOICE_PREFERENCES.screenPreset),
-    streamQuality: oneOf(value.streamQuality, ['auto', 'low', 'high', 'original'], DEFAULT_VOICE_PREFERENCES.streamQuality),
+    shareAudio: booleanValue(value.shareAudio, true),
   }
 }
 

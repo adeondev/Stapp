@@ -1,5 +1,9 @@
 import createRnnoiseModule from '@jitsi/rnnoise-wasm/dist/rnnoise-sync.js'
 
+// PROTOTYPE: the package is patched to remove its unused import.meta.url shim.
+// Its sync build embeds WASM, while Vite's self.location rewrite crashes in a
+// WebView2 AudioWorklet. Remove the patch when Jitsi ships a worklet-safe entry.
+
 declare const AudioWorkletProcessor: {
   prototype: AudioWorkletProcessor
   new (): AudioWorkletProcessor
@@ -17,8 +21,10 @@ interface Settings {
   sensitivity: number
 }
 
+type RnnoiseModule = ReturnType<typeof createRnnoiseModule>
+
 class StappRnnoiseProcessor extends AudioWorkletProcessor {
-  private readonly module = createRnnoiseModule({})
+  private module: RnnoiseModule | null = null
   private state = 0
   private inputPointer = 0
   private outputPointer = 0
@@ -41,13 +47,22 @@ class StappRnnoiseProcessor extends AudioWorkletProcessor {
 
   constructor() {
     super()
-    void this.module.ready.then(() => {
-      this.inputPointer = this.module._malloc(BYTES)
-      this.outputPointer = this.module._malloc(BYTES)
-      this.state = this.module._rnnoise_create(0)
-      this.ready = Boolean(this.state && this.inputPointer && this.outputPointer)
-      this.port.postMessage({ t: this.ready ? 'ready' : 'error' })
-    }).catch(() => this.port.postMessage({ t: 'error' }))
+    try {
+      const module = createRnnoiseModule({})
+      this.module = module
+      void module.ready.then(() => {
+        this.inputPointer = module._malloc(BYTES)
+        this.outputPointer = module._malloc(BYTES)
+        this.state = module._rnnoise_create(0)
+        this.ready = Boolean(this.state && this.inputPointer && this.outputPointer)
+        this.port.postMessage({
+          t: this.ready ? 'ready' : 'error',
+          message: this.ready ? undefined : 'RNNoise não alocou o estado WASM',
+        })
+      }).catch((error: unknown) => this.postError(error))
+    } catch (error) {
+      this.postError(error)
+    }
     this.port.addEventListener('message', (event) => {
       if (event.data?.t === 'destroy') this.destroy()
       if (event.data?.t === 'config') this.settings = event.data.settings as Settings
@@ -64,18 +79,23 @@ class StappRnnoiseProcessor extends AudioWorkletProcessor {
       else target.fill(0)
       return true
     }
+    const module = this.module
+    if (!module) {
+      target.fill(0)
+      return true
+    }
 
     for (const sample of source) {
       this.input[this.inputOffset++] = sample
       if (this.inputOffset === FRAME) {
         const heapOffset = this.inputPointer / Float32Array.BYTES_PER_ELEMENT
         for (let index = 0; index < FRAME; index += 1) {
-          this.module.HEAPF32[heapOffset + index] = this.input[index] * 32768
+          module.HEAPF32[heapOffset + index] = this.input[index] * 32768
         }
-        this.module._rnnoise_process_frame(this.state, this.outputPointer, this.inputPointer)
+        module._rnnoise_process_frame(this.state, this.outputPointer, this.inputPointer)
         const outputOffset = this.outputPointer / Float32Array.BYTES_PER_ELEMENT
         for (let index = 0; index < FRAME; index += 1) {
-          this.output[this.outputWrite] = this.module.HEAPF32[outputOffset + index] / 32768
+          this.output[this.outputWrite] = module.HEAPF32[outputOffset + index] / 32768
           this.outputWrite = (this.outputWrite + 1) % this.output.length
           this.outputCount = Math.min(this.output.length, this.outputCount + 1)
         }
@@ -111,11 +131,20 @@ class StappRnnoiseProcessor extends AudioWorkletProcessor {
   }
 
   private destroy() {
-    if (this.state) this.module._rnnoise_destroy(this.state)
-    if (this.inputPointer) this.module._free(this.inputPointer)
-    if (this.outputPointer) this.module._free(this.outputPointer)
+    const module = this.module
+    if (module && this.state) module._rnnoise_destroy(this.state)
+    if (module && this.inputPointer) module._free(this.inputPointer)
+    if (module && this.outputPointer) module._free(this.outputPointer)
     this.ready = false
     this.state = 0
+    this.module = null
+  }
+
+  private postError(error: unknown) {
+    this.port.postMessage({
+      t: 'error',
+      message: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 

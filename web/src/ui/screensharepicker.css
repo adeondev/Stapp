@@ -173,6 +173,34 @@
   font-size: 10px;
 }
 
+.screenpicker__audio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 20px;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  background: var(--call-control);
+  cursor: pointer;
+}
+
+.screenpicker__audio input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.screenpicker__audio span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.screenpicker__audio small {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
 .screenpicker__note,
 .screenpicker__error {
   margin: 0;

@@ -24,6 +24,9 @@
 .voicesettings__noise > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .voicesettings__noise button { padding: 8px; background: var(--bg-raised); }
 .voicesettings__noise button.is-active { background: var(--pill-active); color: var(--text); }
+.voicesettings__processor-status { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-dim); }
+.voicesettings__processor-status.is-active { color: var(--online); }
+.voicesettings__processor-status.is-fallback { color: var(--warning); }
 .voicesettings__test { align-self: flex-start; padding: 8px 12px; background: var(--bg-raised); }
 .voicesettings__test.is-active { background: var(--danger-quiet); color: var(--danger); }
 .voicesettings__meter { height: 7px; overflow: hidden; border-radius: var(--radius-pill); background: var(--bg-raised); }

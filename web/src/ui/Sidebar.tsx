@@ -4,6 +4,7 @@ import type { ConnectionStatus } from '../net/connection'
 import type { PeerId, UserId } from '../protocol'
 import { directList, peersInChannel, type StappState } from '../store'
 import { IconHash, IconMicOff, IconSpeaker, IconUsers } from './Icons'
+import { useUserMenu } from './UserMenu'
 import './sidebar.css'
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -13,12 +14,13 @@ const STATUS_LABEL: Record<ConnectionStatus, string> = {
 export type View =
   | { kind: 'home' }
   | { kind: 'channel'; id: string }
+  | { kind: 'voice'; id: string }
   | { kind: 'direct'; userId: UserId }
 
 export type SidebarMode = 'home' | 'server'
 
 export function sidebarModeFor(view: View | null): SidebarMode {
-  return view?.kind === 'channel' ? 'server' : 'home'
+  return view?.kind === 'channel' || view?.kind === 'voice' ? 'server' : 'home'
 }
 
 interface Props {
@@ -81,6 +83,7 @@ interface HomeNavigationProps {
 }
 
 function HomeNavigation({ state, view, conversations, incomingRequests, onSelectHome, onSelectDirect }: HomeNavigationProps) {
+  const userMenu = useUserMenu()
   return (
     <div className="sidebar__menu">
       <button className={`sidebar__item sidebar__friends ${view?.kind === 'home' ? 'is-active' : ''}`}
@@ -96,6 +99,7 @@ function HomeNavigation({ state, view, conversations, incomingRequests, onSelect
         const open = view?.kind === 'direct' && view.userId === conversation.user_id
         return <button key={conversation.user_id} className={`sidebar__item ${open ? 'is-active' : ''}`}
           aria-label={conversation.username}
+          onContextMenu={(event) => userMenu.open(event, { userId: conversation.user_id, name: conversation.username })}
           onClick={() => onSelectDirect(conversation.user_id)}>
           <Avatar userId={conversation.user_id} className={`sidebar__dm-avatar ${online ? 'is-online' : ''}`} fallbackName={conversation.username} />
           <span className="sidebar__item-name">{conversation.username}</span>
@@ -117,6 +121,7 @@ interface ServerNavigationProps {
 }
 
 function ServerNavigation({ state, view, callChannel, speaking, onSelectChannel, onJoinCall }: ServerNavigationProps) {
+  const userMenu = useUserMenu()
   return (
     <div className="sidebar__menu">
       <h2 className="sidebar__section">Canais de texto</h2>
@@ -138,7 +143,8 @@ function ServerNavigation({ state, view, callChannel, speaking, onSelectChannel,
             {peers.length > 0 && <span className="sidebar__count">{peers.length}</span>}
           </button>
           {peers.map((peer) => (
-            <div key={peer.peer_id} className={`sidebar__peer ${speaking.has(peer.peer_id) ? 'is-speaking' : ''}`}>
+            <div key={peer.peer_id} className={`sidebar__peer ${speaking.has(peer.peer_id) ? 'is-speaking' : ''}`}
+              onContextMenu={(event) => userMenu.open(event, { userId: peer.user_id, name: peer.username })}>
               <Avatar userId={peer.user_id} className="sidebar__avatar" fallbackName={peer.username} />
               <span className="sidebar__peer-name">{peer.username}</span>
               {(peer.muted || peer.deafened) && <span className="sidebar__peer-muted"><IconMicOff size={13} /></span>}

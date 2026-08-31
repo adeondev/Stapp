@@ -2,6 +2,7 @@ import { Avatar, ProfileName } from './Avatar'
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { SocialMember, UserId } from '../protocol'
 import { IconAt, IconCheck, IconUsers, IconX } from './Icons'
+import { useUserMenu } from './UserMenu'
 import './friends.css'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add'
@@ -162,10 +163,12 @@ interface FriendRowProps {
 }
 
 function FriendRow({ member, online, request, onOpenDirect, onAction }: FriendRowProps) {
+  const userMenu = useUserMenu()
   const detail = request === 'incoming' ? 'Quer adicionar você'
     : request === 'outgoing' ? 'Pedido enviado' : online ? 'Online' : 'Offline'
   return (
-    <article className="friends__row">
+    <article className="friends__row"
+      onContextMenu={(event) => userMenu.open(event, { userId: member.user_id, name: member.username })}>
       <Avatar userId={member.user_id} className="friends__avatar" fallbackName={member.username} />
       <span className="friends__person"><strong><ProfileName userId={member.user_id} fallbackName={member.username} /></strong><small>{detail}</small></span>
       <div className="friends__actions">

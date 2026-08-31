@@ -2,12 +2,13 @@ import type { PeerId, RtcPayload, ServerMsg, VoiceConfig } from '../protocol'
 import type {
   DiagnosticReport,
   MediaDeviceLists,
+  ScreenShareOptions,
   VoiceSnapshot,
   VoiceTransport,
   VoiceTransportOptions,
 } from './VoiceTransport'
 import { loadVoicePreferences, saveVoicePreferences } from './preferences'
-import type { ScreenPreset, StreamQuality, VoicePreferences } from './preferences'
+import type { VoicePreferences } from './preferences'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -48,6 +49,8 @@ export class MeshTransport implements VoiceTransport {
   private deafened = false
 
   private readonly peers = new Map<PeerId, PeerLink>()
+  private readonly voiceVolumes = new Map<PeerId, number>()
+  private readonly lastVoiceVolumes = new Map<PeerId, number>()
   private readonly monitors = new Map<PeerId, Monitor>()
   private audioCtx: AudioContext | null = null
   private ticker: ReturnType<typeof setInterval> | null = null
@@ -56,7 +59,7 @@ export class MeshTransport implements VoiceTransport {
   private state: VoiceSnapshot = {
     status: 'idle', channel: null, muted: false, deafened: false,
     cameraEnabled: false, screenSharing: false, screenHasAudio: null,
-    participants: [], media: [], error: null,
+    participants: [], media: [], audioProcessor: { status: 'idle', effective: 'none' }, error: null,
   }
 
   constructor(
@@ -147,6 +150,7 @@ export class MeshTransport implements VoiceTransport {
           ...this.state,
           participants: this.state.participants.filter((peer) => peer.peerId !== msg.peer_id),
         }
+        this.applyPlaybackState()
         this.emit()
         break
 
@@ -169,7 +173,7 @@ export class MeshTransport implements VoiceTransport {
 
   setDeafened(deafened: boolean) {
     this.deafened = deafened
-    for (const link of this.peers.values()) link.audio.muted = deafened
+    this.applyPlaybackState()
     // Ensurdecer tambem cala o proprio microfone, como no Discord.
     this.applyLocalState()
     this.publishState()
@@ -198,6 +202,8 @@ export class MeshTransport implements VoiceTransport {
 
   destroy() {
     this.leave()
+    this.voiceVolumes.clear()
+    this.lastVoiceVolumes.clear()
     if (this.ticker) clearInterval(this.ticker)
     this.ticker = null
     void this.audioCtx?.close()
@@ -208,8 +214,11 @@ export class MeshTransport implements VoiceTransport {
   async resumeAudio() {
     await this.audioCtx?.resume().catch(() => {})
     const results = await Promise.all(
-      [...this.peers.values()].map((link) => link.audio.play().then(() => true).catch(() => false)),
+      [...this.peers.values()].map((link) => link.audio.play()
+        .then(() => { this.applyPlaybackState(link.audio); return true })
+        .catch(() => false)),
     )
+    this.applyPlaybackState()
     return results.every(Boolean)
   }
 
@@ -218,7 +227,7 @@ export class MeshTransport implements VoiceTransport {
     return false
   }
 
-  async setScreenShareEnabled(_enabled: boolean, _preset?: ScreenPreset, _sourceId?: string) {
+  async setScreenShareEnabled(_enabled: boolean, _options?: ScreenShareOptions) {
     this.options.onError('camera e compartilhamento exigem o backend LiveKit')
     return false
   }
@@ -295,14 +304,23 @@ export class MeshTransport implements VoiceTransport {
   }
 
   setPublicationSubscribed(_publicationId: string, _subscribed: boolean) {}
-  setPublicationQuality(_publicationId: string, _quality: StreamQuality) {}
 
-  setParticipantVolume(peerId: PeerId, volume: number) {
-    const link = this.peers.get(peerId)
-    if (link) link.audio.volume = Math.min(1, Math.max(0, volume / 100))
+  getVoiceVolume(peerId: PeerId) { return this.voiceVolumes.get(peerId) ?? 100 }
+
+  setVoiceVolume(peerId: PeerId, volume: number) {
+    const normalized = clamp(volume, 0, 200)
+    this.voiceVolumes.set(peerId, normalized)
+    if (normalized > 0) this.lastVoiceVolumes.set(peerId, normalized)
+    this.applyPlaybackState(undefined, peerId)
   }
 
-  setPublicationVolume(_publicationId: string, _volume: number) {}
+  setVoiceMuted(peerId: PeerId, muted: boolean) {
+    this.setVoiceVolume(peerId, muted ? 0 : (this.lastVoiceVolumes.get(peerId) ?? 100))
+  }
+
+  getScreenShareVolume(_peerId: PeerId) { return 100 }
+  setScreenShareVolume(_peerId: PeerId, _volume: number) {}
+  setScreenShareMuted(_peerId: PeerId, _muted: boolean) {}
   attachMedia(_publicationId: string, _element: HTMLMediaElement) { return () => {} }
   snapshot() { return this.state }
   subscribe(listener: (snapshot: VoiceSnapshot) => void) {
@@ -321,6 +339,7 @@ export class MeshTransport implements VoiceTransport {
     if (patch.inputDeviceId !== undefined && patch.inputDeviceId !== previous.inputDeviceId) {
       await this.setInputDevice(patch.inputDeviceId)
     }
+    if (patch.outputVolume !== undefined) this.applyPlaybackState()
   }
   async diagnosticReport(): Promise<DiagnosticReport> {
     return {
@@ -345,7 +364,6 @@ export class MeshTransport implements VoiceTransport {
 
     const audio = document.createElement('audio')
     audio.autoplay = true
-    audio.muted = this.deafened
     // Fora do DOM alguns navegadores nao tocam o stream.
     audio.style.display = 'none'
     document.body.append(audio)
@@ -360,9 +378,11 @@ export class MeshTransport implements VoiceTransport {
       const stream = event.streams[0]
       if (!stream) return
       audio.srcObject = stream
-      void audio.play().catch(() => {})
+      this.applyPlaybackState(audio, peerId)
+      void audio.play().then(() => this.applyPlaybackState(audio, peerId)).catch(() => {})
       this.watch(peerId, stream)
     })
+    audio.addEventListener('play', () => this.applyPlaybackState(audio, peerId))
 
     pc.addEventListener('connectionstatechange', () => {
       if (pc.connectionState === 'failed') {
@@ -518,6 +538,21 @@ export class MeshTransport implements VoiceTransport {
     }
   }
 
+  private applyPlaybackState(target?: HTMLAudioElement, peerId?: PeerId) {
+    if (peerId) {
+      const audio = target ?? this.peers.get(peerId)?.audio
+      if (!audio) return
+      audio.muted = this.deafened
+      audio.volume = clamp(
+        (this.getVoiceVolume(peerId) / 100) * (this.preferences.outputVolume / 100),
+        0,
+        1,
+      )
+      return
+    }
+    for (const [id, link] of this.peers) this.applyPlaybackState(link.audio, id)
+  }
+
   private audioConstraints(): MediaTrackConstraints {
     return {
       deviceId: this.preferences.inputDeviceId || undefined,
@@ -551,4 +586,8 @@ export class MeshTransport implements VoiceTransport {
   private emit() {
     for (const listener of this.listeners) listener(this.state)
   }
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
 }

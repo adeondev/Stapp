@@ -34,6 +34,10 @@
   scale: 1.01;
 }
 
+.members__entry--self .members__row {
+  background: var(--accent-quiet);
+}
+
 .members__avatar {
   position: relative;
   display: grid;

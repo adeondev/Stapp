@@ -1,3 +1,5 @@
+import screenAudioWorkletUrl from './screen-audio-worklet.ts?worker&url'
+
 export type ScreenSourceKind = 'screen' | 'window'
 
 export interface ScreenSource {
@@ -11,9 +13,55 @@ export interface ScreenSource {
 export interface NativeScreenCapture {
   stream: MediaStream
   track: MediaStreamTrack
+  audioTrack?: MediaStreamTrack
+  hasAudio: boolean
+  audioError?: string
+  audioValidation?: AudioExclusionValidation
+  audioPlaybackStats?: ScreenAudioPlaybackStats
   ended: Promise<string>
   stop(): Promise<void>
 }
+
+export interface ScreenAudioPlaybackStats {
+  bufferedFrames: number
+  playbackRate: number
+  buffering: boolean
+  underruns: number
+  droppedFrames: number
+}
+
+export interface BrowserScreenCapture {
+  stream: MediaStream
+  track: MediaStreamTrack
+  audioTrack?: MediaStreamTrack
+  hasAudio: boolean
+  audioError?: string
+  audioValidation?: BrowserAudioExclusionValidation
+  ended: Promise<string>
+  stop(): Promise<void>
+}
+
+export interface BrowserAudioExclusionValidation {
+  safe: boolean
+  supported: boolean
+  applied: boolean
+  displaySurface?: string
+  controlLevel: number
+  captureLevel: number
+  reason: string
+}
+
+export interface AudioExclusionValidation {
+  safe: boolean
+  processId: number
+  windowsBuild?: number
+  includeLevel: number
+  excludeLevel: number
+  reason: string
+}
+
+type AudioValidationEvent = { event: 'ready' }
+let cachedAudioExclusionValidation: Promise<AudioExclusionValidation> | null = null
 
 type CaptureEvent =
   | {
@@ -23,6 +71,14 @@ type CaptureEvent =
       height: number
       jpeg_base64: string
     }
+  | {
+      event: 'audio_format'
+      capture_id: number
+      sample_rate: number
+      channels: number
+    }
+  | { event: 'audio_chunk'; capture_id: number; pcm_base64: string }
+  | { event: 'audio_unavailable'; capture_id: number; reason: string }
   | { event: 'ended'; capture_id: number; reason: string }
 
 export function isTauriRuntime() {
@@ -45,11 +101,221 @@ export function thumbnailDataUrl(base64: string | null) {
   return base64 ? `data:image/png;base64,${base64}` : null
 }
 
+interface DisplayAudioConstraints extends MediaTrackConstraints {
+  restrictOwnAudio?: ConstrainBoolean
+}
+
+interface StappDisplayMediaOptions extends DisplayMediaStreamOptions {
+  selfBrowserSurface?: 'include' | 'exclude'
+  surfaceSwitching?: 'include' | 'exclude'
+  systemAudio?: 'include' | 'exclude'
+  windowAudio?: 'exclude' | 'system' | 'window'
+}
+
+interface DisplayAudioSettings extends MediaTrackSettings {
+  restrictOwnAudio?: boolean
+}
+
+interface DisplayVideoSettings extends MediaTrackSettings {
+  displaySurface?: string
+}
+
+export async function startBrowserScreenCapture(options: {
+  maxWidth: number
+  maxHeight: number
+  fps: number
+  includeAudio: boolean
+  contentHint: 'detail' | 'motion'
+}): Promise<BrowserScreenCapture> {
+  if (isTauriRuntime()) throw new Error('captura web indisponivel dentro do aplicativo')
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    throw new Error('este navegador nao oferece compartilhamento de tela')
+  }
+
+  const audio: false | DisplayAudioConstraints = options.includeAudio
+    ? {
+        restrictOwnAudio: true,
+        channelCount: { ideal: 2 },
+        sampleRate: { ideal: 48_000 },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      }
+    : false
+  const constraints: StappDisplayMediaOptions = {
+    audio,
+    video: {
+      width: { ideal: options.maxWidth },
+      height: { ideal: options.maxHeight },
+      frameRate: { ideal: options.fps },
+    },
+    selfBrowserSurface: 'exclude',
+    surfaceSwitching: 'include',
+    systemAudio: options.includeAudio ? 'include' : 'exclude',
+    windowAudio: options.includeAudio ? 'window' : 'exclude',
+  }
+  const stream = await navigator.mediaDevices.getDisplayMedia(constraints)
+  const track = stream.getVideoTracks()[0]
+  if (!track) {
+    for (const mediaTrack of stream.getTracks()) mediaTrack.stop()
+    throw new Error('a fonte escolhida nao forneceu video')
+  }
+  track.contentHint = options.contentHint
+
+  let stopped = false
+  let resolveEnded!: (reason: string) => void
+  const ended = new Promise<string>((resolve) => { resolveEnded = resolve })
+  track.addEventListener('ended', () => resolveEnded('a fonte compartilhada foi encerrada'), { once: true })
+
+  let audioTrack = options.includeAudio ? stream.getAudioTracks()[0] : undefined
+  let audioValidation: BrowserAudioExclusionValidation | undefined
+  let audioError: string | undefined
+  if (audioTrack) {
+    audioTrack.contentHint = 'music'
+    const supported = Boolean(
+      (navigator.mediaDevices.getSupportedConstraints?.() as MediaTrackSupportedConstraints & {
+        restrictOwnAudio?: boolean
+      } | undefined)?.restrictOwnAudio,
+    )
+    try {
+      await audioTrack.applyConstraints({
+        restrictOwnAudio: { exact: true },
+        channelCount: { ideal: 2 },
+        sampleRate: { ideal: 48_000 },
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      } as DisplayAudioConstraints)
+    } catch (error) {
+      audioError = mediaErrorMessage(error, 'o navegador nao aplicou a exclusao do audio do Stapp')
+    }
+    const applied = (audioTrack.getSettings() as DisplayAudioSettings).restrictOwnAudio === true
+    const displaySurface = (track.getSettings() as DisplayVideoSettings).displaySurface
+    audioValidation = audioError
+      ? {
+          safe: false, supported, applied, displaySurface,
+          controlLevel: 0, captureLevel: 0, reason: audioError,
+        }
+      : await validateBrowserAudioExclusion(audioTrack, supported, applied, displaySurface)
+    if (!audioValidation.safe) {
+      audioError = audioValidation.reason
+      stream.removeTrack(audioTrack)
+      audioTrack.stop()
+      audioTrack = undefined
+    }
+  } else if (options.includeAudio) {
+    audioError = 'a fonte escolhida nao forneceu audio'
+  }
+
+  return {
+    stream,
+    track,
+    audioTrack,
+    hasAudio: Boolean(audioTrack),
+    audioError,
+    audioValidation,
+    ended,
+    async stop() {
+      if (stopped) return
+      stopped = true
+      for (const mediaTrack of stream.getTracks()) mediaTrack.stop()
+    },
+  }
+}
+
+export function browserAudioExclusionIsSafe(
+  supported: boolean,
+  applied: boolean,
+  controlLevel: number,
+  captureLevel: number,
+) {
+  return supported
+    && applied
+    && controlLevel >= 0.002
+    && captureLevel <= Math.max(0.0007, controlLevel * 0.18)
+}
+
+async function validateBrowserAudioExclusion(
+  track: MediaStreamTrack,
+  supported: boolean,
+  applied: boolean,
+  displaySurface?: string,
+): Promise<BrowserAudioExclusionValidation> {
+  if (!supported || !applied) {
+    return {
+      safe: false, supported, applied, displaySurface,
+      controlLevel: 0, captureLevel: 0,
+      reason: 'o navegador nao confirmou restrictOwnAudio; atualize Chrome/Edge ou use o aplicativo',
+    }
+  }
+
+  let context: AudioContext | null = null
+  try {
+    context = new AudioContext({ sampleRate: 48_000, latencyHint: 'interactive' })
+    const source = context.createMediaStreamSource(new MediaStream([track]))
+    const captured = context.createAnalyser()
+    const silentSink = context.createGain()
+    const oscillator = context.createOscillator()
+    const probeGain = context.createGain()
+    const control = context.createAnalyser()
+    captured.fftSize = 2048
+    captured.smoothingTimeConstant = 0
+    control.fftSize = 2048
+    control.smoothingTimeConstant = 0
+    silentSink.gain.value = 0
+    oscillator.type = 'sine'
+    oscillator.frequency.value = 18_000
+    probeGain.gain.value = 0.02
+    source.connect(captured).connect(silentSink).connect(context.destination)
+    oscillator.connect(probeGain).connect(control).connect(context.destination)
+    await context.resume()
+    if (context.state !== 'running') throw new Error(`AudioContext ${context.state}`)
+
+    oscillator.start()
+    oscillator.stop(context.currentTime + 0.45)
+    let controlLevel = 0
+    let captureLevel = 0
+    const deadline = performance.now() + 520
+    while (performance.now() < deadline) {
+      controlLevel = Math.max(controlLevel, analyserToneLevel(control, context.sampleRate, 18_000))
+      captureLevel = Math.max(captureLevel, analyserToneLevel(captured, context.sampleRate, 18_000))
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 20))
+    }
+    const safe = browserAudioExclusionIsSafe(supported, applied, controlLevel, captureLevel)
+    return {
+      safe, supported, applied, displaySurface, controlLevel, captureLevel,
+      reason: safe
+        ? 'restrictOwnAudio aplicado e validado pelo probe local'
+        : `o probe do Stapp ainda apareceu na captura (${captureLevel.toFixed(5)})`,
+    }
+  } catch (error) {
+    return {
+      safe: false, supported, applied, displaySurface,
+      controlLevel: 0, captureLevel: 0,
+      reason: mediaErrorMessage(error, 'a validacao web da exclusao de audio falhou'),
+    }
+  } finally {
+    await context?.close().catch(() => {})
+  }
+}
+
+function analyserToneLevel(analyser: AnalyserNode, sampleRate: number, frequency: number) {
+  const bins = new Float32Array(analyser.frequencyBinCount)
+  analyser.getFloatFrequencyData(bins)
+  const center = Math.round((frequency * analyser.fftSize) / sampleRate)
+  let peakDb = -Infinity
+  for (let index = Math.max(0, center - 1); index <= Math.min(bins.length - 1, center + 1); index += 1) {
+    peakDb = Math.max(peakDb, bins[index] ?? -Infinity)
+  }
+  return Number.isFinite(peakDb) ? 10 ** (peakDb / 20) : 0
+}
+
 export async function startNativeScreenCapture(options: {
   sourceId: string
   maxWidth: number
   maxHeight: number
   fps: number
+  includeAudio: boolean
 }): Promise<NativeScreenCapture> {
   if (!isTauriRuntime()) throw new Error('captura nativa disponivel somente no aplicativo')
 
@@ -60,6 +326,11 @@ export async function startNativeScreenCapture(options: {
   if (!context) throw new Error('o renderizador de captura nao esta disponivel')
 
   const { Channel, invoke } = await import('@tauri-apps/api/core')
+  const fullScreenAudio = options.includeAudio && options.sourceId.startsWith('screen:')
+  const audioValidation = fullScreenAudio
+    ? await validateAudioExclusion(Channel, invoke)
+    : undefined
+  const includeAudio = options.includeAudio && (!fullScreenAudio || audioValidation?.safe === true)
   const channel = new Channel<CaptureEvent>()
   let captureId = 0
   let stopped = false
@@ -69,11 +340,38 @@ export async function startNativeScreenCapture(options: {
   let resolveFirstFrame!: () => void
   let rejectFirstFrame!: (error: Error) => void
   let resolveEnded!: (reason: string) => void
+  let audioPipeline: Awaited<ReturnType<typeof createAudioPipeline>> | null = null
+  let audioConfirmed = false
+  let audioError: string | undefined = fullScreenAudio && audioValidation && !audioValidation.safe
+    ? `o Windows nao confirmou a exclusao do Stapp: ${audioValidation.reason}`
+    : undefined
+  let resolveAudioReady!: (available: boolean) => void
+  let audioReadySettled = false
   const firstFrame = new Promise<void>((resolve, reject) => {
     resolveFirstFrame = resolve
     rejectFirstFrame = reject
   })
   const ended = new Promise<string>((resolve) => { resolveEnded = resolve })
+  const audioReady = new Promise<boolean>((resolve) => { resolveAudioReady = resolve })
+
+  if (includeAudio) {
+    try {
+      audioPipeline = await createAudioPipeline()
+    } catch (error) {
+      audioError = mediaErrorMessage(error, 'o WebView nao conseguiu reconstruir o audio')
+      audioReadySettled = true
+      resolveAudioReady(false)
+    }
+  } else {
+    audioReadySettled = true
+    resolveAudioReady(false)
+  }
+
+  const finishAudioReady = (available: boolean) => {
+    if (audioReadySettled) return
+    audioReadySettled = true
+    resolveAudioReady(available)
+  }
 
   const drawLatest = async () => {
     if (decoding) return
@@ -109,17 +407,50 @@ export async function startNativeScreenCapture(options: {
       resolveEnded(event.reason)
       return
     }
+    if (event.event === 'audio_unavailable') {
+      audioError = event.reason
+      finishAudioReady(false)
+      return
+    }
+    if (event.event === 'audio_format') {
+      if (!audioPipeline) {
+        audioError ??= 'o processador de audio do WebView nao esta disponivel'
+        finishAudioReady(false)
+        return
+      }
+      if (event.sample_rate !== audioPipeline.context.sampleRate || event.channels !== 2) {
+        audioError = `formato nativo inesperado (${event.sample_rate} Hz, ${event.channels} canais)`
+        finishAudioReady(false)
+        return
+      }
+      audioConfirmed = true
+      finishAudioReady(true)
+      return
+    }
+    if (event.event === 'audio_chunk') {
+      if (!audioConfirmed || !audioPipeline) return
+      const bytes = decodeBase64(event.pcm_base64)
+      const buffer = bytes.buffer as ArrayBuffer
+      audioPipeline.node.port.postMessage({ t: 'pcm', buffer }, [buffer])
+      return
+    }
     latestFrame = event
     void drawLatest()
   }
 
-  captureId = await invoke<number>('start_screen_capture', {
-    sourceId: options.sourceId,
-    maxWidth: options.maxWidth,
-    maxHeight: options.maxHeight,
-    fps: options.fps,
-    channel,
-  })
+  try {
+    captureId = await invoke<number>('start_screen_capture', {
+      sourceId: options.sourceId,
+      maxWidth: options.maxWidth,
+      maxHeight: options.maxHeight,
+      fps: options.fps,
+      includeAudio: includeAudio && Boolean(audioPipeline),
+      channel,
+    })
+  } catch (error) {
+    await audioPipeline?.close()
+    throw error
+  }
 
   const timeout = window.setTimeout(() => {
     rejectFirstFrame(new Error('a primeira imagem da captura demorou demais'))
@@ -128,6 +459,7 @@ export async function startNativeScreenCapture(options: {
     await firstFrame
   } catch (error) {
     await invoke('stop_screen_capture', { captureId }).catch(() => {})
+    await audioPipeline?.close()
     throw error
   } finally {
     window.clearTimeout(timeout)
@@ -137,21 +469,153 @@ export async function startNativeScreenCapture(options: {
   const track = stream.getVideoTracks()[0]
   if (!track) {
     await invoke('stop_screen_capture', { captureId }).catch(() => {})
+    await audioPipeline?.close()
     throw new Error('nao foi possivel criar a faixa de video da captura')
   }
   track.contentHint = 'detail'
 
+  let hasAudio = false
+  if (includeAudio && audioPipeline) {
+    hasAudio = await Promise.race([
+      audioReady,
+      new Promise<false>((resolve) => window.setTimeout(() => resolve(false), 1_500)),
+    ])
+    if (!hasAudio) {
+      audioError ??= 'a captura nativa de audio nao respondeu'
+      await audioPipeline.close()
+      audioPipeline = null
+    }
+  }
+  const audioTrack = hasAudio ? audioPipeline?.track : undefined
+  if (audioTrack) stream.addTrack(audioTrack)
+
   return {
     stream,
     track,
+    audioTrack,
+    hasAudio,
+    audioError,
+    audioValidation,
+    audioPlaybackStats: audioPipeline?.stats,
     ended,
     async stop() {
       if (stopped) return
       stopped = true
       await invoke('stop_screen_capture', { captureId }).catch(() => {})
       for (const mediaTrack of stream.getTracks()) mediaTrack.stop()
+      await audioPipeline?.close()
+      audioPipeline = null
     },
   }
+}
+
+async function validateAudioExclusion(
+  Channel: typeof import('@tauri-apps/api/core')['Channel'],
+  invoke: typeof import('@tauri-apps/api/core')['invoke'],
+) {
+  cachedAudioExclusionValidation ??= (async () => {
+    const channel = new Channel<AudioValidationEvent>()
+    let resolveReady!: () => void
+    const ready = new Promise<void>((resolve) => { resolveReady = resolve })
+    channel.onmessage = (event) => {
+      if (event.event === 'ready') resolveReady()
+    }
+    const validation = invoke<AudioExclusionValidation>('validate_screen_audio_exclusion', { channel })
+    await Promise.race([
+      ready,
+      new Promise<never>((_, reject) => window.setTimeout(
+        () => reject(new Error('a validacao nativa de audio nao ficou pronta')),
+        2_000,
+      )),
+    ])
+    await playExclusionProbe()
+    return validation
+  })().catch((error) => ({
+    safe: false,
+    processId: 0,
+    includeLevel: 0,
+    excludeLevel: 0,
+    reason: mediaErrorMessage(error, 'a validacao de exclusao falhou'),
+  }))
+  const result = await cachedAudioExclusionValidation
+  console.info('[screen-audio] validacao de exclusao', result)
+  return result
+}
+
+async function playExclusionProbe() {
+  const context = new AudioContext({ sampleRate: 48_000 })
+  try {
+    await context.resume()
+    if (context.state !== 'running') throw new Error(`AudioContext ${context.state}`)
+    const oscillator = context.createOscillator()
+    const gain = context.createGain()
+    oscillator.type = 'sine'
+    oscillator.frequency.value = 18_000
+    gain.gain.value = 0.02
+    oscillator.connect(gain).connect(context.destination)
+    oscillator.start()
+    oscillator.stop(context.currentTime + 0.45)
+    await new Promise<void>((resolve) => {
+      oscillator.addEventListener('ended', () => resolve(), { once: true })
+    })
+  } finally {
+    await context.close().catch(() => {})
+  }
+}
+
+async function createAudioPipeline() {
+  const context = new AudioContext({ sampleRate: 48_000, latencyHint: 'interactive' })
+  try {
+    await context.audioWorklet.addModule(screenAudioWorkletUrl)
+    const node = new AudioWorkletNode(context, 'stapp-screen-audio', {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+      channelCount: 2,
+      channelCountMode: 'explicit',
+    })
+    const destination = context.createMediaStreamDestination()
+    const stats: ScreenAudioPlaybackStats = {
+      bufferedFrames: 0,
+      playbackRate: 1,
+      buffering: true,
+      underruns: 0,
+      droppedFrames: 0,
+    }
+    node.port.addEventListener('message', (event: MessageEvent<ScreenAudioPlaybackStats & { t?: string }>) => {
+      if (event.data.t !== 'stats') return
+      stats.bufferedFrames = event.data.bufferedFrames
+      stats.playbackRate = event.data.playbackRate
+      stats.buffering = event.data.buffering
+      stats.underruns = event.data.underruns
+      stats.droppedFrames = event.data.droppedFrames
+    })
+    node.port.start()
+    node.connect(destination)
+    const track = destination.stream.getAudioTracks()[0]
+    if (!track) throw new Error('o processador nao criou uma faixa de audio')
+    await context.resume()
+    return {
+      context,
+      node,
+      track,
+      stats,
+      async close() {
+        node.port.postMessage({ t: 'destroy' })
+        node.disconnect()
+        destination.disconnect()
+        track.stop()
+        await context.close().catch(() => {})
+      },
+    }
+  } catch (error) {
+    await context.close().catch(() => {})
+    throw error
+  }
+}
+
+function mediaErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
 }
 
 function decodeBase64(value: string) {

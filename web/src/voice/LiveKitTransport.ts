@@ -9,14 +9,18 @@ import {
   captureScreenSourceThumbnail,
   isTauriRuntime,
   listScreenSources,
+  startBrowserScreenCapture,
   startNativeScreenCapture,
+  type BrowserScreenCapture,
   type NativeScreenCapture,
   type ScreenSource,
 } from '../platform/screenCapture'
 import type { PeerId, ServerMsg, VoiceConfig } from '../protocol'
 import type {
   DiagnosticReport,
+  InboundAudioDiagnostic,
   MediaDeviceLists,
+  ScreenShareOptions,
   VoiceParticipantState,
   VoiceSnapshot,
   VoiceTransport,
@@ -26,7 +30,6 @@ import {
   loadVoicePreferences,
   saveVoicePreferences,
   type ScreenPreset,
-  type StreamQuality,
   type VoicePreferences,
 } from './preferences'
 import { RnnoiseTrackProcessor } from './RnnoiseTrackProcessor'
@@ -37,6 +40,17 @@ import {
 } from './VoiceAudioProcessor'
 
 type LiveKitModule = typeof import('livekit-client')
+
+interface InboundAudioBaseline {
+  sampledAt: number
+  bytesReceived: number
+  packetsReceived: number
+  packetsLost: number
+  totalSamplesReceived: number
+  concealedSamples: number
+  jitterBufferDelay: number
+  jitterBufferEmittedCount: number
+}
 
 const SCREEN_PRESETS = {
   economy: { width: 1280, height: 720, frameRate: 15, maxBitrate: 1_200_000 },
@@ -53,16 +67,32 @@ export class LiveKitTransport implements VoiceTransport {
   private audioPlaybackWarningShown = false
   private preferences = loadVoicePreferences()
   private audioProcessor: ConfigurableAudioProcessor | null = null
+  private audioProcessorName = 'none'
+  private audioProcessorSampleRate?: number
+  private audioProcessorError?: string
   private nativeScreenCapture: NativeScreenCapture | null = null
+  private browserScreenCapture: BrowserScreenCapture | null = null
+  private screenAudioDiagnostic: NativeScreenCapture['audioValidation'] | null = null
+  private browserScreenAudioDiagnostic: BrowserScreenCapture['audioValidation'] | null = null
   private readonly listeners = new Set<(snapshot: VoiceSnapshot) => void>()
   private readonly audioElements = new Map<string, HTMLAudioElement>()
   private readonly publicationOwners = new Map<string, PeerId>()
-  private readonly participantVolumes = new Map<PeerId, number>()
-  private readonly publicationVolumes = new Map<string, number>()
+  private readonly audioSources = new Map<string, string>()
+  private readonly voiceVolumes = new Map<PeerId, number>()
+  private readonly lastVoiceVolumes = new Map<PeerId, number>()
+  private readonly screenShareVolumes = new Map<PeerId, number>()
+  private readonly lastScreenShareVolumes = new Map<PeerId, number>()
+  private readonly watchedScreenPeers = new Set<PeerId>()
+  private readonly inboundAudioBaselines = new Map<string, InboundAudioBaseline>()
+  private readonly inboundAudioHealthFailures = new Map<string, number>()
+  private readonly audioRepairCooldowns = new Map<string, number>()
+  private inboundAudioDiagnostics: InboundAudioDiagnostic[] = []
+  private audioHealthTimer: number | null = null
+  private audioHealthCollecting = false
   private state: VoiceSnapshot = {
     status: 'idle', channel: null, muted: false, deafened: false,
     cameraEnabled: false, screenSharing: false, screenHasAudio: null,
-    participants: [], media: [], error: null,
+    participants: [], media: [], audioProcessor: { status: 'idle', effective: 'none' }, error: null,
   }
 
   constructor(
@@ -88,6 +118,8 @@ export class LiveKitTransport implements VoiceTransport {
 
   handleServerMessage(msg: ServerMsg) {
     if (msg.t === 'voice.grant' && msg.channel === this.requestedChannel) {
+      // A duplicate grant must never create a second Room playing the same peers.
+      if (this.state.status !== 'requesting') return
       void this.connect(msg.url, msg.token, msg.expires_at, msg.channel, this.sessionGeneration)
       return
     }
@@ -110,9 +142,9 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   setDeafened(deafened: boolean) {
-    void this.resumeAudio()
     this.state = { ...this.state, deafened }
-    for (const audio of this.audioElements.values()) audio.muted = deafened
+    this.applyPlaybackState()
+    void this.resumeAudio()
     void this.applyMicrophoneState()
     this.publishState()
     this.sync()
@@ -146,9 +178,11 @@ export class LiveKitTransport implements VoiceTransport {
 
   async setScreenShareEnabled(
     enabled: boolean,
-    preset: ScreenPreset = this.preferences.screenPreset,
-    sourceId?: string,
+    options: ScreenShareOptions = {},
   ): Promise<boolean> {
+    const preset = options.preset ?? this.preferences.screenPreset
+    const sourceId = options.sourceId
+    const includeAudio = options.includeAudio ?? this.preferences.shareAudio
     const room = this.room
     const sdk = this.sdk
     if (!room || !sdk || !this.config.screen_share) return false
@@ -176,12 +210,17 @@ export class LiveKitTransport implements VoiceTransport {
           maxWidth: quality.width,
           maxHeight: quality.height,
           fps: quality.frameRate,
+          includeAudio: includeAudio && this.config.screen_audio,
         })
         this.nativeScreenCapture = capture
+        this.screenAudioDiagnostic = capture.audioValidation ?? null
+        this.browserScreenAudioDiagnostic = null
+        const streamName = `stapp-screen-${capture.track.id || 'native'}`
         try {
           await room.localParticipant.publishTrack(capture.track, {
             source: sdk.Track.Source.ScreenShare,
             name: 'stapp-screen',
+            stream: streamName,
             videoCodec: 'vp9',
             backupCodec: { codec: 'vp8' },
             simulcast: true,
@@ -195,34 +234,56 @@ export class LiveKitTransport implements VoiceTransport {
           await capture.stop()
           throw error
         }
+        let hasAudio = false
+        if (capture.audioTrack) {
+          try {
+            await room.localParticipant.publishTrack(capture.audioTrack, {
+              source: sdk.Track.Source.ScreenShareAudio,
+              name: 'stapp-screen-audio',
+              stream: streamName,
+              audioPreset: sdk.AudioPresets.musicHighQualityStereo,
+              forceStereo: true,
+              dtx: false,
+              red: false,
+            })
+            hasAudio = true
+          } catch (error) {
+            await room.localParticipant.unpublishTrack(capture.audioTrack).catch(() => undefined)
+            capture.audioTrack.stop()
+            this.options.onError(mediaError(
+              error,
+              'A tela continua ao vivo, mas nao consegui publicar o audio.',
+            ))
+          }
+        }
         void capture.ended.then((reason) => {
           if (this.nativeScreenCapture !== capture) return
           this.options.onError(`O compartilhamento terminou: ${reason}.`)
           void this.setScreenShareEnabled(false)
         })
-        this.finishScreenShareStart(preset, false)
+        this.finishScreenShareStart(preset, includeAudio, hasAudio)
+        if (includeAudio && this.config.screen_audio && !hasAudio && capture.audioError) {
+          this.options.onError(`A tela continua ao vivo sem som: ${capture.audioError}.`)
+        }
         return true
       }
 
-      // No navegador puro a pagina continua funcional e usa o picker seguro
-      // da propria plataforma. O executavel nunca passa por este ramo.
-      await room.localParticipant.setScreenShareEnabled(
-        true,
-        {
-          audio: this.config.screen_audio,
-          video: true,
-          resolution: preset === 'original' ? undefined : {
-            width: quality.width,
-            height: quality.height,
-            frameRate: quality.frameRate,
-          },
-          systemAudio: this.config.screen_audio ? 'include' : 'exclude',
-          surfaceSwitching: 'include',
-          selfBrowserSurface: 'exclude',
-          contentHint: preset === 'fluid' ? 'motion' : 'detail',
-        },
-        {
+      const capture = await startBrowserScreenCapture({
+        maxWidth: quality.width,
+        maxHeight: quality.height,
+        fps: quality.frameRate,
+        includeAudio: includeAudio && this.config.screen_audio,
+        contentHint: preset === 'fluid' ? 'motion' : 'detail',
+      })
+      this.browserScreenCapture = capture
+      this.browserScreenAudioDiagnostic = capture.audioValidation ?? null
+      this.screenAudioDiagnostic = null
+      const streamName = `stapp-screen-${capture.stream.id || capture.track.id || 'web'}`
+      try {
+        await room.localParticipant.publishTrack(capture.track, {
           source: sdk.Track.Source.ScreenShare,
+          name: 'stapp-screen',
+          stream: streamName,
           videoCodec: 'vp9',
           backupCodec: { codec: 'vp8' },
           simulcast: true,
@@ -230,14 +291,43 @@ export class LiveKitTransport implements VoiceTransport {
             maxBitrate: quality.maxBitrate,
             maxFramerate: quality.frameRate,
           },
-        },
-      )
-      const hasAudio = Boolean(
-        room.localParticipant.getTrackPublication(sdk.Track.Source.ScreenShareAudio),
-      )
-      this.finishScreenShareStart(preset, hasAudio)
-      if (this.config.screen_audio && !hasAudio) {
-        this.options.onError('A fonte escolhida nao forneceu audio; a tela continua ao vivo sem som.')
+        })
+      } catch (error) {
+        this.browserScreenCapture = null
+        await capture.stop()
+        throw error
+      }
+      let hasAudio = false
+      if (capture.audioTrack) {
+        try {
+          await room.localParticipant.publishTrack(capture.audioTrack, {
+            source: sdk.Track.Source.ScreenShareAudio,
+            name: 'stapp-screen-audio',
+            stream: streamName,
+            audioPreset: sdk.AudioPresets.musicHighQualityStereo,
+            forceStereo: true,
+            dtx: false,
+            red: false,
+          })
+          hasAudio = true
+        } catch (error) {
+          await room.localParticipant.unpublishTrack(capture.audioTrack).catch(() => undefined)
+          capture.audioTrack.stop()
+          this.options.onError(mediaError(
+            error,
+            'A tela continua ao vivo, mas nao consegui publicar o audio.',
+          ))
+        }
+      }
+      void capture.ended.then((reason) => {
+        if (this.browserScreenCapture !== capture) return
+        this.options.onError(`O compartilhamento terminou: ${reason}.`)
+        void this.setScreenShareEnabled(false)
+      })
+      this.finishScreenShareStart(preset, includeAudio, hasAudio)
+      if (includeAudio && this.config.screen_audio && !hasAudio) {
+        this.options.onError(`A tela continua ao vivo sem som: ${capture.audioError
+          ?? 'a fonte escolhida nao forneceu audio'}.`)
       }
       return true
     } catch (error) {
@@ -258,7 +348,10 @@ export class LiveKitTransport implements VoiceTransport {
   async setInputDevice(deviceId: string) {
     this.preferences = { ...this.preferences, inputDeviceId: deviceId }
     saveVoicePreferences(this.preferences)
-    if (this.room && deviceId) await this.room.switchActiveDevice('audioinput', deviceId, true)
+    // Reiniciar recria tambem o processador. Se RNNoise caiu para o fallback
+    // nesta sessao, uma troca de microfone faz uma tentativa limpa sem apagar
+    // a preferencia "Aprimorada" escolhida pela pessoa.
+    if (this.room) await this.restartMicrophone()
   }
 
   async setOutputDevice(deviceId: string) {
@@ -310,54 +403,67 @@ export class LiveKitTransport implements VoiceTransport {
   setPublicationSubscribed(publicationId: string, subscribed: boolean) {
     const publication = this.findRemotePublication(publicationId)
     if (!publication) return
-    publication.setSubscribed(subscribed)
     const sdk = this.sdk
     const owner = this.publicationOwners.get(publicationId)
     if (sdk && owner && publication.source === sdk.Track.Source.ScreenShare) {
       const participant = this.room?.remoteParticipants.get(owner)
-      const audio = participant?.getTrackPublication(sdk.Track.Source.ScreenShareAudio)
-      audio?.setSubscribed(subscribed)
-      if (audio && this.publicationVolumes.has(publicationId)) {
-        this.publicationVolumes.set(audio.trackSid, this.publicationVolumes.get(publicationId) ?? 100)
+      if (subscribed) {
+        this.watchedScreenPeers.add(owner)
+        this.startAudioHealthMonitor()
+      } else {
+        this.watchedScreenPeers.delete(owner)
       }
+      for (const related of participant?.trackPublications.values() ?? []) {
+        if (related.source === sdk.Track.Source.ScreenShare
+          || related.source === sdk.Track.Source.ScreenShareAudio) {
+          // Do not wait for LiveKit's TrackUnsubscribed event to silence the
+          // screen audio. A delayed event used to leave an invisible player
+          // feeding back the call after "Parar de assistir".
+          if (!subscribed && related.source === sdk.Track.Source.ScreenShareAudio) {
+            this.detachAudio(related.trackSid)
+          }
+          related.setSubscribed(subscribed)
+        }
+      }
+      if (!subscribed) {
+        this.refreshMicrophonePlayers()
+        this.recoverDegradedMicrophones()
+        if (this.watchedScreenPeers.size === 0) this.stopAudioHealthMonitor()
+      }
+    } else {
+      publication.setSubscribed(subscribed)
     }
-    if (subscribed) this.applyPreferredQuality(publication)
     this.sync()
   }
 
-  setPublicationQuality(publicationId: string, quality: StreamQuality) {
-    const publication = this.findRemotePublication(publicationId)
-    const sdk = this.sdk
-    if (!publication || !sdk) return
-    if (quality !== 'auto') publication.setVideoQuality(quality === 'low'
-      ? sdk.VideoQuality.LOW
-      : quality === 'high' ? sdk.VideoQuality.MEDIUM : sdk.VideoQuality.HIGH)
-    if (!publication.isSubscribed) publication.setSubscribed(true)
-    this.sync()
+  getVoiceVolume(peerId: PeerId) {
+    return this.voiceVolumes.get(peerId) ?? 100
   }
 
-  setParticipantVolume(peerId: PeerId, volume: number) {
-    this.participantVolumes.set(peerId, clamp(volume, 0, 200))
-    for (const [publicationId, owner] of this.publicationOwners) {
-      if (owner === peerId) this.applyVolume(publicationId)
-    }
-  }
-
-  setPublicationVolume(publicationId: string, volume: number) {
+  setVoiceVolume(peerId: PeerId, volume: number) {
     const normalized = clamp(volume, 0, 200)
-    this.publicationVolumes.set(publicationId, normalized)
-    const publication = this.findPublication(publicationId)
-    const sdk = this.sdk
-    const owner = this.publicationOwners.get(publicationId)
-    if (sdk && owner && publication?.source === sdk.Track.Source.ScreenShare) {
-      const screenAudio = this.room?.remoteParticipants
-        .get(owner)?.getTrackPublication(sdk.Track.Source.ScreenShareAudio)
-      if (screenAudio) {
-        this.publicationVolumes.set(screenAudio.trackSid, normalized)
-        this.applyVolume(screenAudio.trackSid)
-      }
-    }
-    this.applyVolume(publicationId)
+    this.voiceVolumes.set(peerId, normalized)
+    if (normalized > 0) this.lastVoiceVolumes.set(peerId, normalized)
+    this.applyOwnerVolume(peerId)
+  }
+
+  setVoiceMuted(peerId: PeerId, muted: boolean) {
+    this.setVoiceVolume(peerId, muted ? 0 : (this.lastVoiceVolumes.get(peerId) ?? 100))
+  }
+
+  getScreenShareVolume(peerId: PeerId) {
+    return this.screenShareVolumes.get(peerId) ?? 100
+  }
+
+  setScreenShareVolume(peerId: PeerId, volume: number) {
+    const normalized = clamp(volume, 0, 200)
+    this.screenShareVolumes.set(peerId, normalized)
+    if (normalized > 0) this.lastScreenShareVolumes.set(peerId, normalized)
+    this.applyOwnerVolume(peerId)
+  }
+
+  setScreenShareMuted(peerId: PeerId, muted: boolean) {
+    this.setScreenShareVolume(peerId, muted ? 0 : (this.lastScreenShareVolumes.get(peerId) ?? 100))
   }
 
   attachMedia(publicationId: string, element: HTMLMediaElement) {
@@ -399,7 +505,10 @@ export class LiveKitTransport implements VoiceTransport {
     if (patch.outputVolume !== undefined) {
       for (const publicationId of this.audioElements.keys()) this.applyVolume(publicationId)
     }
-    if (
+    if (this.room && patch.noiseMode === 'enhanced') {
+      const track = this.localMicrophoneTrack()
+      if (track) await this.enableAudioProcessor(track)
+    } else if (
       this.room
       && (patch.noiseMode !== undefined
         || patch.echoCancellation !== undefined
@@ -417,11 +526,34 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   async diagnosticReport(): Promise<DiagnosticReport> {
+    await this.collectInboundAudioDiagnostics()
+    const browserAudio = this.browserScreenAudioDiagnostic
     const report: DiagnosticReport = {
       generatedAt: new Date().toISOString(),
       backend: 'livekit',
       status: this.state.status,
       quality: this.room?.localParticipant.connectionQuality ?? 'unknown',
+      audioProcessor: this.audioProcessorName,
+      audioSampleRate: this.audioProcessorSampleRate,
+      audioProcessorError: this.audioProcessorError,
+      screenAudioMode: this.screenAudioDiagnostic ? 'exclude_stapp_process_tree' : undefined,
+      screenAudioProcessId: this.screenAudioDiagnostic?.processId,
+      screenAudioWindowsBuild: this.screenAudioDiagnostic?.windowsBuild,
+      screenAudioValidation: browserAudio?.reason ?? this.screenAudioDiagnostic?.reason,
+      screenAudioRuntime: browserAudio ? 'web' : this.screenAudioDiagnostic ? 'tauri' : undefined,
+      screenAudioSurface: browserAudio?.displaySurface,
+      screenAudioOwnAudioSupported: browserAudio?.supported,
+      screenAudioOwnAudioApplied: browserAudio?.applied,
+      screenAudioProbeControlLevel: browserAudio?.controlLevel,
+      screenAudioProbeCaptureLevel: browserAudio?.captureLevel,
+      screenAudioBufferedMs: this.nativeScreenCapture?.audioPlaybackStats
+        ? round(this.nativeScreenCapture.audioPlaybackStats.bufferedFrames / 48)
+        : undefined,
+      screenAudioPlaybackRate: this.nativeScreenCapture?.audioPlaybackStats?.playbackRate,
+      screenAudioUnderruns: this.nativeScreenCapture?.audioPlaybackStats?.underruns,
+      screenAudioDroppedFrames: this.nativeScreenCapture?.audioPlaybackStats?.droppedFrames,
+      audioPlayerCount: this.audioElements.size,
+      inboundAudio: [...this.inboundAudioDiagnostics],
     }
     const publications = this.room?.localParticipant.getTrackPublications() ?? []
     for (const publication of publications) {
@@ -452,13 +584,14 @@ export class LiveKitTransport implements VoiceTransport {
     this.state = {
       status: 'idle', channel: null, muted: false, deafened: false,
       cameraEnabled: false, screenSharing: false, screenHasAudio: null,
-      participants: [], media: [], error: null,
+      participants: [], media: [], audioProcessor: { status: 'idle', effective: 'none' }, error: null,
     }
     this.emit()
   }
 
   destroy() {
     this.leave()
+    this.clearLocalPlaybackPreferences()
     this.listeners.clear()
   }
 
@@ -470,6 +603,7 @@ export class LiveKitTransport implements VoiceTransport {
       const played = await Promise.all(
         [...this.audioElements.values()].map((audio) => audio.play().then(() => true).catch(() => false)),
       )
+      this.applyPlaybackState()
       const ready = room.canPlaybackAudio && played.every(Boolean)
       if (ready) this.audioPlaybackWarningShown = false
       return ready
@@ -537,7 +671,12 @@ export class LiveKitTransport implements VoiceTransport {
   private bindEvents(room: Room, sdk: LiveKitModule, generation: number) {
     const current = () => this.room === room && this.sessionGeneration === generation
     room.on(sdk.RoomEvent.ParticipantConnected, () => { if (current()) this.sync() })
-    room.on(sdk.RoomEvent.ParticipantDisconnected, () => { if (current()) this.sync() })
+    room.on(sdk.RoomEvent.ParticipantDisconnected, (participant: Participant) => {
+      if (!current()) return
+      this.detachOwnerAudio(participant.identity)
+      this.watchedScreenPeers.delete(participant.identity)
+      this.sync()
+    })
     room.on(sdk.RoomEvent.TrackPublished, (publication: RemoteTrackPublication, participant: Participant) => {
       if (!current()) return
       this.publicationOwners.set(publication.trackSid, participant.identity)
@@ -560,6 +699,8 @@ export class LiveKitTransport implements VoiceTransport {
       this.detachAudio(publication.trackSid)
       this.sync()
     })
+    room.on(sdk.RoomEvent.TrackMuted, () => { if (current()) this.sync() })
+    room.on(sdk.RoomEvent.TrackUnmuted, () => { if (current()) this.sync() })
     room.on(sdk.RoomEvent.LocalTrackPublished, () => { if (current()) this.sync() })
     room.on(sdk.RoomEvent.LocalTrackUnpublished, (publication) => {
       if (!current()) return
@@ -619,19 +760,13 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   private configureSubscription(publication: RemoteTrackPublication, sdk: LiveKitModule) {
+    const owner = this.publicationOwners.get(publication.trackSid)
     const subscribe = publication.source === sdk.Track.Source.Microphone
       || publication.source === sdk.Track.Source.Camera
+      || Boolean(owner && this.watchedScreenPeers.has(owner)
+        && (publication.source === sdk.Track.Source.ScreenShare
+          || publication.source === sdk.Track.Source.ScreenShareAudio))
     publication.setSubscribed(subscribe)
-  }
-
-  private applyPreferredQuality(publication: RemoteTrackPublication) {
-    const sdk = this.sdk
-    if (!sdk || this.preferences.streamQuality === 'auto') return
-    publication.setVideoQuality(this.preferences.streamQuality === 'low'
-      ? sdk.VideoQuality.LOW
-      : this.preferences.streamQuality === 'high'
-        ? sdk.VideoQuality.MEDIUM
-        : sdk.VideoQuality.HIGH)
   }
 
   private async enableMicrophone() {
@@ -653,20 +788,81 @@ export class LiveKitTransport implements VoiceTransport {
     const processor = this.preferences.noiseMode === 'enhanced'
       ? new RnnoiseTrackProcessor(this.processorSettings())
       : new VoiceAudioProcessor(this.processorSettings())
+    this.audioProcessorError = undefined
+    this.state = {
+      ...this.state,
+      audioProcessor: {
+        status: 'starting',
+        effective: this.preferences.noiseMode === 'standard' ? 'standard' : 'none',
+      },
+    }
+    this.emit()
     try {
+      if (this.preferences.noiseMode === 'enhanced') {
+        await (track.mediaStreamTrack as MediaStreamTrack | undefined)
+          ?.applyConstraints({ noiseSuppression: false }).catch(() => {})
+      }
       await track.setProcessor(processor)
       this.audioProcessor = processor
-    } catch {
+      this.audioProcessorName = processor.name
+      this.audioProcessorSampleRate = processor instanceof RnnoiseTrackProcessor
+        ? processor.sampleRate
+        : undefined
+      this.state = {
+        ...this.state,
+        audioProcessor: {
+          status: 'active',
+          effective: processor instanceof RnnoiseTrackProcessor
+            ? 'rnnoise'
+            : this.preferences.noiseMode === 'standard' ? 'standard' : 'none',
+        },
+      }
+      this.emit()
+    } catch (error) {
       await processor.destroy().catch(() => {})
       this.audioProcessor = null
+      this.audioProcessorError = error instanceof Error ? error.message : String(error)
       if (this.preferences.noiseMode === 'enhanced') {
-        this.preferences = { ...this.preferences, noiseMode: 'standard' }
-        saveVoicePreferences(this.preferences)
-        this.options.onError('O RNNoise local nao iniciou; voltei para a supressao padrao do sistema.')
+        await (track.mediaStreamTrack as MediaStreamTrack | undefined)
+          ?.applyConstraints({ noiseSuppression: true }).catch(() => {})
         const fallback = new VoiceAudioProcessor(this.processorSettings())
-        await track.setProcessor(fallback).then(() => { this.audioProcessor = fallback }).catch(() => {})
+        await track.setProcessor(fallback).then(() => {
+          this.audioProcessor = fallback
+          this.audioProcessorName = fallback.name
+          this.audioProcessorSampleRate = undefined
+          this.state = {
+            ...this.state,
+            audioProcessor: {
+              status: 'fallback', effective: 'standard', error: this.audioProcessorError,
+            },
+          }
+        }).catch(() => {
+          this.audioProcessorName = 'none'
+          this.state = {
+            ...this.state,
+            audioProcessor: {
+              status: 'fallback', effective: 'none', error: this.audioProcessorError,
+            },
+          }
+        })
+      } else {
+        this.audioProcessorName = 'none'
+        this.state = {
+          ...this.state,
+          audioProcessor: {
+            status: 'fallback', effective: 'none', error: this.audioProcessorError,
+          },
+        }
       }
+      this.emit()
     }
+  }
+
+  private localMicrophoneTrack() {
+    const sdk = this.sdk
+    if (!sdk) return undefined
+    return this.room?.localParticipant
+      .getTrackPublication(sdk.Track.Source.Microphone)?.audioTrack as LocalAudioTrack | undefined
   }
 
   private processorSettings(): VoiceProcessorSettings {
@@ -718,8 +914,8 @@ export class LiveKitTransport implements VoiceTransport {
     })
   }
 
-  private finishScreenShareStart(preset: ScreenPreset, hasAudio: boolean) {
-    this.preferences = { ...this.preferences, screenPreset: preset }
+  private finishScreenShareStart(preset: ScreenPreset, shareAudio: boolean, hasAudio: boolean) {
+    this.preferences = { ...this.preferences, screenPreset: preset, shareAudio }
     saveVoicePreferences(this.preferences)
     this.state = { ...this.state, screenSharing: true, screenHasAudio: hasAudio }
     this.publishState()
@@ -728,13 +924,22 @@ export class LiveKitTransport implements VoiceTransport {
 
   private async stopScreenShare(room: Room) {
     const capture = this.nativeScreenCapture
+    const browserCapture = this.browserScreenCapture
     this.nativeScreenCapture = null
-    if (!capture) {
+    this.browserScreenCapture = null
+    this.screenAudioDiagnostic = null
+    this.browserScreenAudioDiagnostic = null
+    if (!capture && !browserCapture) {
       await room.localParticipant.setScreenShareEnabled(false)
       return
     }
-    await room.localParticipant.unpublishTrack(capture.track).catch(() => undefined)
-    await capture.stop()
+    const activeCapture = capture ?? browserCapture
+    if (!activeCapture) return
+    if (activeCapture.audioTrack) {
+      await room.localParticipant.unpublishTrack(activeCapture.audioTrack).catch(() => undefined)
+    }
+    await room.localParticipant.unpublishTrack(activeCapture.track).catch(() => undefined)
+    await activeCapture.stop()
   }
 
   private syncStappState(msg: Extract<ServerMsg, { t: 'voice.state' }>) {
@@ -746,6 +951,7 @@ export class LiveKitTransport implements VoiceTransport {
       cameraEnabled: msg.camera_enabled,
       screenSharing: msg.screen_sharing,
     }
+    this.applyPlaybackState()
     this.emit()
   }
 
@@ -771,7 +977,8 @@ export class LiveKitTransport implements VoiceTransport {
         .filter((publication) =>
           publication.kind === sdk.Track.Kind.Video
           && (publication.source === sdk.Track.Source.Camera
-            || publication.source === sdk.Track.Source.ScreenShare),
+            || publication.source === sdk.Track.Source.ScreenShare)
+          && (publication.source !== sdk.Track.Source.Camera || !publication.isMuted),
         )
         .map((publication) => ({
           id: publication.trackSid,
@@ -786,6 +993,9 @@ export class LiveKitTransport implements VoiceTransport {
         })),
     )
     this.state = { ...this.state, participants, media }
+    // O LiveKit pode recriar/reativar elementos durante mudancas de topologia.
+    // Toda sincronizacao e tambem uma barreira de politica de reproducao.
+    this.applyPlaybackState()
     this.emit()
   }
 
@@ -808,9 +1018,145 @@ export class LiveKitTransport implements VoiceTransport {
     return undefined
   }
 
+  private startAudioHealthMonitor() {
+    if (this.audioHealthTimer !== null) return
+    void this.collectInboundAudioDiagnostics()
+    this.audioHealthTimer = window.setInterval(() => {
+      void this.collectInboundAudioDiagnostics()
+    }, 2_000)
+  }
+
+  private stopAudioHealthMonitor() {
+    if (this.audioHealthTimer === null) return
+    window.clearInterval(this.audioHealthTimer)
+    this.audioHealthTimer = null
+  }
+
+  private async collectInboundAudioDiagnostics() {
+    const room = this.room
+    const sdk = this.sdk
+    if (!room || !sdk || this.audioHealthCollecting) return
+    this.audioHealthCollecting = true
+    try {
+      const diagnostics: InboundAudioDiagnostic[] = []
+      const now = performance.now()
+      for (const participant of room.remoteParticipants.values()) {
+        for (const publication of participant.trackPublications.values()) {
+          if (publication.kind !== sdk.Track.Kind.Audio || !publication.isSubscribed) continue
+          const track = publication.audioTrack
+          const stats = await track?.getRTCStatsReport().catch(() => undefined)
+          let inbound: Record<string, unknown> | undefined
+          stats?.forEach((entry) => {
+            if (entry.type === 'inbound-rtp' && (!entry.kind || entry.kind === 'audio')) {
+              inbound = entry as unknown as Record<string, unknown>
+            }
+          })
+          const source = publication.source === sdk.Track.Source.Microphone
+            ? 'voice' as const
+            : publication.source === sdk.Track.Source.ScreenShareAudio
+              ? 'screen' as const
+              : 'unknown' as const
+          const diagnostic: InboundAudioDiagnostic = {
+            publicationId: publication.trackSid,
+            peerId: participant.identity,
+            source,
+            playerAttached: this.audioElements.has(publication.trackSid),
+          }
+          if (inbound) {
+            const current: InboundAudioBaseline = {
+              sampledAt: now,
+              bytesReceived: statNumber(inbound, 'bytesReceived'),
+              packetsReceived: statNumber(inbound, 'packetsReceived'),
+              packetsLost: statNumber(inbound, 'packetsLost'),
+              totalSamplesReceived: statNumber(inbound, 'totalSamplesReceived'),
+              concealedSamples: statNumber(inbound, 'concealedSamples'),
+              jitterBufferDelay: statNumber(inbound, 'jitterBufferDelay'),
+              jitterBufferEmittedCount: statNumber(inbound, 'jitterBufferEmittedCount'),
+            }
+            const previous = this.inboundAudioBaselines.get(publication.trackSid)
+            diagnostic.jitterMs = round(statNumber(inbound, 'jitter') * 1_000)
+            if (previous && now > previous.sampledAt) {
+              const elapsedSeconds = (now - previous.sampledAt) / 1_000
+              diagnostic.bitrateKbps = round(
+                Math.max(0, current.bytesReceived - previous.bytesReceived) * 8 / elapsedSeconds / 1_000,
+              )
+              const received = Math.max(0, current.packetsReceived - previous.packetsReceived)
+              const lost = Math.max(0, current.packetsLost - previous.packetsLost)
+              diagnostic.packetLossPercent = round((lost / Math.max(1, received + lost)) * 100)
+              const emitted = Math.max(0, current.jitterBufferEmittedCount - previous.jitterBufferEmittedCount)
+              const bufferDelay = Math.max(0, current.jitterBufferDelay - previous.jitterBufferDelay)
+              diagnostic.jitterBufferMs = emitted > 0 ? round((bufferDelay / emitted) * 1_000) : 0
+              const samples = Math.max(0, current.totalSamplesReceived - previous.totalSamplesReceived)
+              const concealed = Math.max(0, current.concealedSamples - previous.concealedSamples)
+              diagnostic.concealedSamplesPercent = round((concealed / Math.max(1, samples)) * 100)
+              const degraded = (diagnostic.packetLossPercent ?? 0) >= 5
+                || (diagnostic.jitterBufferMs ?? 0) >= 200
+                || (diagnostic.concealedSamplesPercent ?? 0) >= 5
+              const failures = this.inboundAudioHealthFailures.get(publication.trackSid) ?? 0
+              this.inboundAudioHealthFailures.set(
+                publication.trackSid,
+                degraded ? failures + 1 : Math.max(0, failures - 1),
+              )
+            }
+            this.inboundAudioBaselines.set(publication.trackSid, current)
+          }
+          diagnostics.push(diagnostic)
+        }
+      }
+      this.inboundAudioDiagnostics = diagnostics
+    } finally {
+      this.audioHealthCollecting = false
+    }
+  }
+
+  private refreshMicrophonePlayers() {
+    const sdk = this.sdk
+    if (!sdk) return
+    for (const participant of this.room?.remoteParticipants.values() ?? []) {
+      for (const publication of participant.trackPublications.values()) {
+        if (publication.source !== sdk.Track.Source.Microphone
+          || !publication.isSubscribed
+          || !publication.audioTrack) continue
+        this.detachAudio(publication.trackSid)
+        this.attachAudio(publication, participant.identity)
+      }
+    }
+  }
+
+  private recoverDegradedMicrophones() {
+    const sdk = this.sdk
+    if (!sdk) return
+    const now = Date.now()
+    for (const participant of this.room?.remoteParticipants.values() ?? []) {
+      for (const publication of participant.trackPublications.values()) {
+        if (publication.source !== sdk.Track.Source.Microphone || !publication.isSubscribed) continue
+        if ((this.inboundAudioHealthFailures.get(publication.trackSid) ?? 0) < 3) continue
+        const cooldownKey = `${participant.identity}:microphone`
+        if ((this.audioRepairCooldowns.get(cooldownKey) ?? 0) > now) continue
+        this.audioRepairCooldowns.set(cooldownKey, now + 30_000)
+        this.inboundAudioHealthFailures.set(publication.trackSid, 0)
+        this.inboundAudioBaselines.delete(publication.trackSid)
+        publication.setSubscribed(false)
+        window.setTimeout(() => {
+          if (this.room?.remoteParticipants.get(participant.identity)
+            ?.trackPublications.get(publication.trackSid) === publication) {
+            publication.setSubscribed(true)
+          }
+        }, 150)
+      }
+    }
+  }
+
   private attachAudio(publication: TrackPublication, owner: PeerId) {
     const track = publication.audioTrack
     if (!track || this.audioElements.has(publication.trackSid)) return
+    // LiveKit may replace a publication during reconnect/device restart before
+    // delivering every teardown event. Never play two copies of the same source.
+    for (const [publicationId, existingOwner] of this.publicationOwners) {
+      if (existingOwner === owner && this.audioSources.get(publicationId) === publication.source) {
+        this.detachAudio(publicationId)
+      }
+    }
     const audio = document.createElement('audio')
     audio.autoplay = true
     audio.muted = this.state.deafened
@@ -820,8 +1166,12 @@ export class LiveKitTransport implements VoiceTransport {
     track.attach(audio)
     this.audioElements.set(publication.trackSid, audio)
     this.publicationOwners.set(publication.trackSid, owner)
-    this.applyVolume(publication.trackSid)
-    void audio.play().catch(() => this.warnAudioPlaybackBlocked())
+    this.audioSources.set(publication.trackSid, String(publication.source))
+    this.applyPlaybackState(publication.trackSid)
+    audio.addEventListener('play', () => this.applyPlaybackState(publication.trackSid))
+    void audio.play()
+      .then(() => this.applyPlaybackState(publication.trackSid))
+      .catch(() => this.warnAudioPlaybackBlocked())
   }
 
   private detachAudio(publicationId: string) {
@@ -831,43 +1181,93 @@ export class LiveKitTransport implements VoiceTransport {
     audio?.remove()
     this.audioElements.delete(publicationId)
     this.publicationOwners.delete(publicationId)
+    this.audioSources.delete(publicationId)
+  }
+
+  private detachOwnerAudio(peerId: PeerId) {
+    for (const [publicationId, owner] of [...this.publicationOwners]) {
+      if (owner === peerId && this.audioElements.has(publicationId)) this.detachAudio(publicationId)
+    }
   }
 
   private applyVolume(publicationId: string) {
     const audio = this.audioElements.get(publicationId)
     if (!audio) return
     const owner = this.publicationOwners.get(publicationId)
-    const participant = owner ? (this.participantVolumes.get(owner) ?? 100) : 100
-    const publication = this.publicationVolumes.get(publicationId) ?? 100
+    const source = this.findPublication(publicationId)?.source
+    const sdk = this.sdk
+    const trackVolume = owner && sdk && source === sdk.Track.Source.Microphone
+      ? this.getVoiceVolume(owner)
+      : owner && sdk && source === sdk.Track.Source.ScreenShareAudio
+        ? this.getScreenShareVolume(owner)
+        : 100
     const master = this.preferences.outputVolume
-    audio.volume = clamp((participant / 100) * (publication / 100) * (master / 100), 0, 1)
+    audio.muted = this.state.deafened
+    audio.volume = clamp((trackVolume / 100) * (master / 100), 0, 1)
+  }
+
+  private applyOwnerVolume(peerId: PeerId) {
+    for (const [publicationId, owner] of this.publicationOwners) {
+      if (owner === peerId) this.applyVolume(publicationId)
+    }
+  }
+
+  private applyPlaybackState(publicationId?: string) {
+    if (publicationId) {
+      this.applyVolume(publicationId)
+      return
+    }
+    for (const id of this.audioElements.keys()) this.applyVolume(id)
   }
 
   private endSession(sendLeave: boolean) {
     const hadSession = Boolean(this.requestedChannel || this.room)
     this.sessionGeneration += 1
     this.requestedChannel = null
+    this.state = { ...this.state, audioProcessor: { status: 'idle', effective: 'none' } }
+    this.audioProcessorName = 'none'
+    this.audioProcessorSampleRate = undefined
+    this.audioProcessorError = undefined
     if (sendLeave && hadSession) this.options.send({ t: 'voice.leave' })
 
     const processor = this.audioProcessor
     this.audioProcessor = null
     const screenCapture = this.nativeScreenCapture
+    const browserScreenCapture = this.browserScreenCapture
     this.nativeScreenCapture = null
+    this.browserScreenCapture = null
+    this.screenAudioDiagnostic = null
+    this.browserScreenAudioDiagnostic = null
+    this.stopAudioHealthMonitor()
+    this.inboundAudioBaselines.clear()
+    this.inboundAudioHealthFailures.clear()
+    this.audioRepairCooldowns.clear()
+    this.inboundAudioDiagnostics = []
     for (const publicationId of [...this.audioElements.keys()]) this.detachAudio(publicationId)
     const room = this.room
     this.room = null
     this.sdk = null
     this.publicationOwners.clear()
-    this.publicationVolumes.clear()
-    void this.disposeSession(room, processor, screenCapture)
+    this.audioSources.clear()
+    this.watchedScreenPeers.clear()
+    void this.disposeSession(room, processor, screenCapture, browserScreenCapture)
+  }
+
+  private clearLocalPlaybackPreferences() {
+    this.voiceVolumes.clear()
+    this.lastVoiceVolumes.clear()
+    this.screenShareVolumes.clear()
+    this.lastScreenShareVolumes.clear()
   }
 
   private async disposeSession(
     room: Room | null,
     processor: ConfigurableAudioProcessor | null,
     screenCapture: NativeScreenCapture | null,
+    browserScreenCapture: BrowserScreenCapture | null,
   ) {
     await screenCapture?.stop().catch(() => {})
+    await browserScreenCapture?.stop().catch(() => {})
     await processor?.destroy().catch(() => {})
     if (room) await room.disconnect(true).catch(() => {})
   }
@@ -921,6 +1321,11 @@ function clamp(value: number, min: number, max: number) {
 
 function round(value: number) {
   return Math.round(value * 10) / 10
+}
+
+function statNumber(stats: Record<string, unknown>, key: string) {
+  const value = stats[key]
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0
 }
 
 /**

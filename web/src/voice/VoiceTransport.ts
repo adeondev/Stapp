@@ -2,7 +2,7 @@ import type { ClientMsg, PeerId, ServerMsg, VoiceConfig } from '../protocol'
 import type { ScreenSource } from '../platform/screenCapture'
 import { LiveKitTransport } from './LiveKitTransport'
 import { MeshTransport } from './MeshTransport'
-import type { ScreenPreset, StreamQuality, VoicePreferences } from './preferences'
+import type { ScreenPreset, VoicePreferences } from './preferences'
 
 export type VoiceConnectionStatus =
   | 'idle'
@@ -44,7 +44,14 @@ export interface VoiceSnapshot {
   screenHasAudio: boolean | null
   participants: VoiceParticipantState[]
   media: VoiceMediaState[]
+  audioProcessor: AudioProcessorState
   error: string | null
+}
+
+export interface AudioProcessorState {
+  status: 'idle' | 'starting' | 'active' | 'fallback'
+  effective: 'none' | 'standard' | 'rnnoise'
+  error?: string
 }
 
 export interface MediaDeviceLists {
@@ -65,6 +72,43 @@ export interface DiagnosticReport {
   packetLossPercent?: number
   jitterMs?: number
   quality?: string
+  audioProcessor?: string
+  audioSampleRate?: number
+  audioProcessorError?: string
+  screenAudioMode?: string
+  screenAudioProcessId?: number
+  screenAudioWindowsBuild?: number
+  screenAudioValidation?: string
+  screenAudioRuntime?: 'web' | 'tauri'
+  screenAudioSurface?: string
+  screenAudioOwnAudioSupported?: boolean
+  screenAudioOwnAudioApplied?: boolean
+  screenAudioProbeControlLevel?: number
+  screenAudioProbeCaptureLevel?: number
+  screenAudioBufferedMs?: number
+  screenAudioPlaybackRate?: number
+  screenAudioUnderruns?: number
+  screenAudioDroppedFrames?: number
+  audioPlayerCount?: number
+  inboundAudio?: InboundAudioDiagnostic[]
+}
+
+export interface InboundAudioDiagnostic {
+  publicationId: string
+  peerId?: PeerId
+  source: 'voice' | 'screen' | 'unknown'
+  bitrateKbps?: number
+  packetLossPercent?: number
+  jitterMs?: number
+  jitterBufferMs?: number
+  concealedSamplesPercent?: number
+  playerAttached: boolean
+}
+
+export interface ScreenShareOptions {
+  preset?: ScreenPreset
+  sourceId?: string
+  includeAudio?: boolean
 }
 
 export interface VoiceTransport {
@@ -74,7 +118,7 @@ export interface VoiceTransport {
   setMuted(muted: boolean): void
   setDeafened(deafened: boolean): void
   setCameraEnabled(enabled: boolean): Promise<boolean>
-  setScreenShareEnabled(enabled: boolean, preset?: ScreenPreset, sourceId?: string): Promise<boolean>
+  setScreenShareEnabled(enabled: boolean, options?: ScreenShareOptions): Promise<boolean>
   listScreenSources(): Promise<ScreenSource[]>
   captureScreenSourceThumbnail(sourceId: string): Promise<string | null>
   setInputDevice(deviceId: string): Promise<void>
@@ -84,9 +128,12 @@ export interface VoiceTransport {
   startMicrophoneTest(onLevel: (level: number) => void): Promise<() => void>
   startCameraPreview(element: HTMLVideoElement): Promise<() => void>
   setPublicationSubscribed(publicationId: string, subscribed: boolean): void
-  setPublicationQuality(publicationId: string, quality: StreamQuality): void
-  setParticipantVolume(peerId: PeerId, volume: number): void
-  setPublicationVolume(publicationId: string, volume: number): void
+  getVoiceVolume(peerId: PeerId): number
+  setVoiceVolume(peerId: PeerId, volume: number): void
+  setVoiceMuted(peerId: PeerId, muted: boolean): void
+  getScreenShareVolume(peerId: PeerId): number
+  setScreenShareVolume(peerId: PeerId, volume: number): void
+  setScreenShareMuted(peerId: PeerId, muted: boolean): void
   attachMedia(publicationId: string, element: HTMLMediaElement): () => void
   snapshot(): VoiceSnapshot
   subscribe(listener: (snapshot: VoiceSnapshot) => void): () => void
@@ -127,6 +174,7 @@ export function emptySnapshot(): VoiceSnapshot {
     screenHasAudio: null,
     participants: [],
     media: [],
+    audioProcessor: { status: 'idle', effective: 'none' },
     error: null,
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatEntry } from '../protocol'
 import { IconAt, IconHash, IconPhone } from './Icons'
+import { useUserMenu } from './UserMenu'
 import './chat.css'
 
 /** Mensagens seguidas da mesma pessoa dentro disso viram um bloco so. */
@@ -22,6 +23,7 @@ interface Props {
 }
 
 export function Chat({ title, kind, messages, canSend, disabledReason, onSend, onCall }: Props) {
+  const userMenu = useUserMenu()
   const [draft, setDraft] = useState('')
   const scroller = useRef<HTMLDivElement>(null)
   const pinned = useRef(true)
@@ -92,7 +94,8 @@ export function Chat({ title, kind, messages, canSend, disabledReason, onSend, o
             msg.ts - previous.ts < GROUP_WINDOW_MS
 
           return (
-            <article key={msg.id} className={`chat__msg ${grouped ? 'is-grouped' : ''}`}>
+            <article key={msg.id} className={`chat__msg ${grouped ? 'is-grouped' : ''}`}
+              onContextMenu={(event) => userMenu.open(event, { userId: msg.author_id, name: msg.author_username })}>
               {!grouped && (
                 <div className="chat__meta">
                   <span className="chat__nick">{msg.author_username}</span>

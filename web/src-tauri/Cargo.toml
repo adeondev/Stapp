@@ -30,3 +30,4 @@ xcap = "0.0.14"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
+wasapi = "0.23"

@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@jitsi/rnnoise-wasm@0.2.1': c88ca31e36a88c9a924910b47d2a744bf84f2bfa92ea8b425f09f1e965cb296c
+
 importers:
 
   .:
@@ -16,7 +19,7 @@ importers:
         version: 1.1.10(react@19.2.8)
       '@jitsi/rnnoise-wasm':
         specifier: 0.2.1
-        version: 0.2.1
+        version: 0.2.1(patch_hash=c88ca31e36a88c9a924910b47d2a744bf84f2bfa92ea8b425f09f1e965cb296c)
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -974,7 +977,7 @@ snapshots:
     dependencies:
       react: 19.2.8
 
-  '@jitsi/rnnoise-wasm@0.2.1': {}
+  '@jitsi/rnnoise-wasm@0.2.1(patch_hash=c88ca31e36a88c9a924910b47d2a744bf84f2bfa92ea8b425f09f1e965cb296c)': {}
 
   '@jridgewell/sourcemap-codec@1.6.0': {}
 

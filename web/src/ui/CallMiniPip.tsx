@@ -3,6 +3,7 @@ import type { PeerId, UserId } from '../protocol'
 import type { VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import { Avatar } from './Avatar'
 import { IconExpand, IconLeave, IconMic, IconMicOff, IconScreen, IconSignal } from './Icons'
+import { useUserMenu } from './UserMenu'
 import './callminipip.css'
 
 interface Props {
@@ -16,9 +17,13 @@ interface Props {
 }
 
 export function CallMiniPip({ channelName, snapshot, transport, onExpand, onLeave, resolveUserId, selfUserId }: Props) {
+  const userMenu = useUserMenu()
   // Procura primeira transmissão de tela ativa ou câmera
   const activeMedia = snapshot.media.find((m) => m.subscribed || m.local)
   const speakingParticipant = snapshot.participants.find((p) => p.speaking) ?? snapshot.participants[0]
+  const menuParticipant = activeMedia
+    ? snapshot.participants.find((participant) => participant.peerId === activeMedia.peerId) ?? speakingParticipant
+    : speakingParticipant
   const speakerUserId = speakingParticipant
     ? (resolveUserId?.(speakingParticipant.peerId) ?? (speakingParticipant.local ? (selfUserId ?? undefined) : undefined))
     : undefined
@@ -27,7 +32,21 @@ export function CallMiniPip({ channelName, snapshot, transport, onExpand, onLeav
 
   return (
     <aside className="callminipip" role="complementary" aria-label={`Chamada ativa em ${channelName}`}>
-      <div className="callminipip__screen" onClick={onExpand} title="Clique para voltar para a chamada">
+      <div className="callminipip__screen" onClick={onExpand} title="Clique para voltar para a chamada"
+        onContextMenu={(event) => menuParticipant && userMenu.open(event, {
+          userId: resolveUserId?.(menuParticipant.peerId)
+            ?? (menuParticipant.local ? (selfUserId ?? undefined) : undefined),
+          name: activeMedia?.name ?? menuParticipant.name,
+          call: {
+            peerId: activeMedia?.peerId ?? menuParticipant.peerId,
+            transport,
+            local: activeMedia?.local ?? menuParticipant.local,
+            focused: false,
+            onFocus: onExpand,
+            publicationId: activeMedia?.id,
+            kind: activeMedia?.kind === 'screen' ? 'screen' : 'person',
+          },
+        })}>
         {activeMedia ? (
           <PipVideo publicationId={activeMedia.id} transport={transport} />
         ) : (
