@@ -14,22 +14,24 @@ pub fn is_safe_url(raw_url: &str) -> bool {
         _ => return false,
     }
 
-    let Some(host_str) = parsed.host_str() else {
+    let Some(host) = parsed.host() else {
         return false;
     };
 
-    // Bloqueia nomes locais comuns
-    let host_lower = host_str.to_lowercase();
-    if host_lower == "localhost" || host_lower.ends_with(".local") || host_lower.ends_with(".internal") {
-        return false;
+    match host {
+        url::Host::Ipv4(v4) => is_public_ip(&IpAddr::V4(v4)),
+        url::Host::Ipv6(v6) => is_public_ip(&IpAddr::V6(v6)),
+        url::Host::Domain(domain) => {
+            let host_lower = domain.to_lowercase();
+            if host_lower == "localhost"
+                || host_lower.ends_with(".local")
+                || host_lower.ends_with(".internal")
+            {
+                return false;
+            }
+            true
+        }
     }
-
-    // Se o host já for um IP direto, valida faixas proibidas
-    if let Ok(ip) = host_str.parse::<IpAddr>() {
-        return is_public_ip(&ip);
-    }
-
-    true
 }
 
 /// Retorna false se o IP for loopback, privado (RFC 1918), link-local ou reservado.
