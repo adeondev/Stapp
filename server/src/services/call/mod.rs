@@ -205,6 +205,7 @@ async fn record(state: &Arc<AppState>, call: &PendingCall, reason: CallEndReason
         kind: DirectMessageKind::Call,
         text: texto.to_string(),
         ts: now_ms(),
+        attachments: Vec::new(),
     };
 
     let conversation = conversation_id(&call.from, &call.to);

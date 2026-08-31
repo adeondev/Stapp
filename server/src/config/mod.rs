@@ -233,6 +233,7 @@ impl Default for StorageConfig {
         Self {
             database: default_database(),
             history_limit: default_history_limit(),
+            s3: None,
         }
     }
 }

@@ -30,7 +30,8 @@ pub fn build(config: Config) -> Result<Router> {
         .route("/health", get(|| async { "ok" }))
         .route("/ws", get(ws::handler))
         .nest("/auth", http::auth::routes())
-        .nest("/avatars", http::avatars::routes());
+        .nest("/avatars", http::avatars::routes())
+        .nest("/attachments", http::attachments::routes());
 
     if let Some(dir) = static_dir.as_deref() {
         app = with_static_client(app, dir);
