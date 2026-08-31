@@ -1,12 +1,22 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
 
-// Import lazy do picker do emoji-mart para evitar carregar o dataset pesado no bundle inicial
+// Import lazy do picker do emoji-mart com o dataset do Twitter/Twemoji
 const Picker = lazy(() =>
-  import('@emoji-mart/react').then((mod) =>
-    import('@emoji-mart/data').then((data) => ({
-      default: (props: any) => <mod.default data={data.default} {...props} />,
-    }))
-  )
+  Promise.all([
+    import('@emoji-mart/react'),
+    import('@emoji-mart/data/sets/15/twitter.json'),
+  ]).then(([mod, data]) => ({
+    default: (props: any) => (
+      <mod.default
+        data={data.default}
+        set="twitter"
+        getImageURL={(_set: string, id: string) =>
+          `https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/${id.toLowerCase()}.svg`
+        }
+        {...props}
+      />
+    ),
+  }))
 )
 
 interface Props {
