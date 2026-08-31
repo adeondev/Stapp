@@ -360,6 +360,34 @@ export default function App() {
     }
   }, [])
 
+  const votePoll = useCallback((pollId: string, optionId: string) => {
+    connection.current?.send({
+      t: 'poll.vote',
+      poll_id: pollId,
+      option_id: optionId,
+    })
+  }, [])
+
+  const createPoll = useCallback((question: string, options: string[], allowMult: boolean) => {
+    const current = viewRef.current
+    if (current?.kind === 'channel') {
+      connection.current?.send({
+        t: 'poll.create',
+        channel: current.id,
+        question,
+        options,
+        allow_mult: allowMult,
+      })
+    }
+  }, [])
+
+  const closePoll = useCallback((pollId: string) => {
+    connection.current?.send({
+      t: 'poll.close',
+      poll_id: pollId,
+    })
+  }, [])
+
   const selectHome = useCallback(() => {
     setView({ kind: 'home' })
     setCallFocused(false)
@@ -484,7 +512,13 @@ export default function App() {
       kind="channel"
       messages={state.messages[channel.id] ?? []}
       canSend={status === 'online'}
+      serverUrl={active?.profile.url}
+      accessToken={connection.current?.token}
+      selfUserId={state.selfUserId ?? undefined}
       onSend={sendMessage}
+      onVotePoll={votePoll}
+      onCreatePoll={createPoll}
+      onClosePoll={closePoll}
     />
   ) : conversation ? (
     <Chat
@@ -493,7 +527,11 @@ export default function App() {
       messages={state.directMessages[conversation.user_id] ?? []}
       canSend={canDirect}
       disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
+      serverUrl={active?.profile.url}
+      accessToken={connection.current?.token}
+      selfUserId={state.selfUserId ?? undefined}
       onSend={sendMessage}
+      onVotePoll={votePoll}
     />
   ) : null
 
@@ -565,7 +603,11 @@ export default function App() {
                 canSend={status === 'online'}
                 serverUrl={active?.profile.url}
                 accessToken={connection.current?.token}
+                selfUserId={state.selfUserId ?? undefined}
                 onSend={sendMessage}
+                onVotePoll={votePoll}
+                onCreatePoll={createPoll}
+                onClosePoll={closePoll}
               />
             ) : conversation ? (
               <Chat
@@ -576,7 +618,9 @@ export default function App() {
                 disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
                 serverUrl={active?.profile.url}
                 accessToken={connection.current?.token}
+                selfUserId={state.selfUserId ?? undefined}
                 onSend={sendMessage}
+                onVotePoll={votePoll}
                 onCall={canDirect ? () => startCall(conversation.user_id, conversation.username) : undefined}
               />
             ) : (

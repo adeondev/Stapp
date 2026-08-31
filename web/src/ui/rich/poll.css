@@ -1,0 +1,145 @@
+.stapp-poll-card {
+  background: var(--bg-raised);
+  border-radius: var(--radius);
+  padding: 0.85rem 1rem;
+  max-width: 440px;
+  width: 100%;
+  margin-top: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  border-left: 3px solid var(--accent);
+}
+
+.stapp-poll-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.stapp-poll-question {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+}
+
+.stapp-poll-badge {
+  font-size: 10.5px;
+  padding: 0.15rem 0.4rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  color: var(--text-dim);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.stapp-poll-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.stapp-poll-option-btn {
+  position: relative;
+  width: 100%;
+  text-align: left;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  border: 1px solid transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.stapp-poll-option-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.stapp-poll-option-btn.is-voted {
+  border-color: var(--accent);
+  background: var(--bg-surface);
+  font-weight: 600;
+}
+
+.stapp-poll-option-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--accent);
+  opacity: 0.18;
+  pointer-events: none;
+  transition: width 0.25s ease-out;
+}
+
+.stapp-poll-option-text {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.stapp-poll-option-stats {
+  position: relative;
+  z-index: 1;
+  font-size: 11.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.stapp-poll-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 0.2rem;
+}
+
+.stapp-poll-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.stapp-poll-dialog {
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-raised);
+  border-radius: var(--radius);
+  width: 100%;
+  max-width: 420px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.stapp-poll-input {
+  width: 100%;
+  background: var(--bg-canvas);
+  border: 1px solid transparent;
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  outline: none;
+}
+
+.stapp-poll-input:focus {
+  border-color: var(--accent);
+}

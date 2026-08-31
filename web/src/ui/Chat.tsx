@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { ChatEntry } from '../protocol'
+import type { ChatEntry, UserId } from '../protocol'
 import { IconAt, IconHash, IconPhone } from './Icons'
 import { MarkdownRenderer } from './rich/MarkdownRenderer'
 import { EmojiPicker } from './rich/EmojiPicker'
@@ -8,8 +8,11 @@ import { MessageAttachments } from './rich/MessageAttachments'
 import { uploadMediaFile } from '../net/mediaUpload'
 import { AudioRecorder } from './rich/AudioRecorder'
 import { GifPicker } from './rich/GifPicker'
+import { PollCard } from './rich/PollCard'
+import { PollCreatorModal } from './rich/PollCreatorModal'
 import './chat.css'
 import './rich/mediaGallery.css'
+import './rich/poll.css'
 
 /** Mensagens seguidas da mesma pessoa dentro disso viram um bloco so. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -26,7 +29,11 @@ interface Props {
   disabledReason?: string
   serverUrl?: string
   accessToken?: string | null
+  selfUserId?: UserId
   onSend(text: string, attachmentIds?: string[]): void
+  onVotePoll?(pollId: string, optionId: string): void
+  onCreatePoll?(question: string, options: string[], allowMult: boolean): void
+  onClosePoll?(pollId: string): void
   /** So existe em conversa direta: o botao de ligar. */
   onCall?: () => void
 }
@@ -48,12 +55,17 @@ export function Chat({
   disabledReason,
   serverUrl,
   accessToken,
+  selfUserId,
   onSend,
+  onVotePoll,
+  onCreatePoll,
+  onClosePoll,
   onCall,
 }: Props) {
   const [draft, setDraft] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showGifPicker, setShowGifPicker] = useState(false)
+  const [showPollModal, setShowPollModal] = useState(false)
   const [isRecordingAudio, setIsRecordingAudio] = useState(false)
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([])
   const [isDragging, setIsDragging] = useState(false)
@@ -258,6 +270,14 @@ export function Chat({
               <MarkdownRenderer content={msg.text} className="chat__text" />
               {msg.preview && <LinkPreviewCard preview={msg.preview} />}
               {msg.attachments && <MessageAttachments attachments={msg.attachments} />}
+              {msg.poll && (
+                <PollCard
+                  poll={msg.poll}
+                  selfUserId={selfUserId}
+                  onVote={(pollId, optionId) => onVotePoll?.(pollId, optionId)}
+                  onClosePoll={(pollId) => onClosePoll?.(pollId)}
+                />
+              )}
             </article>
           )
         })}
@@ -367,6 +387,20 @@ export function Chat({
           <button
             type="button"
             className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
+            disabled={!canSend || kind !== 'channel'}
+            onClick={() => setShowPollModal(true)}
+            title="Criar enquete (somente em canais)"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 3v18h18" />
+              <path d="M7 16h3v-4H7v4z" />
+              <path d="M12 16h3v-9h-3v9z" />
+              <path d="M17 16h3v-6h-3v6z" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
             disabled={!canSend}
             onClick={() => setShowEmojiPicker((prev) => !prev)}
             title="Escolher emoji"
@@ -390,6 +424,13 @@ export function Chat({
           onSelectGif={(gifUrl) => {
             setShowGifPicker(false)
             onSend(gifUrl)
+          }}
+        />
+        <PollCreatorModal
+          isOpen={showPollModal}
+          onClose={() => setShowPollModal(false)}
+          onCreatePoll={(question, options, allowMult) => {
+            onCreatePoll?.(question, options, allowMult)
           }}
         />
       </div>
