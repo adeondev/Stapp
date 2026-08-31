@@ -75,6 +75,16 @@ pub struct VoicePeer {
     pub screen_sharing: bool,
 }
 
+/// Metadados de um link enriquecido via OpenGraph / tags HTML.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UrlPreview {
+    pub url: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub image: Option<String>,
+    pub site_name: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
@@ -372,6 +382,13 @@ pub enum ServerMsg {
 
     #[serde(rename = "chat.new")]
     ChatNew { channel: String, msg: Message },
+
+    /// Notificacao assincrona de que um link de uma mensagem teve metadados extraidos.
+    #[serde(rename = "chat.preview")]
+    LinkPreviewEnriched {
+        message_id: String,
+        preview: UrlPreview,
+    },
 
     /// A lista lateral de conversas, com nao-lidas. Vai logo depois do welcome.
     #[serde(rename = "dm.list")]

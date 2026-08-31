@@ -38,6 +38,14 @@ export interface Message {
   ts: number
 }
 
+export interface UrlPreview {
+  url: string
+  title?: string
+  description?: string
+  image?: string
+  site_name?: string
+}
+
 /** O que Chat sabe renderizar. Message e DirectMessage servem os dois. */
 export interface ChatEntry {
   id: string
@@ -47,6 +55,7 @@ export interface ChatEntry {
   ts: number
   /** Ausente numa mensagem de canal; 'call' e o rastro de uma chamada. */
   kind?: DirectMessageKind
+  preview?: UrlPreview
 }
 
 export type DirectMessageKind = 'text' | 'call'
@@ -229,6 +238,7 @@ export type ServerMsg =
     }
   | { t: 'chat.history'; channel: string; msgs: Message[] }
   | { t: 'chat.new'; channel: string; msg: Message }
+  | { t: 'chat.preview'; message_id: string; preview: UrlPreview }
   | { t: 'dm.list'; conversations: DirectSummary[] }
   | { t: 'dm.history'; user_id: UserId; msgs: DirectMessage[] }
   | {
