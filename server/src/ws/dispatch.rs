@@ -27,7 +27,19 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
             text,
             attachment_ids,
             reply_to,
-        } => chat::send(state, peer_id, channel, &text, attachment_ids, reply_to).await,
+            client_nonce,
+        } => {
+            chat::send_with_nonce(
+                state,
+                peer_id,
+                channel,
+                &text,
+                attachment_ids,
+                reply_to,
+                client_nonce,
+            )
+            .await
+        }
 
         ClientMsg::MessageEdit { message_id, text } => {
             messages::edit(state, peer_id, message_id, &text).await
@@ -63,8 +75,32 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
             text,
             attachment_ids,
             reply_to,
-        } => direct::send(state, peer_id, user_id, &text, attachment_ids, reply_to).await,
-        ClientMsg::DmRead { user_id } => direct::mark_read(state, peer_id, user_id).await,
+            client_nonce,
+        } => {
+            direct::send_with_nonce(
+                state,
+                peer_id,
+                user_id,
+                &text,
+                attachment_ids,
+                reply_to,
+                client_nonce,
+            )
+            .await
+        }
+        ClientMsg::DmRead {
+            user_id,
+            message_id,
+        } => direct::mark_read_at(state, peer_id, user_id, message_id).await,
+        ClientMsg::ChatRead {
+            channel,
+            message_id,
+        } => chat::mark_read(state, peer_id, channel, message_id).await,
+        ClientMsg::TypingSet {
+            scope_kind,
+            scope_id,
+            active,
+        } => messages::typing(state, peer_id, scope_kind, scope_id, active).await,
 
         ClientMsg::FriendRequest { user_id } => social::request(state, peer_id, user_id).await,
         ClientMsg::FriendAccept { user_id } => social::accept(state, peer_id, user_id).await,

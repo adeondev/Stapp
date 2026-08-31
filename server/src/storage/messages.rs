@@ -12,26 +12,84 @@ const COLUNAS: &str = "id, channel, author_id, author_username, text, ts, reply_
 impl Db {
     pub fn insert(&self, msg: &Message) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO messages
-                (id, channel, author_id, author_username, text, ts,
-                 reply_to, mentions, mentions_everyone)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            (
-                &msg.id,
-                &msg.channel,
-                &msg.author_id,
-                &msg.author_username,
-                &msg.text,
-                msg.ts,
-                msg.reply_to.as_ref().map(|r| r.message_id.clone()),
-                super::mentions_para_json(&msg.mentions),
-                msg.mentions_everyone,
-            ),
-        )?;
-        Ok(())
+        insert_on(&conn, msg, None)
     }
 
+    pub fn message_id_for_nonce(
+        &self,
+        author_id: &UserId,
+        channel: &str,
+        nonce: &str,
+    ) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT id FROM messages WHERE author_id = ?1 AND channel = ?2 AND client_nonce = ?3",
+            (author_id, channel, nonce),
+            |row| row.get(0),
+        ).optional()?)
+    }
+
+    pub fn mark_channel_read(
+        &self,
+        reader: &UserId,
+        channel: &str,
+        message_id: &str,
+        ts: i64,
+    ) -> Result<Vec<UserId>> {
+        let conn = self.conn.lock().unwrap();
+        let message_ts: Option<i64> = conn
+            .query_row(
+                "SELECT ts FROM messages WHERE id = ?1 AND channel = ?2",
+                (message_id, channel),
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(message_ts) = message_ts else {
+            return Ok(Vec::new());
+        };
+        conn.execute(
+            "INSERT INTO channel_reads (user_id, channel_id, last_message_id, last_read_ts)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (user_id, channel_id) DO UPDATE SET
+                last_message_id = CASE WHEN excluded.last_read_ts >= last_read_ts THEN excluded.last_message_id ELSE last_message_id END,
+                last_read_ts = MAX(last_read_ts, excluded.last_read_ts)",
+            (reader, channel, message_id, ts.max(message_ts)),
+        )?;
+        let mut stmt = conn.prepare(
+            "SELECT user_id FROM channel_reads WHERE channel_id = ?1 AND last_read_ts >= ?2 ORDER BY last_read_ts DESC"
+        )?;
+        let rows = stmt.query_map((channel, message_ts), |row| row.get::<_, String>(0))?;
+        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+    }
+}
+
+pub(super) fn insert_on(
+    conn: &Connection,
+    msg: &Message,
+    client_nonce: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO messages
+                (id, channel, author_id, author_username, text, ts,
+                 reply_to, mentions, mentions_everyone, client_nonce)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        (
+            &msg.id,
+            &msg.channel,
+            &msg.author_id,
+            &msg.author_username,
+            &msg.text,
+            msg.ts,
+            msg.reply_to.as_ref().map(|r| r.message_id.clone()),
+            super::mentions_para_json(&msg.mentions),
+            msg.mentions_everyone,
+            client_nonce,
+        ),
+    )?;
+    Ok(())
+}
+
+impl Db {
     /// As `limit` mensagens mais recentes do canal, ja em ordem cronologica.
     pub fn history(&self, channel: &str, limit: usize) -> Result<Vec<Message>> {
         let conn = self.conn.lock().unwrap();

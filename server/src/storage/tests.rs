@@ -232,6 +232,58 @@ fn vincula_e_lista_anexos_de_mensagem() {
 }
 
 #[test]
+fn anexo_local_guarda_metadados_e_expira_se_continuar_orfao() {
+    let dir = TestDir::new();
+    let db = Db::open(&dir.database()).unwrap();
+    let author = account(&db, "Alice");
+    db.insert_ready_attachment(&attachments::NewAttachment {
+        id: "voice-local",
+        user_id: &author.id,
+        filename: "voz.webm",
+        content_type: "audio/webm",
+        size_bytes: 512,
+        storage_key: "voice-local",
+        checksum_sha256: "abc123",
+        backend: "local",
+        created_at: 10,
+        expires_at: 100,
+        scope_kind: "channel",
+        scope_id: "geral",
+    })
+    .unwrap();
+
+    assert!(
+        db.update_attachment_metadata(
+            "voice-local",
+            &author.id,
+            None,
+            true,
+            Some("nota de voz"),
+            Some(1_250),
+            Some(&[10, 50, 90]),
+            None,
+            None,
+        )
+        .unwrap()
+    );
+    let attachment = db.attachment("voice-local").unwrap().unwrap();
+    assert_eq!(attachment.backend, "local");
+    assert_eq!(attachment.duration_ms, Some(1_250));
+    assert_eq!(attachment.waveform, Some(vec![10, 50, 90]));
+    assert_eq!(attachment.description.as_deref(), Some("nota de voz"));
+
+    assert_eq!(
+        db.expired_orphan_attachments(101).unwrap(),
+        vec![("voice-local".into(), "voice-local".into())]
+    );
+    assert!(
+        db.delete_expired_orphan_attachment("voice-local", 101)
+            .unwrap()
+    );
+    assert!(db.attachment("voice-local").unwrap().is_none());
+}
+
+#[test]
 fn cria_vota_e_encerra_enquete() {
     let dir = TestDir::new();
     let db = Db::open(&dir.database()).unwrap();

@@ -1,75 +1,64 @@
 .stapp-attachments-container {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
+  gap: 8px;
+  margin-top: 8px;
 }
 
-.stapp-voice-note-wrapper {
-  max-width: 380px;
+.stapp-attachments-container.is-gallery {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 220px));
+  max-width: min(100%, 448px);
+  gap: 4px;
 }
 
-.stapp-audio-attachment-wrapper {
-  max-width: 380px;
+.stapp-attachments-container.is-gallery .stapp-attachment-image-wrapper { aspect-ratio: 4 / 3; }
+.stapp-voice-note-wrapper, .stapp-audio-attachment-wrapper { max-width: min(100%, 380px); }
+
+.stapp-attachment-loading,
+.stapp-attachment-error {
+  width: min(100%, 380px);
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: 12px;
 }
+
+.stapp-attachment-error { color: var(--danger); }
+.stapp-voice-note-label { margin-bottom: 4px; color: var(--accent); font-size: 11px; font-weight: 650; }
 
 .stapp-attachment-image-wrapper {
-  /* Mesmo motivo do markdown: sem o min(100%, …) a imagem estoura o painel
-     estreito e aparece cortada. */
   max-width: min(100%, 440px);
   max-height: 320px;
-  border-radius: var(--radius);
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--bg-raised);
+  cursor: pointer;
 }
 
-.stapp-attachment-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
-.stapp-attachment-video-wrapper {
-  max-width: min(100%, 440px);
-  border-radius: var(--radius);
-  overflow: hidden;
-  background: var(--bg-canvas);
-}
-
-.stapp-attachment-video {
-  display: block;
-  width: 100%;
-  max-height: 320px;
-  background: var(--bg-canvas);
-}
+.stapp-attachment-image { display: block; width: 100%; height: 100%; object-fit: cover; }
+.stapp-attachment-video-wrapper { max-width: min(100%, 440px); border-radius: 8px; overflow: hidden; background: var(--bg-canvas); }
+.stapp-attachment-video { display: block; width: 100%; max-height: 320px; background: var(--bg-canvas); }
 
 .stapp-attachment-file {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
+  gap: 10px;
+  max-width: min(100%, 380px);
+  padding: 10px 12px;
+  border-radius: 8px;
   background: var(--bg-raised);
-  border-radius: var(--radius);
   color: var(--text);
   text-decoration: none;
   font-size: 13px;
-  max-width: 380px;
-  transition: background 0.15s ease;
+  transition: background 120ms ease;
 }
 
-.stapp-attachment-file:hover {
-  background: var(--bg-hover);
-}
-
-.stapp-attachment-file-name {
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.stapp-attachment-file-size {
-  font-size: 11px;
-  color: var(--text-dim);
-}
+.stapp-attachment-file:hover { background: var(--bg-hover); }
+.stapp-attachment-file-icon { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--accent-quiet); color: var(--accent); font-size: 18px; }
+.stapp-attachment-file-copy { display: flex; min-width: 0; flex-direction: column; }
+.stapp-attachment-file-name { overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.stapp-attachment-file-size { color: var(--text-dim); font-size: 11px; }

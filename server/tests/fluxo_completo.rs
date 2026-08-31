@@ -809,6 +809,69 @@ async fn attachments_endpoints_sem_auth_sao_rejeitados() {
     assert_eq!(res.status().as_u16(), 401);
 }
 
+#[tokio::test]
+async fn anexo_local_tem_ticket_privado_e_http_range() {
+    let dir = common::TestDir::new();
+    let database = dir.database();
+    let addr = common::start(common::config(database.clone(), true)).await;
+    let sessao = common::auth(addr, "register", "daniel", SENHA, true).await;
+    let token = sessao.body["access_token"].as_str().unwrap();
+    let bytes = png_de_teste(64);
+    let form = reqwest::multipart::Form::new()
+        .text("scope_kind", "channel")
+        .text("scope_id", "geral")
+        .part(
+            "file",
+            reqwest::multipart::Part::bytes(bytes.clone())
+                .file_name("imagem.png")
+                .mime_str("image/png")
+                .unwrap(),
+        );
+    let client = reqwest::Client::new();
+    let upload = client
+        .post(format!("http://{addr}/attachments"))
+        .bearer_auth(token)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(upload.status().as_u16(), 201);
+    let uploaded: serde_json::Value = upload.json().await.unwrap();
+    let id = uploaded["attachment_id"].as_str().unwrap();
+    assert!(
+        database
+            .parent()
+            .unwrap()
+            .join("attachments/objects")
+            .join(id)
+            .is_file()
+    );
+
+    let ticket = client
+        .post(format!("http://{addr}/attachments/{id}/ticket"))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ticket.status().as_u16(), 200);
+    let ticket: serde_json::Value = ticket.json().await.unwrap();
+    let content_url = ticket["content_url"].as_str().unwrap();
+    assert!(!content_url.contains(token));
+
+    let partial = client
+        .get(format!("http://{addr}{content_url}"))
+        .header("range", "bytes=0-15")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(partial.status().as_u16(), 206);
+    assert_eq!(
+        partial.headers()["content-range"],
+        format!("bytes 0-15/{}", bytes.len())
+    );
+    assert_eq!(partial.bytes().await.unwrap().len(), 16);
+}
+
 const SENHA: &str = "uma senha bem seguraa";
 
 /// Conecta, cria a conta e devolve o cliente logo apos o `auth.required`.

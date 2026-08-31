@@ -60,17 +60,14 @@ api_secret_env = "STAPP_LIVEKIT_API_SECRET"
 [limits]
 # Tamanho maximo de um anexo, em MB. O cliente recebe isto no welcome e barra
 # antes de subir; o servidor confere de novo no /attachments/presign.
-max_upload_mb  = 15
+max_upload_mb  = 20
 # Tamanho maximo do texto de uma mensagem, em caracteres (nao bytes).
 max_text_chars = 4000
+max_attachments_per_message = 10
 
 [storage]
 database      = "data/stapp.db"
 history_limit = 200
+attachments_dir = "data/attachments"
 
-[storage.s3]
-endpoint   = "http://127.0.0.1:9000"
-bucket     = "stapp-media"
-region     = "us-east-1"
-access_key = "minioadmin"
-secret_key = "minioadminpassword"
+# S3/MinIO e opcional e so entra em builds `cargo build --features s3`.

@@ -10,7 +10,7 @@ use crate::config::Channel;
 
 pub type PeerId = String;
 pub type UserId = String;
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
 /// String secreta serializada normalmente, mas sempre redigida em logs/debug.
 #[derive(Clone, Serialize, Deserialize)]
@@ -85,14 +85,24 @@ pub struct UrlPreview {
     pub site_name: Option<String>,
 }
 
-/// Informações de um anexo de mídia armazenado no S3/MinIO.
+/// Metadados de um anexo privado. O conteúdo exige ticket temporário.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Attachment {
     pub id: String,
     pub filename: String,
     pub content_type: String,
     pub size_bytes: usize,
-    pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waveform: Option<Vec<u8>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    pub backend: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -315,6 +325,7 @@ pub struct Limits {
     pub max_upload_bytes: usize,
     /// Em caracteres, nao bytes.
     pub max_text_chars: usize,
+    pub max_attachments_per_message: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,6 +386,8 @@ pub enum ClientMsg {
         /// Id da mensagem respondida, se for uma resposta.
         #[serde(default)]
         reply_to: Option<String>,
+        #[serde(default)]
+        client_nonce: Option<String>,
     },
 
     /// Criação de enquete nativa em um canal de texto.
@@ -419,11 +432,27 @@ pub enum ClientMsg {
         attachment_ids: Vec<String>,
         #[serde(default)]
         reply_to: Option<String>,
+        #[serde(default)]
+        client_nonce: Option<String>,
     },
 
     /// Marca lida ate agora. Usado quando chega mensagem com a conversa aberta.
     #[serde(rename = "dm.read")]
-    DmRead { user_id: UserId },
+    DmRead {
+        user_id: UserId,
+        #[serde(default)]
+        message_id: Option<String>,
+    },
+
+    #[serde(rename = "chat.read")]
+    ChatRead { channel: String, message_id: String },
+
+    #[serde(rename = "typing.set")]
+    TypingSet {
+        scope_kind: String,
+        scope_id: String,
+        active: bool,
+    },
 
     #[serde(rename = "friend.request")]
     FriendRequest { user_id: UserId },
@@ -549,6 +578,28 @@ pub enum ServerMsg {
     #[serde(rename = "chat.new")]
     ChatNew { channel: String, msg: Message },
 
+    #[serde(rename = "message.accepted")]
+    MessageAccepted {
+        client_nonce: String,
+        message_id: String,
+    },
+
+    #[serde(rename = "message.failed")]
+    MessageFailed {
+        client_nonce: String,
+        message: String,
+    },
+
+    #[serde(rename = "typing")]
+    Typing {
+        scope_kind: String,
+        scope_id: String,
+        user_id: UserId,
+        username: String,
+        active: bool,
+        expires_at: i64,
+    },
+
     /// Notificacao assincrona de que um link de uma mensagem teve metadados extraidos.
     #[serde(rename = "chat.preview")]
     LinkPreviewEnriched {
@@ -609,7 +660,20 @@ pub enum ServerMsg {
     /// Esta conversa ficou sem nao-lidas. Vai para **todas** as sessoes da
     /// conta, entao ler no celular limpa o badge do PC.
     #[serde(rename = "dm.read")]
-    DmRead { user_id: UserId },
+    DmRead {
+        user_id: UserId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reader_id: Option<UserId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_id: Option<String>,
+    },
+
+    #[serde(rename = "chat.reads")]
+    ChatReads {
+        channel: String,
+        message_id: String,
+        readers: Vec<UserId>,
+    },
 
     #[serde(rename = "dm.denied")]
     DmDenied { user_id: UserId },

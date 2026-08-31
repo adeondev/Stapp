@@ -21,6 +21,7 @@ pub fn client_limits(state: &AppState) -> Limits {
     Limits {
         max_upload_bytes: state.config.limits.max_upload_bytes(),
         max_text_chars: state.config.limits.max_text_chars,
+        max_attachments_per_message: state.config.limits.max_attachments_per_message,
     }
 }
 
@@ -58,6 +59,66 @@ pub fn reject_too_long(state: &AppState, peer_id: &str, max_chars: usize) {
             message: format!("a mensagem passa do limite de {max_chars} caracteres"),
         },
     );
+}
+
+pub async fn typing(
+    state: &AppState,
+    peer_id: &str,
+    scope_kind: String,
+    scope_id: String,
+    active: bool,
+) {
+    let Some(identity) = state.identity_of(peer_id).await else {
+        return;
+    };
+    let expires_at = now_ms() + 5_000;
+    match scope_kind.as_str() {
+        "channel"
+            if state
+                .config
+                .text_channels()
+                .any(|channel| channel.id == scope_id) =>
+        {
+            state.broadcast(ServerMsg::Typing {
+                scope_kind,
+                scope_id,
+                user_id: identity.user_id,
+                username: identity.username,
+                active,
+                expires_at,
+            });
+        }
+        "direct"
+            if state
+                .db
+                .can_direct(&identity.user_id, &scope_id)
+                .unwrap_or(false) =>
+        {
+            let mine = ServerMsg::Typing {
+                scope_kind: "direct".into(),
+                scope_id: scope_id.clone(),
+                user_id: identity.user_id.clone(),
+                username: identity.username.clone(),
+                active,
+                expires_at,
+            };
+            for peer in state.sessions_of(&identity.user_id).await {
+                state.send_to(&peer, mine.clone());
+            }
+            let theirs = ServerMsg::Typing {
+                scope_kind: "direct".into(),
+                scope_id: identity.user_id.clone(),
+                user_id: identity.user_id,
+                username: identity.username,
+                active,
+                expires_at,
+            };
+            for peer in state.sessions_of(&scope_id).await {
+                state.send_to(&peer, theirs.clone());
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Quem esta pedindo e onde a mensagem mora.
@@ -254,14 +315,13 @@ pub async fn delete(state: &Arc<AppState>, peer_id: &str, message_id: String) {
     }
     let dono = state.clone();
     tokio::spawn(async move {
-        let Some(media) = &dono.media else { return };
         for chave in chaves {
             // Banco primeiro, S3 depois, e nao ao contrario: se o S3 saisse
             // primeiro e o banco falhasse, sobraria mensagem viva apontando
             // para arquivo inexistente — imagem quebrada no historico, para
             // sempre. Nesta ordem o pior caso e um objeto que ninguem mais
             // alcanca, porque o unico ponteiro para ele ja morreu.
-            if let Err(err) = media.delete_object(&chave).await {
+            if let Err(err) = dono.media.delete_object(&chave).await {
                 tracing::warn!(%chave, %err, "anexo saiu do banco mas o objeto ficou no S3");
             }
         }

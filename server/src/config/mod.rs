@@ -116,6 +116,9 @@ pub struct StorageConfig {
     pub database: PathBuf,
     #[serde(default = "default_history_limit")]
     pub history_limit: usize,
+    /// Diretorio privado dos anexos. Caminhos relativos partem do stapp.toml.
+    #[serde(default = "default_attachments_dir")]
+    pub attachments_dir: PathBuf,
     #[serde(default)]
     pub s3: Option<S3Config>,
 }
@@ -131,6 +134,8 @@ pub struct LimitsConfig {
     /// Em caracteres, nao bytes: um emoji conta como um.
     #[serde(default = "default_max_text_chars")]
     pub max_text_chars: usize,
+    #[serde(default = "default_max_attachments_per_message")]
+    pub max_attachments_per_message: usize,
 }
 
 impl LimitsConfig {
@@ -152,6 +157,7 @@ impl Config {
 
         let base = path.parent().unwrap_or_else(|| Path::new("."));
         cfg.storage.database = base.join(&cfg.storage.database);
+        cfg.storage.attachments_dir = base.join(&cfg.storage.attachments_dir);
         cfg.server.static_dir = cfg.server.static_dir.map(|d| base.join(d));
 
         cfg.validate()?;
@@ -185,6 +191,10 @@ impl Config {
         anyhow::ensure!(
             self.limits.max_text_chars > 0,
             "limits.max_text_chars precisa ser > 0"
+        );
+        anyhow::ensure!(
+            self.limits.max_attachments_per_message > 0,
+            "limits.max_attachments_per_message precisa ser > 0"
         );
         anyhow::ensure!(
             matches!(self.voice.backend.as_str(), "mesh" | "livekit"),
@@ -264,6 +274,7 @@ impl Default for LimitsConfig {
         Self {
             max_upload_mb: default_max_upload_mb(),
             max_text_chars: default_max_text_chars(),
+            max_attachments_per_message: default_max_attachments_per_message(),
         }
     }
 }
@@ -273,6 +284,7 @@ impl Default for StorageConfig {
         Self {
             database: default_database(),
             history_limit: default_history_limit(),
+            attachments_dir: default_attachments_dir(),
             s3: None,
         }
     }
@@ -311,6 +323,9 @@ fn default_livekit_api_secret_env() -> String {
 fn default_database() -> PathBuf {
     PathBuf::from("data/stapp.db")
 }
+fn default_attachments_dir() -> PathBuf {
+    PathBuf::from("data/attachments")
+}
 fn default_history_limit() -> usize {
     200
 }
@@ -333,7 +348,10 @@ fn default_s3_public_url() -> Option<String> {
     None
 }
 fn default_max_upload_mb() -> usize {
-    15
+    20
+}
+fn default_max_attachments_per_message() -> usize {
+    10
 }
 fn default_max_text_chars() -> usize {
     4000

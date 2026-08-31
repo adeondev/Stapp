@@ -36,6 +36,53 @@ pub struct Db {
 }
 
 impl Db {
+    pub fn insert_channel_message_with_attachments(
+        &self,
+        msg: &crate::protocol::Message,
+        client_nonce: Option<&str>,
+        attachment_ids: &[String],
+        max_attachments: usize,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        messages::insert_on(&tx, msg, client_nonce)?;
+        attachments::bind_owned(
+            &tx,
+            &msg.id,
+            attachment_ids,
+            &msg.author_id,
+            "channel",
+            &msg.channel,
+            max_attachments,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn insert_direct_message_with_attachments(
+        &self,
+        conversation: &str,
+        msg: &crate::protocol::DirectMessage,
+        client_nonce: Option<&str>,
+        attachment_ids: &[String],
+        max_attachments: usize,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+        direct::insert_on(&tx, conversation, msg, client_nonce)?;
+        attachments::bind_owned(
+            &tx,
+            &msg.id,
+            attachment_ids,
+            &msg.author_id,
+            "direct",
+            conversation,
+            max_attachments,
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)
@@ -101,10 +148,86 @@ impl Db {
     pub fn list_attachments(
         &self,
         message_id: &str,
-        public_base: Option<&str>,
+        legacy_public_base: Option<&str>,
     ) -> Result<Vec<crate::protocol::Attachment>> {
         let conn = self.conn.lock().unwrap();
-        attachments::list_for_message(&conn, message_id, public_base)
+        attachments::list_for_message(&conn, message_id, legacy_public_base)
+    }
+
+    pub fn insert_ready_attachment(&self, value: &attachments::NewAttachment<'_>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        attachments::insert_ready(&conn, value)
+    }
+
+    pub fn attachment(&self, id: &str) -> Result<Option<attachments::AttachmentRecord>> {
+        let conn = self.conn.lock().unwrap();
+        attachments::get(&conn, id)
+    }
+
+    pub fn update_attachment_metadata(
+        &self,
+        id: &str,
+        owner: &str,
+        filename: Option<&str>,
+        description_set: bool,
+        description: Option<&str>,
+        duration_ms: Option<u64>,
+        waveform: Option<&[u8]>,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        attachments::update_metadata(
+            &conn,
+            id,
+            owner,
+            filename,
+            description_set,
+            description,
+            duration_ms,
+            waveform,
+            width,
+            height,
+        )
+    }
+
+    pub fn delete_orphan_attachment(&self, id: &str, owner: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        attachments::delete_orphan(&conn, id, owner)
+    }
+
+    pub fn expired_orphan_attachments(&self, now: i64) -> Result<Vec<(String, String)>> {
+        let conn = self.conn.lock().unwrap();
+        attachments::expired_orphans(&conn, now)
+    }
+
+    pub fn delete_expired_orphan_attachment(&self, id: &str, now: i64) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        attachments::delete_expired_orphan(&conn, id, now)
+    }
+
+    pub fn create_attachment_ticket(
+        &self,
+        id: &str,
+        user: &str,
+        ticket: &str,
+        expires_at: i64,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        if !attachments::can_access(&conn, id, user)? {
+            return Ok(false);
+        }
+        attachments::create_ticket(&conn, id, user, ticket, expires_at)?;
+        Ok(true)
+    }
+
+    pub fn attachment_by_ticket(
+        &self,
+        ticket: &str,
+        now: i64,
+    ) -> Result<Option<attachments::AttachmentRecord>> {
+        let conn = self.conn.lock().unwrap();
+        attachments::by_ticket(&conn, ticket, now)
     }
 
     pub fn insert_poll(

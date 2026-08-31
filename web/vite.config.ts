@@ -18,6 +18,9 @@ export default defineConfig({
   },
   test: {
     setupFiles: ['./src/test-setup.ts'],
+    // A suite carrega LiveKit, emoji-mart e jsdom em cada worker. Sem teto o
+    // Vitest usa todos os nucleos e pode esgotar a memoria durante build.py.
+    maxWorkers: 4,
   },
   build: {
     chunkSizeWarningLimit: 600,

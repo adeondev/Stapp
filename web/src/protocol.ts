@@ -4,7 +4,7 @@
 export type PeerId = string
 export type UserId = string
 export type ChannelKind = 'text' | 'voice'
-export const PROTOCOL_VERSION = 4
+export const PROTOCOL_VERSION = 5
 
 export interface Channel {
   id: string
@@ -33,7 +33,14 @@ export interface Attachment {
   filename: string
   content_type: string
   size_bytes: number
-  url: string
+  description?: string
+  duration_ms?: number
+  waveform?: number[]
+  width?: number
+  height?: number
+  backend?: 'local' | 's3' | string
+  /** Somente clientes/servidores antigos; o protocolo novo usa ticket. */
+  url?: string
 }
 
 export interface PollOption {
@@ -230,6 +237,7 @@ export interface Limits {
   max_upload_bytes: number
   /** Em caracteres, nao bytes. */
   max_text_chars: number
+  max_attachments_per_message?: number
 }
 
 export type VoiceConfig =
@@ -276,6 +284,7 @@ export type ClientMsg =
       attachment_ids?: string[]
       /** Id da mensagem respondida. */
       reply_to?: string
+      client_nonce?: string
     }
   | {
       t: 'poll.create'
@@ -298,8 +307,11 @@ export type ClientMsg =
       text: string
       attachment_ids?: string[]
       reply_to?: string
+      client_nonce?: string
     }
-  | { t: 'dm.read'; user_id: UserId }
+  | { t: 'dm.read'; user_id: UserId; message_id?: string }
+  | { t: 'chat.read'; channel: string; message_id: string }
+  | { t: 'typing.set'; scope_kind: 'channel' | 'direct'; scope_id: string; active: boolean }
   | { t: 'friend.request'; user_id: UserId }
   | { t: 'friend.accept'; user_id: UserId }
   | { t: 'friend.decline'; user_id: UserId }
@@ -359,6 +371,17 @@ export type ServerMsg =
     }
   | { t: 'chat.history'; channel: string; msgs: Message[] }
   | { t: 'chat.new'; channel: string; msg: Message }
+  | { t: 'message.accepted'; client_nonce: string; message_id: string }
+  | { t: 'message.failed'; client_nonce: string; message: string }
+  | {
+      t: 'typing'
+      scope_kind: 'channel' | 'direct'
+      scope_id: string
+      user_id: UserId
+      username: string
+      active: boolean
+      expires_at: number
+    }
   /** A mensagem mudou. Vem inteira: o cliente troca por id, sem delta. */
   | { t: 'chat.updated'; channel: string; msg: Message }
   | { t: 'chat.deleted'; channel: string; message_id: string }
@@ -381,7 +404,10 @@ export type ServerMsg =
       /** Esta conversa ficou sem nao-lidas. Vai para todas as suas sessoes. */
       t: 'dm.read'
       user_id: UserId
+      reader_id?: UserId
+      message_id?: string
     }
+  | { t: 'chat.reads'; channel: string; message_id: string; readers: UserId[] }
   | { t: 'dm.denied'; user_id: UserId }
   | { t: 'social.snapshot'; allow_member_dms: boolean; members: SocialMember[] }
   | { t: 'user.profile'; profile: Profile }

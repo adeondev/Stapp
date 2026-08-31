@@ -105,8 +105,13 @@
   background: var(--bg-raised);
   border-radius: var(--radius);
   margin-bottom: 0.5rem;
-  border: 1px solid var(--accent);
+  border: 0;
 }
+
+.stapp-recorder-copy,
+.stapp-recorder-actions { display: flex; align-items: center; gap: 8px; }
+.stapp-recorder-copy { color: var(--text-dim); font-size: 12px; }
+.stapp-recorder-copy strong { color: var(--text); font-variant-numeric: tabular-nums; }
 
 .stapp-audio-record-pulse {
   width: 10px;

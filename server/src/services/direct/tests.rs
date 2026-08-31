@@ -92,7 +92,7 @@ async fn cada_lado_recebe_o_outro_como_dono_da_conversa() {
 }
 
 #[tokio::test]
-async fn nao_lidas_acumulam_e_zeram_ao_abrir() {
+async fn nao_lidas_acumulam_e_zeram_so_ao_marcar_como_lidas() {
     let server = TestServer::new(10, 4);
     let daniel = server.account("Daniel");
     let alice = server.account("Alice");
@@ -134,6 +134,12 @@ async fn nao_lidas_acumulam_e_zeram_ao_abrir() {
     );
 
     open(&server.state, "a1", daniel.id.clone()).await;
+    assert_eq!(
+        server.state.db.direct_unread(&alice.id, &conversa).unwrap(),
+        2,
+        "abrir nao prova que a mensagem ficou visivel numa janela ativa"
+    );
+    mark_read(&server.state, "a1", daniel.id.clone()).await;
     assert_eq!(
         server.state.db.direct_unread(&alice.id, &conversa).unwrap(),
         0
@@ -295,7 +301,7 @@ async fn ler_numa_sessao_limpa_o_badge_das_outras() {
         "a outra aba dela precisa limpar o badge tambem: {avisadas:?}"
     );
     assert!(
-        !avisadas.contains(&"d1".to_string()),
-        "o daniel nao tem nada a ver com a leitura dela"
+        avisadas.contains(&"d1".to_string()),
+        "o autor precisa receber o recibo para mostrar Visto"
     );
 }

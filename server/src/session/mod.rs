@@ -40,7 +40,7 @@ pub struct AppState {
     pub config: Config,
     pub db: Db,
     pub auth: AuthService,
-    pub media: Option<crate::services::media::MediaStorageService>,
+    pub media: crate::services::media::MediaStorageService,
     sessions: RwLock<HashMap<PeerId, SessionEntry>>,
     calls: RwLock<calls::Calls>,
     tx: broadcast::Sender<Envelope>,
@@ -49,11 +49,27 @@ pub struct AppState {
 impl AppState {
     pub fn new(config: Config, db: Db) -> anyhow::Result<Arc<Self>> {
         let (tx, _) = broadcast::channel(512);
-        let media = config
-            .storage
-            .s3
-            .as_ref()
-            .map(crate::services::media::MediaStorageService::new);
+        #[cfg(feature = "s3")]
+        let media = if let Some(s3) = config.storage.s3.as_ref() {
+            crate::services::media::MediaStorageService::s3(
+                s3,
+                config.storage.attachments_dir.join(".uploading"),
+            )?
+        } else {
+            crate::services::media::MediaStorageService::local(
+                config.storage.attachments_dir.clone(),
+            )?
+        };
+
+        #[cfg(not(feature = "s3"))]
+        let media = {
+            if config.storage.s3.is_some() {
+                tracing::warn!("[storage.s3] ignorado: compile com --features s3 para ativa-lo");
+            }
+            crate::services::media::MediaStorageService::local(
+                config.storage.attachments_dir.clone(),
+            )?
+        };
 
         Ok(Arc::new(Self {
             config,

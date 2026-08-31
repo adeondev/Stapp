@@ -9,6 +9,7 @@
 node_modules/
 /web/dist/
 /web/.vite/
+/web/dev.*.log
 *.local
 
 # Tauri

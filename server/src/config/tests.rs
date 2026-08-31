@@ -171,9 +171,9 @@ kind = "text"
 
     // Quem ja tem um stapp.toml antigo nao precisa mexer em nada para atualizar.
     let config = Config::load(&path).unwrap();
-    assert_eq!(config.limits.max_upload_mb, 15);
+    assert_eq!(config.limits.max_upload_mb, 20);
     assert_eq!(config.limits.max_text_chars, 4000);
-    assert_eq!(config.limits.max_upload_bytes(), 15 * 1024 * 1024);
+    assert_eq!(config.limits.max_upload_bytes(), 20 * 1024 * 1024);
 }
 
 #[test]

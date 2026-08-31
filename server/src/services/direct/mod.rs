@@ -85,9 +85,6 @@ pub async fn open(state: &AppState, peer_id: &str, other: UserId) {
         }
     };
 
-    // Abrir a conversa ja marca tudo como lido.
-    mark_and_notify(state, &me.user_id, &other, &conversation).await;
-
     state.send_to(
         peer_id,
         ServerMsg::DmHistory {
@@ -97,14 +94,25 @@ pub async fn open(state: &AppState, peer_id: &str, other: UserId) {
     );
 }
 
+#[cfg(test)]
 pub async fn mark_read(state: &AppState, peer_id: &str, other: UserId) {
+    mark_read_at(state, peer_id, other, None).await
+}
+
+pub async fn mark_read_at(
+    state: &AppState,
+    peer_id: &str,
+    other: UserId,
+    message_id: Option<String>,
+) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
     };
     let conversation = conversation_id(&me.user_id, &other);
-    mark_and_notify(state, &me.user_id, &other, &conversation).await;
+    mark_and_notify(state, &me.user_id, &other, &conversation, message_id).await;
 }
 
+#[cfg(test)]
 pub async fn send(
     state: &Arc<AppState>,
     peer_id: &str,
@@ -112,6 +120,27 @@ pub async fn send(
     raw_text: &str,
     attachment_ids: Vec<String>,
     reply_to: Option<String>,
+) {
+    send_with_nonce(
+        state,
+        peer_id,
+        other,
+        raw_text,
+        attachment_ids,
+        reply_to,
+        None,
+    )
+    .await
+}
+
+pub async fn send_with_nonce(
+    state: &Arc<AppState>,
+    peer_id: &str,
+    other: UserId,
+    raw_text: &str,
+    attachment_ids: Vec<String>,
+    reply_to: Option<String>,
+    client_nonce: Option<String>,
 ) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
@@ -138,6 +167,30 @@ pub async fn send(
         .direct_conversation_exists(&me.user_id, &other)
         .unwrap_or(false);
     let conversation = conversation_id(&me.user_id, &other);
+    if let Some(nonce) = client_nonce.as_deref() {
+        if nonce.len() > 100 {
+            return state.send_to(
+                peer_id,
+                ServerMsg::MessageFailed {
+                    client_nonce: nonce.into(),
+                    message: "identificador de envio invalido".into(),
+                },
+            );
+        }
+        if let Ok(Some(message_id)) =
+            state
+                .db
+                .direct_id_for_nonce(&me.user_id, &conversation, nonce)
+        {
+            return state.send_to(
+                peer_id,
+                ServerMsg::MessageAccepted {
+                    client_nonce: nonce.into(),
+                    message_id,
+                },
+            );
+        }
+    }
 
     // Mesma guarda do canal, na outra direcao: responder um id de canal dentro
     // da conversa colaria um trecho publico onde ele nao foi escrito.
@@ -154,23 +207,14 @@ pub async fn send(
 
     let citadas = messages::mentions::resolve(state, &text);
     let msg_id = Uuid::new_v4().to_string();
-
-    if !attachment_ids.is_empty() {
-        if let Err(err) = state.db.bind_attachments(&msg_id, &attachment_ids) {
-            tracing::error!(%err, "falha vinculando anexos em DM");
-        }
-    }
-
-    let attachments = state.db.list_attachments(&msg_id, None).unwrap_or_default();
-
-    let msg = DirectMessage {
+    let mut msg = DirectMessage {
         id: msg_id.clone(),
         author_id: me.user_id.clone(),
         author_username: me.username.clone(),
         kind: DirectMessageKind::Text,
         text,
         ts: now_ms(),
-        attachments,
+        attachments: Vec::new(),
         poll: None,
         reply_to: resposta,
         edited_at: None,
@@ -179,17 +223,44 @@ pub async fn send(
         mentions_everyone: citadas.everyone,
     };
 
-    if let Err(err) = state.db.insert_direct(&conversation, &msg) {
+    if let Err(err) = state.db.insert_direct_message_with_attachments(
+        &conversation,
+        &msg,
+        client_nonce.as_deref(),
+        &attachment_ids,
+        state.config.limits.max_attachments_per_message,
+    ) {
         tracing::error!(%err, "falha gravando mensagem direta");
-        return refuse(state, peer_id, "nao consegui guardar a mensagem");
+        if let Some(client_nonce) = client_nonce {
+            state.send_to(
+                peer_id,
+                ServerMsg::MessageFailed {
+                    client_nonce,
+                    message: err.to_string(),
+                },
+            );
+        } else {
+            refuse(state, peer_id, "nao consegui guardar a mensagem");
+        }
+        return;
     }
+    msg.attachments = state.db.list_attachments(&msg_id, None).unwrap_or_default();
 
     // Quem escreveu ja leu o que escreveu.
-    mark(state, &me.user_id, &conversation);
+    mark(state, &me.user_id, &conversation, Some(&msg_id));
 
     let msg_id = msg.id.clone();
     let text_for_preview = msg.text.clone();
     deliver(state, &me.user_id, &other, msg).await;
+    if let Some(client_nonce) = client_nonce {
+        state.send_to(
+            peer_id,
+            ServerMsg::MessageAccepted {
+                client_nonce,
+                message_id: msg_id.clone(),
+            },
+        );
+    }
     if first_message {
         social::refresh_pair(state, &me.user_id, &other).await;
     }
@@ -259,21 +330,48 @@ pub fn account_exists(state: &AppState, user_id: &UserId) -> bool {
     matches!(state.db.account_by_id(user_id), Ok(Some(_)))
 }
 
-fn mark(state: &AppState, reader: &UserId, conversation: &str) {
-    if let Err(err) = state.db.mark_direct_read(reader, conversation, now_ms()) {
-        tracing::error!(%err, "falha marcando conversa como lida");
+fn mark(state: &AppState, reader: &UserId, conversation: &str, message_id: Option<&str>) -> bool {
+    match state
+        .db
+        .mark_direct_read_message(reader, conversation, now_ms(), message_id)
+    {
+        Ok(marked) => marked,
+        Err(err) => {
+            tracing::error!(%err, "falha marcando conversa como lida");
+            false
+        }
     }
 }
 
 /// Marca como lida e avisa **todas** as sessoes de quem leu. Sem este aviso a
 /// aba que ja estava com a conversa aberta continuaria mostrando o badge.
-async fn mark_and_notify(state: &AppState, reader: &UserId, other: &UserId, conversation: &str) {
-    mark(state, reader, conversation);
+async fn mark_and_notify(
+    state: &AppState,
+    reader: &UserId,
+    other: &UserId,
+    conversation: &str,
+    message_id: Option<String>,
+) {
+    if !mark(state, reader, conversation, message_id.as_deref()) {
+        return;
+    }
     for peer in state.sessions_of(reader).await {
         state.send_to(
             &peer,
             ServerMsg::DmRead {
                 user_id: other.clone(),
+                reader_id: Some(reader.clone()),
+                message_id: message_id.clone(),
+            },
+        );
+    }
+    for peer in state.sessions_of(other).await {
+        state.send_to(
+            &peer,
+            ServerMsg::DmRead {
+                user_id: reader.clone(),
+                reader_id: Some(reader.clone()),
+                message_id: message_id.clone(),
             },
         );
     }

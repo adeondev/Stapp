@@ -93,6 +93,7 @@ async fn conexao_anonima_nao_alcanca_o_resto_do_protocolo() {
             text: "oi".into(),
             attachment_ids: Vec::new(),
             reply_to: None,
+            client_nonce: None,
         },
     )
     .await;

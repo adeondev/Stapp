@@ -1,97 +1,161 @@
 import { httpBaseFrom } from './auth'
 
-export interface PresignResponse {
-  attachment_id: string
-  upload_url: string
-  download_url: string
-  s3_key: string
-}
-
 export interface UploadProgressCallback {
   (percentage: number): void
 }
 
-/**
- * Faz o upload de um arquivo para o MinIO / S3 via Presigned URL gerada pelo servidor Stapp.
- */
+export interface UploadScope {
+  kind: 'channel' | 'direct'
+  id: string
+}
+
+interface UploadResponse {
+  attachment_id: string
+}
+
+class UploadError extends Error {
+  constructor(message: string, readonly status = 0) {
+    super(message)
+  }
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function friendlyUploadError(status: number, body: string) {
+  if (status === 401) return 'Sua sessao expirou. Entre novamente para enviar.'
+  if (status === 413) return 'O arquivo excede o limite do servidor.'
+  if (status === 415) return body || 'Formato de arquivo incompativel.'
+  if (status === 503) return 'O armazenamento esta indisponivel.'
+  if (status === 0) return 'A conexao foi interrompida durante o upload.'
+  return body || `Nao foi possivel enviar o arquivo (HTTP ${status}).`
+}
+
+function uploadOnce(
+  endpoint: string,
+  accessToken: string,
+  file: File,
+  scope: UploadScope = { kind: 'channel', id: 'geral' },
+  onProgress?: UploadProgressCallback,
+  signal?: AbortSignal,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', endpoint, true)
+    xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
+    xhr.responseType = 'json'
+
+    const abort = () => xhr.abort()
+    signal?.addEventListener('abort', abort, { once: true })
+    const cleanup = () => signal?.removeEventListener('abort', abort)
+
+    if (xhr.upload && onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      cleanup()
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const response = xhr.response as UploadResponse | null
+        if (response?.attachment_id) resolve(response.attachment_id)
+        else reject(new UploadError('O servidor devolveu uma resposta de upload invalida.', xhr.status))
+        return
+      }
+      reject(new UploadError(friendlyUploadError(xhr.status, xhr.responseText), xhr.status))
+    }
+    xhr.onerror = () => {
+      cleanup()
+      reject(new UploadError(friendlyUploadError(0, ''), 0))
+    }
+    xhr.onabort = () => {
+      cleanup()
+      reject(new DOMException('Upload cancelado', 'AbortError'))
+    }
+
+    const form = new FormData()
+    // O servidor consegue validar a conversa antes de permitir o vinculo.
+    form.append('scope_kind', scope.kind)
+    form.append('scope_id', scope.id)
+    form.append('file', file, file.name)
+    xhr.send(form)
+  })
+}
+
+/** Upload mediado pelo Stapp. Nao expoe MinIO/S3 nem enderecos locais ao cliente. */
 export async function uploadMediaFile(
   serverUrl: string,
   accessToken: string,
   file: File,
-  onProgress?: UploadProgressCallback
+  scope: UploadScope = { kind: 'channel', id: 'geral' },
+  onProgress?: UploadProgressCallback,
+  signal?: AbortSignal,
 ): Promise<string> {
-  // `serverUrl` chega como endereco de WebSocket (ws://) — anexo sobe por HTTP.
-  const baseUrl = httpBaseFrom(serverUrl)
-  const presignEndpoint = `${baseUrl}/attachments/presign`
+  const endpoint = `${httpBaseFrom(serverUrl)}/attachments`
+  const delays = [0, 1_000, 2_000, 4_000]
+  let lastError: unknown
 
-  // 1. Solicita a Presigned URL no backend Stapp
-  const presignRes = await fetch(presignEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      filename: file.name,
-      content_type: file.type || 'application/octet-stream',
-      size_bytes: file.size,
-    }),
-  })
-
-  if (!presignRes.ok) {
-    const errorText = await presignRes.text().catch(() => 'Erro ao obter permissão de upload')
-    throw new Error(errorText || 'Falha ao solicitar URL pré-assinada')
-  }
-
-  const presignData: PresignResponse = await presignRes.json()
-
-  // 2. Envia o arquivo diretamente para o S3 / MinIO via HTTP PUT com acompanhamento de progresso
-  await new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest()
-    xhr.open('PUT', presignData.upload_url, true)
-    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream')
-
-    if (xhr.upload && onProgress) {
-      xhr.upload.onprogress = (evt) => {
-        if (evt.lengthComputable) {
-          const percent = Math.round((evt.loaded / evt.total) * 100)
-          onProgress(percent)
-        }
-      }
+  for (let attempt = 0; attempt < delays.length; attempt += 1) {
+    if (delays[attempt]) await wait(delays[attempt])
+    try {
+      return await uploadOnce(endpoint, accessToken, file, scope, onProgress, signal)
+    } catch (error) {
+      lastError = error
+      if (error instanceof DOMException && error.name === 'AbortError') throw error
+      // 4xx e decisao definitiva do servidor; repetir so piora a mensagem.
+      if (error instanceof UploadError && error.status >= 400 && error.status < 500) throw error
     }
-
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve()
-      } else {
-        reject(new Error(`Falha no upload para o storage: status ${xhr.status}`))
-      }
-    }
-
-    xhr.onerror = () => reject(new Error('Erro de conexão durante o upload de mídia'))
-    xhr.send(file)
-  })
-
-  // 3. Confirma o registro do anexo no SQLite do Stapp
-  const confirmEndpoint = `${baseUrl}/attachments/confirm`
-  const confirmRes = await fetch(confirmEndpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-    body: JSON.stringify({
-      attachment_id: presignData.attachment_id,
-      filename: file.name,
-      content_type: file.type || 'application/octet-stream',
-      size_bytes: file.size,
-      s3_key: presignData.s3_key,
-    }),
-  })
-
-  if (!confirmRes.ok) {
-    console.warn('Aviso: anexo enviado ao storage mas confirmação no servidor retornou status', confirmRes.status)
   }
+  throw lastError instanceof Error ? lastError : new Error('Falha no upload.')
+}
 
-  return presignData.attachment_id
+export async function deletePendingAttachment(
+  serverUrl: string,
+  accessToken: string,
+  attachmentId: string,
+) {
+  await fetch(`${httpBaseFrom(serverUrl)}/attachments/${attachmentId}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+}
+
+export interface AttachmentMetadata {
+  filename?: string
+  description?: string
+  duration_ms?: number
+  waveform?: number[]
+  width?: number
+  height?: number
+}
+
+export async function updatePendingAttachment(
+  serverUrl: string,
+  accessToken: string,
+  attachmentId: string,
+  metadata: AttachmentMetadata,
+) {
+  const response = await fetch(`${httpBaseFrom(serverUrl)}/attachments/${attachmentId}`, {
+    method: 'PATCH',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(metadata),
+  })
+  if (!response.ok) throw new Error(friendlyUploadError(response.status, await response.text()))
+}
+
+export async function attachmentContentUrl(
+  serverUrl: string,
+  accessToken: string,
+  attachmentId: string,
+) {
+  const base = httpBaseFrom(serverUrl)
+  const response = await fetch(`${base}/attachments/${attachmentId}/ticket`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+  if (!response.ok) throw new Error(await response.text())
+  const payload = (await response.json()) as { content_url: string }
+  return new URL(payload.content_url, base).toString()
 }

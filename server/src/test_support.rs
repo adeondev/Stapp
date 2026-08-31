@@ -103,6 +103,7 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
             api_secret_env: "STAPP_TEST_LIVEKIT_SECRET".into(),
         },
         storage: StorageConfig {
+            attachments_dir: database.parent().unwrap().join("attachments"),
             database,
             history_limit: 20,
             s3: None,
@@ -110,6 +111,7 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
         limits: LimitsConfig {
             max_upload_mb: 15,
             max_text_chars: 4000,
+            max_attachments_per_message: 10,
         },
     }
 }

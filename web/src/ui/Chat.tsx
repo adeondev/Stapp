@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChatEntry, DirectoryEntry, Limits, UserId } from '../protocol'
 import { IconAt, IconEdit, IconHash, IconPhone, IconReaction, IconReply, IconTrash } from './Icons'
 import { Avatar, ProfileName } from './Avatar'
@@ -6,8 +6,9 @@ import { MarkdownRenderer } from './rich/MarkdownRenderer'
 import { EmojiPicker } from './rich/EmojiPicker'
 import { LinkPreviewCard } from './rich/LinkPreviewCard'
 import { MessageAttachments } from './rich/MessageAttachments'
-import { uploadMediaFile } from '../net/mediaUpload'
-import { AudioRecorder } from './rich/AudioRecorder'
+import { deletePendingAttachment, updatePendingAttachment, uploadMediaFile } from '../net/mediaUpload'
+import { AudioRecorder, type RecordedVoice } from './rich/AudioRecorder'
+import { MessageComposer } from './MessageComposer'
 import { GifPicker } from './rich/GifPicker'
 import { PollCard } from './rich/PollCard'
 import { PollCreatorModal } from './rich/PollCreatorModal'
@@ -32,6 +33,9 @@ const contarCaracteres = (texto: string) => [...texto].length
 const LIMIAR_CONTADOR = 0.9
 
 const formatarMB = (bytes: number) => `${Math.round(bytes / (1024 * 1024))}MB`
+const formatarTamanho = (bytes: number) => bytes < 1024 * 1024
+  ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+  : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 
 /** Mensagens seguidas da mesma pessoa dentro disso viram um bloco so. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000
@@ -43,6 +47,7 @@ interface Props {
   /** Nome no cabecalho: o canal ou a pessoa da conversa. */
   title: string
   kind: 'channel' | 'direct'
+  scopeId: string
   messages: ChatEntry[]
   canSend: boolean
   disabledReason?: string
@@ -53,7 +58,13 @@ interface Props {
   limits: Limits
   /** Quem da para citar com `@`. Sai do `directory` do `welcome`. */
   mentionables: DirectoryEntry[]
-  onSend(text: string, attachmentIds?: string[], replyTo?: string): void
+  sendResults?: Record<string, { messageId?: string; error?: string }>
+  typingUsers?: { userId: UserId; username: string; expiresAt: number }[]
+  readReceiptId?: string
+  channelReadReceipts?: Record<string, UserId[]>
+  onSend(text: string, attachmentIds?: string[], replyTo?: string, clientNonce?: string): void
+  onTyping?(active: boolean): void
+  onRead?(messageId: string): void
   onEdit?(messageId: string, text: string): void
   onDelete?(messageId: string): void
   onReact?(messageId: string, emoji: string): void
@@ -71,11 +82,24 @@ interface PendingUpload {
   progress: number
   attachmentId?: string
   error?: string
+  controller?: AbortController
+  filename?: string
+  description?: string
+}
+
+interface OptimisticSend {
+  nonce: string
+  text: string
+  attachmentIds?: string[]
+  replyTo?: string
+  status: 'sending' | 'failed'
+  error?: string
 }
 
 export function Chat({
   title,
   kind,
+  scopeId,
   messages,
   canSend,
   disabledReason,
@@ -92,6 +116,12 @@ export function Chat({
   onCreatePoll,
   onClosePoll,
   onCall,
+  sendResults = {},
+  typingUsers = [],
+  readReceiptId,
+  channelReadReceipts = {},
+  onTyping,
+  onRead,
 }: Props) {
   const userMenu = useUserMenu()
   const [draft, setDraft] = useState('')
@@ -99,9 +129,17 @@ export function Chat({
   const [showGifPicker, setShowGifPicker] = useState(false)
   const [showPollModal, setShowPollModal] = useState(false)
   const [isRecordingAudio, setIsRecordingAudio] = useState(false)
-  const [isSendingVoice, setIsSendingVoice] = useState(false)
+  const [voicePreview, setVoicePreview] = useState<RecordedVoice | null>(null)
+  const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null)
+  const [voiceSending, setVoiceSending] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([])
+  const [optimistic, setOptimistic] = useState<OptimisticSend[]>([])
+  const [composerSend, setComposerSend] = useState<OptimisticSend | null>(null)
+  const [voicePendingNonce, setVoicePendingNonce] = useState<string | null>(null)
+  const [newWhileScrolled, setNewWhileScrolled] = useState(0)
+  const [unreadAnchor, setUnreadAnchor] = useState<string | null>(null)
+  const [readersOpen, setReadersOpen] = useState<string | null>(null)
   /** A mensagem que o rascunho esta respondendo. */
   const [respondendo, setRespondendo] = useState<ChatEntry | null>(null)
   /** Id da mensagem em edicao no lugar, e o texto que esta sendo editado. */
@@ -117,6 +155,11 @@ export function Chat({
   const pinned = useRef(true)
   /** Enter apertado com anexo ainda subindo: manda sozinho quando terminar. */
   const aguardandoUpload = useRef(false)
+  const typingTimer = useRef<number>(0)
+  const lastTypingSignal = useRef(0)
+  const previousMessageCount = useRef(messages.length)
+  const draftStorageKey = useMemo(() => `stapp.draft.v2.${kind}:${scopeId}`, [kind, scopeId])
+  const outboxStorageKey = `${draftStorageKey}.outbox`
 
   // O servidor guarda `@daniel` como texto e diz em `mentions` quem foi citado.
   // A pilula e desenhada aqui, entao a tela precisa saber quais nomes existem.
@@ -174,6 +217,21 @@ export function Chat({
     setConsultaMencao(
       consultaDeMencao(evento.target.value, evento.target.selectionStart ?? 0),
     )
+    const now = Date.now()
+    if (evento.target.value.trim()) {
+      if (now - lastTypingSignal.current >= 2_500) {
+        onTyping?.(true)
+        lastTypingSignal.current = now
+      }
+    } else {
+      onTyping?.(false)
+      lastTypingSignal.current = 0
+    }
+    window.clearTimeout(typingTimer.current)
+    typingTimer.current = window.setTimeout(() => {
+      onTyping?.(false)
+      lastTypingSignal.current = 0
+    }, 4_500)
   }
 
   function comecarEdicao(msg: ChatEntry) {
@@ -228,83 +286,231 @@ export function Chat({
   }, [messages, title])
 
   useEffect(() => {
-    setDraft('')
+    let savedDraft = ''
+    let replyId: string | undefined
+    let ready: { attachmentId: string; filename: string; contentType: string; description?: string }[] = []
+    try {
+      const raw = localStorage.getItem(draftStorageKey)
+      if (raw) {
+        const value = JSON.parse(raw) as { text?: string; replyId?: string; savedAt?: number; attachments?: typeof ready }
+        if (Date.now() - (value.savedAt ?? 0) < 30 * 24 * 60 * 60 * 1000) {
+          savedDraft = value.text ?? ''
+          replyId = value.replyId
+          ready = value.attachments ?? []
+        } else localStorage.removeItem(draftStorageKey)
+      }
+      const rawOutbox = localStorage.getItem(outboxStorageKey)
+      setOptimistic(rawOutbox ? JSON.parse(rawOutbox) as OptimisticSend[] : [])
+    } catch {
+      localStorage.removeItem(draftStorageKey)
+      localStorage.removeItem(outboxStorageKey)
+      setOptimistic([])
+    }
+    setComposerSend(null)
+    setDraft(savedDraft)
+    setPendingUploads(ready.map((item) => ({
+      id: item.attachmentId,
+      file: new File([], item.filename, { type: item.contentType }),
+      previewUrl: '',
+      progress: 100,
+      attachmentId: item.attachmentId,
+      filename: item.filename,
+      description: item.description,
+    })))
+    setRespondendo(replyId ? messages.find((message) => message.id === replyId) ?? null : null)
     pinned.current = true
     aguardandoUpload.current = false
     setVoiceError(null)
-    setRespondendo(null)
     setEditando(null)
     setReagindo(null)
     setConsultaMencao(null)
-  }, [title])
+    setNewWhileScrolled(0)
+    setUnreadAnchor(null)
+    previousMessageCount.current = messages.length
+    return () => {
+      window.clearTimeout(typingTimer.current)
+      onTyping?.(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftStorageKey])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const attachments = pendingUploads
+        .filter((item) => item.attachmentId)
+        .map((item) => ({ attachmentId: item.attachmentId!, filename: item.filename ?? item.file.name, contentType: item.file.type, description: item.description }))
+      if (!draft && !respondendo && attachments.length === 0) localStorage.removeItem(draftStorageKey)
+      else localStorage.setItem(draftStorageKey, JSON.stringify({ text: draft, replyId: respondendo?.id, attachments, savedAt: Date.now() }))
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [draft, draftStorageKey, pendingUploads, respondendo])
+
+  useEffect(() => {
+    if (optimistic.length) localStorage.setItem(outboxStorageKey, JSON.stringify(optimistic))
+    else localStorage.removeItem(outboxStorageKey)
+  }, [optimistic, outboxStorageKey])
+
+  useEffect(() => {
+    setOptimistic((current) => current.flatMap((item) => {
+      const result = sendResults[item.nonce]
+      if (!result) return [item]
+      if (result.messageId) return []
+      return [{ ...item, status: 'failed' as const, error: result.error ?? 'Falha no envio' }]
+    }))
+    if (voicePendingNonce && sendResults[voicePendingNonce]?.messageId) {
+      setVoicePreview(null)
+      setVoicePendingNonce(null)
+    }
+    if (composerSend) {
+      const result = sendResults[composerSend.nonce]
+      if (result?.messageId) {
+        setDraft((current) => current.trim() === composerSend.text ? '' : current)
+        setRespondendo((current) => current?.id === composerSend.replyTo ? null : current)
+        setPendingUploads((current) => current.filter((item) => {
+          const sent = Boolean(item.attachmentId && composerSend.attachmentIds?.includes(item.attachmentId))
+          if (sent && item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+          return !sent
+        }))
+        setComposerSend(null)
+      } else if (result?.error) {
+        setComposerSend(null)
+      }
+    }
+  }, [composerSend, sendResults, voicePendingNonce])
+
+  useEffect(() => {
+    const next = voicePreview ? URL.createObjectURL(voicePreview.file) : null
+    setVoicePreviewUrl(next)
+    return () => { if (next) URL.revokeObjectURL(next) }
+  }, [voicePreview])
+
+  useEffect(() => {
+    if (messages.length > previousMessageCount.current && !pinned.current) {
+      const added = messages.length - previousMessageCount.current
+      setNewWhileScrolled((count) => count + added)
+      setUnreadAnchor((current) => current ?? messages[previousMessageCount.current]?.id ?? null)
+    }
+    previousMessageCount.current = messages.length
+  }, [messages])
+
+  function markVisibleRead() {
+    if (!pinned.current || document.visibilityState !== 'visible' || !document.hasFocus()) return
+    const last = messages.at(-1)
+    if (last) onRead?.(last.id)
+  }
+
+  useEffect(() => {
+    markVisibleRead()
+    const onVisible = () => markVisibleRead()
+    window.addEventListener('focus', onVisible)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener('focus', onVisible)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, onRead])
 
   function onScroll() {
     const el = scroller.current
     if (!el) return
     pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+    if (pinned.current) {
+      setNewWhileScrolled(0)
+      setUnreadAnchor(null)
+      markVisibleRead()
+    }
   }
 
   async function handleFiles(files: FileList | File[]) {
     if (!serverUrl || !accessToken || !canSend) return
     const fileArray = Array.from(files)
     if (fileArray.length === 0) return
+    const available = Math.max(0, (limits.max_attachments_per_message ?? 10) - pendingUploads.length)
+    const queue = fileArray.slice(0, available)
 
-    for (const file of fileArray) {
-      const tempId = Math.random().toString(36).substring(2, 9)
-      const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
+    const worker = async () => {
+      while (queue.length > 0) {
+        const file = queue.shift()!
+        const tempId = Math.random().toString(36).substring(2, 9)
+        const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : ''
+        const controller = new AbortController()
+        const item: PendingUpload = { id: tempId, file, previewUrl, progress: 0, controller, filename: file.name, description: '' }
 
-      const item: PendingUpload = {
-        id: tempId,
-        file,
-        previewUrl,
-        progress: 0,
-      }
-
-      // O servidor recusa no presign de qualquer jeito; barrar aqui poupa o
-      // upload inteiro e diz o motivo na hora, em vez de depois da subida.
-      if (file.size > limits.max_upload_bytes) {
-        setPendingUploads((prev) => [
-          ...prev,
-          { ...item, error: `passa do limite de ${formatarMB(limits.max_upload_bytes)}` },
-        ])
-        continue
-      }
-
-      setPendingUploads((prev) => [...prev, item])
-
-      try {
-        const attachmentId = await uploadMediaFile(
-          serverUrl,
-          accessToken,
-          file,
-          (progress) => {
-            setPendingUploads((prev) =>
-              prev.map((p) => (p.id === tempId ? { ...p, progress } : p))
-            )
-          }
-        )
-
-        setPendingUploads((prev) =>
-          prev.map((p) => (p.id === tempId ? { ...p, attachmentId, progress: 100 } : p))
-        )
-      } catch (err) {
-        setPendingUploads((prev) =>
-          prev.map((p) =>
-            p.id === tempId
-              ? { ...p, error: err instanceof Error ? err.message : 'Falha no envio' }
-              : p
+        if (file.size > limits.max_upload_bytes) {
+          setPendingUploads((prev) => [...prev, { ...item, error: `passa do limite de ${formatarMB(limits.max_upload_bytes)}` }])
+          continue
+        }
+        setPendingUploads((prev) => [...prev, item])
+        try {
+          const attachmentId = await uploadMediaFile(
+            serverUrl,
+            accessToken,
+            file,
+            { kind, id: scopeId },
+            (progress) => setPendingUploads((prev) => prev.map((entry) => entry.id === tempId ? { ...entry, progress } : entry)),
+            controller.signal,
           )
-        )
+          setPendingUploads((prev) => prev.map((entry) => entry.id === tempId ? { ...entry, attachmentId, progress: 100, error: undefined } : entry))
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') continue
+          setPendingUploads((prev) => prev.map((entry) => entry.id === tempId ? { ...entry, error: error instanceof Error ? error.message : 'Falha no envio' } : entry))
+        }
       }
     }
+    await Promise.all(Array.from({ length: Math.min(3, queue.length) }, () => worker()))
   }
 
   function removeUpload(id: string) {
     setPendingUploads((prev) => {
       const item = prev.find((p) => p.id === id)
+      item?.controller?.abort()
       if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      if (item?.attachmentId && serverUrl && accessToken) void deletePendingAttachment(serverUrl, accessToken, item.attachmentId)
       return prev.filter((p) => p.id !== id)
     })
+  }
+
+  async function retryUpload(id: string) {
+    const item = pendingUploads.find((entry) => entry.id === id)
+    if (!item || !serverUrl || !accessToken || item.file.size === 0) return
+    const controller = new AbortController()
+    setPendingUploads((prev) => prev.map((entry) => entry.id === id ? { ...entry, error: undefined, progress: 0, controller } : entry))
+    try {
+      const attachmentId = await uploadMediaFile(serverUrl, accessToken, item.file, { kind, id: scopeId }, (progress) => {
+        setPendingUploads((prev) => prev.map((entry) => entry.id === id ? { ...entry, progress } : entry))
+      }, controller.signal)
+      setPendingUploads((prev) => prev.map((entry) => entry.id === id ? { ...entry, attachmentId, progress: 100 } : entry))
+    } catch (error) {
+      setPendingUploads((prev) => prev.map((entry) => entry.id === id ? { ...entry, error: error instanceof Error ? error.message : 'Falha no envio' } : entry))
+    }
+  }
+
+  function moveUpload(id: string, direction: -1 | 1) {
+    setPendingUploads((current) => {
+      const index = current.findIndex((item) => item.id === id)
+      const target = index + direction
+      if (index < 0 || target < 0 || target >= current.length) return current
+      const next = [...current]
+      ;[next[index], next[target]] = [next[target], next[index]]
+      return next
+    })
+  }
+
+  async function saveUploadMetadata(id: string) {
+    const item = pendingUploads.find((entry) => entry.id === id)
+    if (!item?.attachmentId || !serverUrl || !accessToken) return
+    try {
+      await updatePendingAttachment(serverUrl, accessToken, item.attachmentId, {
+        filename: item.filename?.trim() || item.file.name,
+        description: item.description?.trim() ?? '',
+      })
+    } catch (error) {
+      setPendingUploads((current) => current.map((entry) => entry.id === id ? {
+        ...entry,
+        error: error instanceof Error ? error.message : 'Falha ao salvar detalhes',
+      } : entry))
+    }
   }
 
   /** Manda o que ja esta pronto. Texto vazio com anexo pronto e envio valido. */
@@ -314,24 +520,29 @@ export function Chat({
       .map((p) => p.attachmentId)
       .filter((id): id is string => Boolean(id))
 
-    if ((!text && readyAttachments.length === 0) || !canSend) return
+    if ((!text && readyAttachments.length === 0) || !canSend || composerSend) return
     if (contarCaracteres(text) > limits.max_text_chars) return
 
+    const nonce = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+    const pending: OptimisticSend = {
+      nonce,
+      text,
+      attachmentIds: readyAttachments.length > 0 ? readyAttachments : undefined,
+      replyTo: respondendo?.id,
+      status: 'sending',
+    }
+    setOptimistic((current) => [...current, pending])
+    setComposerSend(pending)
     onSend(
       text,
       readyAttachments.length > 0 ? readyAttachments : undefined,
       respondendo?.id,
+      nonce,
     )
-    setDraft('')
-    setRespondendo(null)
-    setPendingUploads((prev) => {
-      prev.forEach((p) => p.previewUrl && URL.revokeObjectURL(p.previewUrl))
-      return []
-    })
   }
 
   function submit() {
-    if (!canSend || passouDoTexto) return
+    if (!canSend || passouDoTexto || composerSend) return
     // Anexo ainda subindo: antes disso o id nao existia na hora do envio e o
     // anexo era descartado calado — a mensagem saia so com texto, ou nem saia
     // quando nao havia texto. Agora a intencao fica guardada.
@@ -356,22 +567,48 @@ export function Chat({
    * Nao entra em `pendingUploads` de proposito — gravacao nao e anexo que a
    * pessoa escolhe acompanhar de um texto.
    */
-  async function enviarNotaDeVoz(file: File) {
+  async function enviarNotaDeVoz() {
+    const recording = voicePreview
+    if (!recording) return
     if (!serverUrl || !accessToken || !canSend) return
-    setIsSendingVoice(true)
+    setVoiceSending(true)
     setVoiceError(null)
     try {
-      const attachmentId = await uploadMediaFile(serverUrl, accessToken, file)
-      onSend('', [attachmentId])
+      const attachmentId = await uploadMediaFile(
+        serverUrl,
+        accessToken,
+        recording.file,
+        { kind, id: scopeId },
+      )
+      await updatePendingAttachment(serverUrl, accessToken, attachmentId, {
+        duration_ms: recording.durationMs,
+        waveform: recording.waveform,
+      })
+      const nonce = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+      setVoicePendingNonce(nonce)
+      setOptimistic((current) => [...current, { nonce, text: '', attachmentIds: [attachmentId], status: 'sending' }])
+      onSend('', [attachmentId], undefined, nonce)
     } catch (err) {
       setVoiceError(err instanceof Error ? err.message : 'Falha ao enviar o áudio')
     } finally {
-      setIsSendingVoice(false)
+      setVoiceSending(false)
     }
   }
 
+  function retrySend(item: OptimisticSend) {
+    setOptimistic((current) => current.map((entry) => entry.nonce === item.nonce ? { ...entry, status: 'sending', error: undefined } : entry))
+    setComposerSend({ ...item, status: 'sending', error: undefined })
+    onSend(item.text, item.attachmentIds, item.replyTo, item.nonce)
+  }
+
   function onKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Escape') {
+      setRespondendo(null)
+      setShowEmojiPicker(false)
+      setShowGifPicker(false)
+      return
+    }
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       submit()
     }
@@ -463,10 +700,17 @@ export function Chat({
           const mencionaVoce =
             (selfUserId !== undefined && msg.mentions?.includes(selfUserId)) ||
             Boolean(msg.mentions_everyone)
+          const previousDay = previous ? new Date(previous.ts).toDateString() : null
+          const currentDay = new Date(msg.ts).toDateString()
+          const readers = channelReadReceipts[msg.id] ?? []
 
           return (
+            <Fragment key={msg.id}>
+            {previousDay !== currentDay && (
+              <div className="chat__date-separator"><span>{new Date(msg.ts).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</span></div>
+            )}
+            {unreadAnchor === msg.id && <div className="chat__unread-divider"><span>Novas mensagens</span></div>}
             <article
-              key={msg.id}
               data-message-id={msg.id}
               className={`chat__msg ${grouped ? 'is-grouped' : ''} ${
                 mencionaVoce ? 'is-mencao' : ''
@@ -531,7 +775,7 @@ export function Chat({
 
                 {msg.preview && <LinkPreviewCard preview={msg.preview} />}
                 {msg.attachments && (
-                  <MessageAttachments attachments={msg.attachments} serverUrl={serverUrl} />
+                  <MessageAttachments attachments={msg.attachments} serverUrl={serverUrl} accessToken={accessToken} />
                 )}
                 {msg.poll && (
                   <PollCard
@@ -547,6 +791,25 @@ export function Chat({
                     selfUserId={selfUserId}
                     onToggle={(emoji) => onReact?.(msg.id, emoji)}
                   />
+                )}
+                {kind === 'direct' && souEu && readReceiptId === msg.id && <span className="chat__seen">Visto</span>}
+                {kind === 'channel' && readers.length > 0 && (
+                  <button
+                    type="button"
+                    className="chat__readers"
+                    title={`Lido por ${readers.length}`}
+                    aria-expanded={readersOpen === msg.id}
+                    onClick={() => setReadersOpen((current) => current === msg.id ? null : msg.id)}
+                  >
+                    {readers.slice(0, 3).map((userId) => <Avatar key={userId} userId={userId} className="chat__reader-avatar" fallbackName="" />)}
+                    {readers.length > 3 && <span>+{readers.length - 3}</span>}
+                    {readersOpen === msg.id && (
+                      <span className="chat__reader-list" role="status">
+                        <strong>Lido por</strong>
+                        {readers.map((userId) => <span key={userId}><Avatar userId={userId} fallbackName="" /><ProfileName userId={userId} fallbackName="Usuario" /></span>)}
+                      </span>
+                    )}
+                  </button>
                 )}
               </div>
 
@@ -600,19 +863,57 @@ export function Chat({
                 }}
               />
             </article>
+            </Fragment>
           )
         })}
+        {optimistic.map((item) => (
+          <article key={item.nonce} className={`chat__msg chat__msg--optimistic ${item.status === 'failed' ? 'is-failed' : ''}`}>
+            <div className="chat__gutter"><Avatar userId={selfUserId ?? ''} className="chat__avatar" fallbackName="Voce" /></div>
+            <div className="chat__body">
+              {item.text && <div className="chat__text">{item.text}</div>}
+              <div className="chat__delivery" role={item.status === 'failed' ? 'alert' : 'status'}>
+                {item.status === 'failed' ? item.error ?? 'Falha no envio' : 'Enviando...'}
+                {item.status === 'failed' && <button type="button" onClick={() => retrySend(item)}>Tentar novamente</button>}
+              </div>
+            </div>
+          </article>
+        ))}
       </div>
+
+      {newWhileScrolled > 0 && (
+        <button type="button" className="chat__jump-present" onClick={() => {
+          const element = scroller.current
+          if (element) element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' })
+          pinned.current = true
+          setNewWhileScrolled(0)
+          setUnreadAnchor(null)
+        }}>Voltar ao presente · {newWhileScrolled}</button>
+      )}
 
       <div className="chat__composer">
         {isRecordingAudio && (
           <AudioRecorder
-            onRecordingComplete={(file) => {
+            onRecordingComplete={(recording) => {
               setIsRecordingAudio(false)
-              void enviarNotaDeVoz(file)
+              setVoicePreview(recording)
+              setVoiceError(null)
             }}
             onCancel={() => setIsRecordingAudio(false)}
           />
+        )}
+        {voicePreview && voicePreviewUrl && (
+          <div className="chat__voice-preview">
+            <audio src={voicePreviewUrl} controls preload="metadata" />
+            <div className="chat__voice-waveform" aria-hidden="true">
+              {voicePreview.waveform.map((value, index) => <i key={index} style={{ height: `${Math.max(3, value / 4)}%` }} />)}
+            </div>
+            <div className="chat__voice-preview-actions">
+              <button type="button" onClick={() => { setVoicePreview(null); setVoiceError(null) }}>Apagar</button>
+              <button type="button" onClick={() => { setVoicePreview(null); setIsRecordingAudio(true) }}>Regravar</button>
+              <button type="button" className="is-primary" disabled={voiceSending} onClick={() => void enviarNotaDeVoz()}>{voiceSending ? 'Enviando...' : 'Enviar'}</button>
+            </div>
+            {voiceError && <span className="chat__voice-error" role="alert">{voiceError}</span>}
+          </div>
         )}
         {respondendo && (
           <div className="chat__respondendo">
@@ -636,7 +937,7 @@ export function Chat({
             </button>
           </div>
         )}
-        {(isSendingVoice || voiceError) && (
+        {(voiceSending && !voicePreview) && (
           <div className="stapp-voice-status" role="status">
             <span className={voiceError ? 'stapp-voice-status__erro' : ''}>
               {voiceError ?? 'Enviando mensagem de voz...'}
@@ -661,16 +962,42 @@ export function Chat({
                 className={`stapp-media-preview-item ${item.error ? 'is-erro' : ''}`}
                 title={item.error ?? item.file.name}
               >
-                {item.previewUrl ? (
-                  <img src={item.previewUrl} alt="" className="stapp-media-preview-thumb" />
-                ) : (
-                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--text-dim)]">
-                    <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                    <polyline points="14 2 14 8 20 8" />
-                  </svg>
-                )}
+                <div className="stapp-media-preview-visual">
+                  {item.previewUrl ? (
+                    <img src={item.previewUrl} alt="" className="stapp-media-preview-thumb" />
+                  ) : (
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--text-dim)]">
+                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                      <polyline points="14 2 14 8 20 8" />
+                    </svg>
+                  )}
+                </div>
+                <div className="stapp-media-preview-details">
+                  <input
+                    aria-label="Nome do anexo"
+                    value={item.filename ?? item.file.name}
+                    maxLength={255}
+                    onChange={(event) => setPendingUploads((current) => current.map((entry) => entry.id === item.id ? { ...entry, filename: event.target.value } : entry))}
+                    onBlur={() => void saveUploadMetadata(item.id)}
+                  />
+                  <span>{item.error ?? `${formatarTamanho(item.file.size)} · ${item.attachmentId ? 'Pronto' : `${item.progress}%`}`}</span>
+                  {item.file.type.startsWith('image/') && (
+                    <input
+                      aria-label="Texto alternativo"
+                      placeholder="Texto alternativo"
+                      value={item.description ?? ''}
+                      maxLength={1024}
+                      onChange={(event) => setPendingUploads((current) => current.map((entry) => entry.id === item.id ? { ...entry, description: event.target.value } : entry))}
+                      onBlur={() => void saveUploadMetadata(item.id)}
+                    />
+                  )}
+                </div>
+                <div className="stapp-media-preview-order" aria-label="Reordenar anexo">
+                  <button type="button" onClick={() => moveUpload(item.id, -1)} aria-label="Mover anexo para esquerda">‹</button>
+                  <button type="button" onClick={() => moveUpload(item.id, 1)} aria-label="Mover anexo para direita">›</button>
+                </div>
                 {item.error ? (
-                  <span className="stapp-media-preview-erro">!</span>
+                  <button type="button" className="stapp-media-preview-erro" onClick={() => void retryUpload(item.id)} title="Tentar novamente">!</button>
                 ) : (
                   item.progress < 100 && (
                     <div
@@ -691,149 +1018,39 @@ export function Chat({
             ))}
           </div>
         )}
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files) void handleFiles(e.target.files)
-            e.target.value = ''
-          }}
+        <MessageComposer
+          textareaRef={textareaRef}
+          fileInputRef={fileInputRef}
+          value={draft}
+          placeholder={canSend ? (kind === 'direct' ? `falar com ${title}` : `falar em ${title}`) : disabledReason ?? 'sem conexao com o servidor'}
+          disabled={!canSend}
+          hasContent={temConteudo}
+          uploading={subindoAnexo}
+          overLimit={passouDoTexto}
+          counter={mostrarContador ? `${caracteres}/${limits.max_text_chars}` : undefined}
+          recording={isRecordingAudio}
+          sending={Boolean(composerSend)}
+          canPoll={kind === 'channel'}
+          onChange={aoMudarRascunho}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+          onFiles={(files) => void handleFiles(files)}
+          onSubmit={submit}
+          onRecord={() => setIsRecordingAudio(true)}
+          onEmoji={() => setShowEmojiPicker((open) => !open)}
+          onGif={() => setShowGifPicker((open) => !open)}
+          onPoll={() => setShowPollModal(true)}
+          overlay={<MentionAutocomplete consulta={consultaMencao} candidatos={mentionables} onEscolher={inserirMencao} onFechar={() => setConsultaMencao(null)} />}
         />
-
-        {/* Discord-style integrated input container */}
-        <div className="relative flex items-end bg-[var(--bg-input)] rounded-lg px-3 py-2 gap-2">
-          <textarea
-            ref={textareaRef}
-            className="flex-1 bg-transparent border-0 outline-none resize-none overflow-y-auto text-sm text-[var(--text)] placeholder-[var(--text-faint)] max-h-36 min-h-[24px] py-1 m-0 leading-relaxed"
-            value={draft}
-            rows={1}
-            placeholder={
-              canSend
-                ? kind === 'direct'
-                  ? `falar com ${title}`
-                  : `falar em ${title}`
-                : disabledReason ?? 'sem conexão com o servidor'
-            }
-            disabled={!canSend}
-            onChange={aoMudarRascunho}
-            onKeyDown={onKeyDown}
-            onPaste={onPaste}
-          />
-          <div className="flex items-center gap-1 shrink-0 pb-0.5">
-            <button
-              type="button"
-              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
-              disabled={!canSend || isRecordingAudio}
-              onClick={() => setIsRecordingAudio(true)}
-              title="Gravar mensagem de voz"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="22" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
-              disabled={!canSend}
-              onClick={() => fileInputRef.current?.click()}
-              title="Anexar arquivo ou imagem"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors px-1.5 py-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40 font-bold text-[11px] tracking-wide"
-              disabled={!canSend}
-              onClick={() => setShowGifPicker((prev) => !prev)}
-              title="Escolher GIF (Klipy)"
-            >
-              GIF
-            </button>
-            <button
-              type="button"
-              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
-              disabled={!canSend || kind !== 'channel'}
-              onClick={() => setShowPollModal(true)}
-              title="Criar enquete (somente em canais)"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M3 3v18h18" />
-                <path d="M7 16h3v-4H7v4z" />
-                <path d="M12 16h3v-9h-3v9z" />
-                <path d="M17 16h3v-6h-3v6z" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1.5 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
-              disabled={!canSend}
-              onClick={() => setShowEmojiPicker((prev) => !prev)}
-              title="Escolher emoji"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10" />
-                <path d="M8 14s1.5 2 4 2 4-2 4-2" />
-                <line x1="9" y1="9" x2="9.01" y2="9" />
-                <line x1="15" y1="9" x2="15.01" y2="9" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="stapp-composer-send"
-              disabled={!canSend || passouDoTexto || (!temConteudo && !subindoAnexo)}
-              onClick={submit}
-              title={
-                passouDoTexto
-                  ? `passa do limite de ${limits.max_text_chars} caracteres`
-                  : subindoAnexo
-                    ? 'Enviando anexo...'
-                    : 'Enviar mensagem'
-              }
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
-          </div>
-          <MentionAutocomplete
-            consulta={consultaMencao}
-            candidatos={mentionables}
-            onEscolher={inserirMencao}
-            onFechar={() => setConsultaMencao(null)}
-          />
-          {mostrarContador && (
-            <span className={`chat__contador ${passouDoTexto ? 'is-estourado' : ''}`}>
-              {caracteres}/{limits.max_text_chars}
-            </span>
-          )}
-          <EmojiPicker
-            isOpen={showEmojiPicker}
-            onClose={() => setShowEmojiPicker(false)}
-            onSelectEmoji={insertEmoji}
-          />
-          <GifPicker
-            isOpen={showGifPicker}
-            onClose={() => setShowGifPicker(false)}
-            onSelectGif={(gifUrl) => {
-              setShowGifPicker(false)
-              onSend(`![GIF](${gifUrl})`)
-            }}
-          />
-          <PollCreatorModal
-            isOpen={showPollModal}
-            onClose={() => setShowPollModal(false)}
-            onCreatePoll={(question, options, allowMult) => {
-              onCreatePoll?.(question, options, allowMult)
-            }}
-          />
-        </div>
+        <EmojiPicker isOpen={showEmojiPicker} onClose={() => setShowEmojiPicker(false)} onSelectEmoji={insertEmoji} />
+        <GifPicker isOpen={showGifPicker} onClose={() => setShowGifPicker(false)} onSelectGif={(gifUrl) => {
+          setShowGifPicker(false)
+          setDraft((current) => `${current}${current ? ' ' : ''}![GIF](${gifUrl})`)
+        }} />
+        <PollCreatorModal isOpen={showPollModal} onClose={() => setShowPollModal(false)} onCreatePoll={(question, options, allowMult) => onCreatePoll?.(question, options, allowMult)} />
+        {typingUsers.filter((entry) => entry.expiresAt > Date.now()).length > 0 && (
+          <div className="chat__typing" role="status"><span>•••</span> {typingUsers.filter((entry) => entry.expiresAt > Date.now()).map((entry) => entry.username).join(', ')} esta digitando</div>
+        )}
       </div>
     </section>
   )

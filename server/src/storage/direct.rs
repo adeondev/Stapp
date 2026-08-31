@@ -25,27 +25,53 @@ const COLUNAS: &str = "id, author_id, author_username, kind, text, ts, reply_to,
 impl Db {
     pub fn insert_direct(&self, conversation: &str, msg: &DirectMessage) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO dm_messages
-                (id, conversation_id, author_id, author_username, kind, text, ts,
-                 reply_to, mentions, mentions_everyone)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            (
-                &msg.id,
-                conversation,
-                &msg.author_id,
-                &msg.author_username,
-                kind_para_texto(msg.kind),
-                &msg.text,
-                msg.ts,
-                msg.reply_to.as_ref().map(|r| r.message_id.clone()),
-                super::mentions_para_json(&msg.mentions),
-                msg.mentions_everyone,
-            ),
-        )?;
-        Ok(())
+        insert_on(&conn, conversation, msg, None)
     }
 
+    pub fn direct_id_for_nonce(
+        &self,
+        author_id: &UserId,
+        conversation: &str,
+        nonce: &str,
+    ) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT id FROM dm_messages WHERE author_id = ?1 AND conversation_id = ?2 AND client_nonce = ?3",
+            (author_id, conversation, nonce),
+            |row| row.get(0),
+        ).optional()?)
+    }
+}
+
+pub(super) fn insert_on(
+    conn: &rusqlite::Connection,
+    conversation: &str,
+    msg: &DirectMessage,
+    client_nonce: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO dm_messages
+                (id, conversation_id, author_id, author_username, kind, text, ts,
+                 reply_to, mentions, mentions_everyone, client_nonce)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        (
+            &msg.id,
+            conversation,
+            &msg.author_id,
+            &msg.author_username,
+            kind_para_texto(msg.kind),
+            &msg.text,
+            msg.ts,
+            msg.reply_to.as_ref().map(|r| r.message_id.clone()),
+            super::mentions_para_json(&msg.mentions),
+            msg.mentions_everyone,
+            client_nonce,
+        ),
+    )?;
+    Ok(())
+}
+
+impl Db {
     /// As `limit` mensagens mais recentes, ja em ordem cronologica.
     pub fn direct_history(&self, conversation: &str, limit: usize) -> Result<Vec<DirectMessage>> {
         let conn = self.conn.lock().unwrap();
@@ -140,16 +166,47 @@ impl Db {
     }
 
     pub fn mark_direct_read(&self, reader: &UserId, conversation: &str, ts: i64) -> Result<()> {
+        self.mark_direct_read_message(reader, conversation, ts, None)
+            .map(|_| ())
+    }
+
+    pub fn mark_direct_read_message(
+        &self,
+        reader: &UserId,
+        conversation: &str,
+        ts: i64,
+        message_id: Option<&str>,
+    ) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
+        let read_ts = if let Some(message_id) = message_id {
+            let message_ts = conn
+                .query_row(
+                    "SELECT ts FROM dm_messages WHERE id = ?1 AND conversation_id = ?2",
+                    (message_id, conversation),
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()?;
+            let Some(message_ts) = message_ts else {
+                return Ok(false);
+            };
+            message_ts
+        } else {
+            ts
+        };
         // MAX evita que uma marcacao atrasada "desleia" o que ja tinha sido lido.
         conn.execute(
-            "INSERT INTO dm_reads (user_id, conversation_id, last_read_ts)
-             VALUES (?1, ?2, ?3)
+            "INSERT INTO dm_reads (user_id, conversation_id, last_read_ts, last_message_id)
+             VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (user_id, conversation_id)
-             DO UPDATE SET last_read_ts = MAX(last_read_ts, excluded.last_read_ts)",
-            (reader, conversation, ts),
+             DO UPDATE SET
+                last_read_ts = MAX(last_read_ts, excluded.last_read_ts),
+                last_message_id = CASE
+                    WHEN excluded.last_read_ts >= last_read_ts THEN excluded.last_message_id
+                    ELSE last_message_id
+                END",
+            (reader, conversation, read_ts, message_id),
         )?;
-        Ok(())
+        Ok(true)
     }
 
     /// Com quem esta conta ja trocou mensagem, mais recente primeiro.

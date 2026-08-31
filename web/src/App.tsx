@@ -236,11 +236,7 @@ export default function App() {
           if (meChama && msg.msg.author_id !== eu) notificationSound.play()
         }
         if (msg.t === 'dm.new') {
-          const current = viewRef.current
           if (msg.unread > 0 && msg.msg.kind === 'text') notificationSound.play()
-          if (current?.kind === 'direct' && current.userId === msg.user_id && msg.unread > 0) {
-            connection.current?.send({ t: 'dm.read', user_id: msg.user_id })
-          }
         }
         if (msg.t === 'dm.denied') setNotice('Essa pessoa aceita novas conversas apenas de amigos.')
         if (msg.t === 'call.incoming') setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
@@ -363,7 +359,7 @@ export default function App() {
   }, [resetRoom])
 
   const sendMessage = useCallback(
-    (text: string, attachmentIds?: string[], replyTo?: string) => {
+    (text: string, attachmentIds?: string[], replyTo?: string, clientNonce?: string) => {
       const current = viewRef.current
       if (current?.kind === 'channel') {
         connection.current?.send({
@@ -372,6 +368,7 @@ export default function App() {
           text,
           attachment_ids: attachmentIds,
           reply_to: replyTo,
+          client_nonce: clientNonce,
         })
       }
       if (current?.kind === 'direct') {
@@ -381,6 +378,7 @@ export default function App() {
           text,
           attachment_ids: attachmentIds,
           reply_to: replyTo,
+          client_nonce: clientNonce,
         })
       }
     },
@@ -632,6 +630,7 @@ export default function App() {
               <Chat
                 title={channel.name}
                 kind="channel"
+                scopeId={channel.id}
                 messages={state.messages[channel.id] ?? []}
                 canSend={status === 'online'}
                 serverUrl={active?.profile.url}
@@ -639,6 +638,11 @@ export default function App() {
                 selfUserId={state.selfUserId ?? undefined}
                 limits={state.limits}
                 mentionables={state.directory}
+                sendResults={state.sendResults}
+                typingUsers={state.typing[`channel:${channel.id}`]}
+                channelReadReceipts={state.channelReads[channel.id]}
+                onTyping={(active) => connection.current?.send({ t: 'typing.set', scope_kind: 'channel', scope_id: channel.id, active })}
+                onRead={(messageId) => connection.current?.send({ t: 'chat.read', channel: channel.id, message_id: messageId })}
                 onEdit={editMessage}
                 onDelete={deleteMessage}
                 onReact={reactMessage}
@@ -651,6 +655,7 @@ export default function App() {
               <Chat
                 title={conversation.username}
                 kind="direct"
+                scopeId={conversation.user_id}
                 messages={state.directMessages[conversation.user_id] ?? []}
                 canSend={canDirect}
                 disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
@@ -659,6 +664,11 @@ export default function App() {
                 selfUserId={state.selfUserId ?? undefined}
                 limits={state.limits}
                 mentionables={state.directory}
+                sendResults={state.sendResults}
+                typingUsers={state.typing[`direct:${conversation.user_id}`]}
+                readReceiptId={state.dmReadReceipts[conversation.user_id]}
+                onTyping={(active) => connection.current?.send({ t: 'typing.set', scope_kind: 'direct', scope_id: conversation.user_id, active })}
+                onRead={(messageId) => connection.current?.send({ t: 'dm.read', user_id: conversation.user_id, message_id: messageId })}
                 onEdit={editMessage}
                 onDelete={deleteMessage}
                 onReact={reactMessage}

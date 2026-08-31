@@ -44,12 +44,17 @@ export interface StappState {
    * porque quem manda e o servidor.
    */
   limits: Limits
+  sendResults: Record<string, { messageId?: string; error?: string }>
+  typing: Record<string, { userId: UserId; username: string; expiresAt: number }[]>
+  dmReadReceipts: Record<UserId, string | undefined>
+  channelReads: Record<string, Record<string, UserId[]>>
 }
 
 /** Os mesmos defaults do `stapp.toml`, para a tela ter numero antes de conectar. */
 export const LIMITES_PADRAO: Limits = {
-  max_upload_bytes: 15 * 1024 * 1024,
+  max_upload_bytes: 20 * 1024 * 1024,
   max_text_chars: 4000,
+  max_attachments_per_message: 10,
 }
 
 export const initialState: StappState = {
@@ -68,6 +73,10 @@ export const initialState: StappState = {
   socialMembers: [],
   profiles: {},
   limits: LIMITES_PADRAO,
+  sendResults: {},
+  typing: {},
+  dmReadReceipts: {},
+  channelReads: {},
 }
 
 const byUsername = (a: { username: string }, b: { username: string }) =>
@@ -108,6 +117,53 @@ export function reduce(state: StappState, msg: StappAction): StappState {
       if (current.some((message) => message.id === msg.msg.id)) return state
       return { ...state, messages: { ...state.messages, [msg.channel]: [...current, msg.msg] } }
     }
+
+    case 'message.accepted':
+      return {
+        ...state,
+        sendResults: {
+          ...state.sendResults,
+          [msg.client_nonce]: { messageId: msg.message_id },
+        },
+      }
+
+    case 'message.failed':
+      return {
+        ...state,
+        sendResults: {
+          ...state.sendResults,
+          [msg.client_nonce]: { error: msg.message },
+        },
+      }
+
+    case 'typing': {
+      if (msg.user_id === state.selfUserId) return state
+      const key = `${msg.scope_kind}:${msg.scope_id}`
+      const current = (state.typing[key] ?? []).filter(
+        (entry) => entry.userId !== msg.user_id && entry.expiresAt > Date.now(),
+      )
+      return {
+        ...state,
+        typing: {
+          ...state.typing,
+          [key]: msg.active
+            ? [...current, { userId: msg.user_id, username: msg.username, expiresAt: msg.expires_at }]
+            : current,
+        },
+      }
+    }
+
+    case 'chat.reads':
+      return {
+        ...state,
+        channelReads: {
+          ...state.channelReads,
+          [msg.channel]: {
+            ...(state.channelReads[msg.channel] ?? {}),
+            [msg.message_id]: msg.readers,
+          },
+        },
+      }
 
     case 'chat.preview':
       return patchMessage(state, msg.message_id, { preview: msg.preview })
@@ -204,9 +260,15 @@ export function reduce(state: StappState, msg: StappAction): StappState {
 
     case 'dm.read':
       // Chega tambem quando outra aba sua leu a conversa.
-      return state.conversations[msg.user_id]
-        ? { ...state, conversations: mergeConversation(state, msg.user_id, { unread: 0 }) }
-        : state
+      return {
+        ...state,
+        conversations: state.conversations[msg.user_id]
+          ? mergeConversation(state, msg.user_id, { unread: 0 })
+          : state.conversations,
+        dmReadReceipts: msg.message_id
+          ? { ...state.dmReadReceipts, [msg.user_id]: msg.message_id }
+          : state.dmReadReceipts,
+      }
 
     case 'social.snapshot':
       return {
