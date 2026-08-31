@@ -29,6 +29,9 @@ tower-http = { version = "0.7", features = ["fs", "set-header"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "charset"] }
+scraper = "0.22"
+url = "2"
 
 # So os testes de integracao em tests/ precisam de um cliente WebSocket.
 [dev-dependencies]
