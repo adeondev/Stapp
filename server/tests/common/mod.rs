@@ -91,6 +91,7 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
         storage: StorageConfig {
             database,
             history_limit: 50,
+            s3: None,
         },
     }
 }

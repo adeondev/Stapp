@@ -105,6 +105,7 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
         storage: StorageConfig {
             database,
             history_limit: 20,
+            s3: None,
         },
     }
 }

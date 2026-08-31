@@ -91,6 +91,7 @@ async fn conexao_anonima_nao_alcanca_o_resto_do_protocolo() {
         ClientMsg::ChatSend {
             channel: "geral".into(),
             text: "oi".into(),
+            attachment_ids: Vec::new(),
         },
     )
     .await;

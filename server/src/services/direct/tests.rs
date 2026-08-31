@@ -26,7 +26,7 @@ async fn a_mensagem_chega_so_nas_duas_pontas() {
     server.state.register_session("b1", &bob).await.unwrap();
 
     let mut events = server.state.subscribe();
-    send(&server.state, "d1", alice.id.clone(), "  oi alice  ").await;
+    send(&server.state, "d1", alice.id.clone(), "  oi alice  ", Vec::new()).await;
     let entregues = coletar(&mut events);
 
     let destinos: Vec<&str> = entregues.iter().map(|(peer, _)| peer.as_str()).collect();
@@ -50,7 +50,7 @@ async fn cada_lado_recebe_o_outro_como_dono_da_conversa() {
     server.state.register_session("a1", &alice).await.unwrap();
 
     let mut events = server.state.subscribe();
-    send(&server.state, "d1", alice.id.clone(), "oi").await;
+    send(&server.state, "d1", alice.id.clone(), "oi", Vec::new()).await;
 
     for (peer, msg) in coletar(&mut events) {
         let ServerMsg::DmNew {
@@ -83,8 +83,8 @@ async fn nao_lidas_acumulam_e_zeram_ao_abrir() {
     server.state.register_session("d1", &daniel).await.unwrap();
     server.state.register_session("a1", &alice).await.unwrap();
 
-    send(&server.state, "d1", alice.id.clone(), "uma").await;
-    send(&server.state, "d1", alice.id.clone(), "duas").await;
+    send(&server.state, "d1", alice.id.clone(), "uma", Vec::new()).await;
+    send(&server.state, "d1", alice.id.clone(), "duas", Vec::new()).await;
 
     let conversa = conversation_id(&daniel.id, &alice.id);
     assert_eq!(
@@ -116,7 +116,7 @@ async fn conversa_offline_espera_no_historico() {
     server.state.register_session("d1", &daniel).await.unwrap();
     // A alice nem conectou.
 
-    send(&server.state, "d1", alice.id.clone(), "te procurei").await;
+    send(&server.state, "d1", alice.id.clone(), "te procurei", Vec::new()).await;
 
     server.state.register_session("a1", &alice).await.unwrap();
     let mut events = server.state.subscribe();
@@ -141,7 +141,7 @@ async fn a_lista_traz_com_quem_voce_falou_e_quantas_faltam_ler() {
     server.state.register_session("d1", &daniel).await.unwrap();
     server.state.register_session("a1", &alice).await.unwrap();
 
-    send(&server.state, "d1", alice.id.clone(), "primeira").await;
+    send(&server.state, "d1", alice.id.clone(), "primeira", Vec::new()).await;
 
     let mut events = server.state.subscribe();
     send_list(&server.state, "a1").await;
@@ -166,8 +166,8 @@ async fn recusa_conversa_consigo_mesmo_e_conta_inexistente() {
     server.state.register_session("d1", &daniel).await.unwrap();
 
     let mut events = server.state.subscribe();
-    send(&server.state, "d1", daniel.id.clone(), "eco").await;
-    send(&server.state, "d1", "nao-existe".to_string(), "oi").await;
+    send(&server.state, "d1", daniel.id.clone(), "eco", Vec::new()).await;
+    send(&server.state, "d1", "nao-existe".to_string(), "oi", Vec::new()).await;
 
     let erros: Vec<_> = coletar(&mut events)
         .into_iter()
@@ -206,7 +206,7 @@ async fn ler_numa_sessao_limpa_o_badge_das_outras() {
     server.state.register_session("a2", &alice).await.unwrap();
     server.state.register_session("d1", &daniel).await.unwrap();
 
-    send(&server.state, "d1", alice.id.clone(), "olha isso").await;
+    send(&server.state, "d1", alice.id.clone(), "olha isso", Vec::new()).await;
 
     let mut events = server.state.subscribe();
     // Ela le numa das abas.

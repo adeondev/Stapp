@@ -13,7 +13,7 @@ async fn sanitizes_persists_and_broadcasts_a_message() {
         .unwrap();
     let mut events = server.state.subscribe();
 
-    send(&server.state, "peer", "geral".into(), "  oi\0\nmundo  ").await;
+    send(&server.state, "peer", "geral".into(), "  oi\0\nmundo  ", Vec::new()).await;
 
     let event = events.try_recv().unwrap();
     assert!(matches!(event.target, Target::All));
@@ -43,7 +43,7 @@ async fn rejects_non_text_channels() {
         .unwrap();
     let mut events = server.state.subscribe();
 
-    send(&server.state, "peer", "voz-a".into(), "nao deveria entrar").await;
+    send(&server.state, "peer", "voz-a".into(), "nao deveria entrar", Vec::new()).await;
 
     let event = events.try_recv().unwrap();
     assert!(matches!(event.target, Target::Peer(ref id) if id == "peer"));
@@ -60,7 +60,7 @@ async fn sends_history_only_to_the_requested_peer() {
         .register_session("peer", &account)
         .await
         .unwrap();
-    send(&server.state, "peer", "geral".into(), "mensagem").await;
+    send(&server.state, "peer", "geral".into(), "mensagem", Vec::new()).await;
     let mut events = server.state.subscribe();
 
     send_history(&server.state, "peer");

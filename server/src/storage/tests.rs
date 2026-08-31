@@ -21,6 +21,7 @@ fn message(author: &Account, id: &str, ts: i64) -> Message {
         author_username: author.username.clone(),
         text: id.into(),
         ts,
+        attachments: Vec::new(),
     }
 }
 
@@ -191,4 +192,35 @@ fn perfil_editado_sobrevive_a_reabertura_do_banco() {
     assert_eq!(perfil.display_name, "Deon");
     assert_eq!(perfil.accent, "purple");
     assert_eq!(perfil.updated_at, 777);
+}
+
+#[test]
+fn vincula_e_lista_anexos_de_mensagem() {
+    let dir = TestDir::new();
+    let db = Db::open(&dir.database()).unwrap();
+    let author = account(&db, "Alice");
+
+    let att_id = "anexo-uuid-1";
+    db.insert_attachment(
+        att_id,
+        &author.id,
+        "screenshot.png",
+        "image/png",
+        2048,
+        "uploads/alice/screenshot.png",
+        1000,
+    )
+    .unwrap();
+
+    let msg = message(&author, "msg-com-anexo", 1005);
+    db.insert(&msg).unwrap();
+    db.bind_attachments(&msg.id, &[att_id.to_string()]).unwrap();
+
+    let history = db.history("geral", 10).unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].attachments.len(), 1);
+    assert_eq!(history[0].attachments[0].id, att_id);
+    assert_eq!(history[0].attachments[0].filename, "screenshot.png");
+    assert_eq!(history[0].attachments[0].content_type, "image/png");
+    assert_eq!(history[0].attachments[0].size_bytes, 2048);
 }
