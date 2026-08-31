@@ -340,10 +340,24 @@ export default function App() {
     setAuthError(null)
   }, [resetRoom])
 
-  const sendMessage = useCallback((text: string) => {
+  const sendMessage = useCallback((text: string, attachmentIds?: string[]) => {
     const current = viewRef.current
-    if (current?.kind === 'channel') connection.current?.send({ t: 'chat.send', channel: current.id, text })
-    if (current?.kind === 'direct') connection.current?.send({ t: 'dm.send', user_id: current.userId, text })
+    if (current?.kind === 'channel') {
+      connection.current?.send({
+        t: 'chat.send',
+        channel: current.id,
+        text,
+        attachment_ids: attachmentIds,
+      })
+    }
+    if (current?.kind === 'direct') {
+      connection.current?.send({
+        t: 'dm.send',
+        user_id: current.userId,
+        text,
+        attachment_ids: attachmentIds,
+      })
+    }
   }, [])
 
   const selectHome = useCallback(() => {
