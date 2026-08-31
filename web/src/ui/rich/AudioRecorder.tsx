@@ -37,8 +37,8 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
 
         recorder.onstop = () => {
           const blob = new Blob(chunksRef.current, { type: mimeType })
-          const filename = `audio-${Date.now()}.webm`
-          const file = new File([blob], filename, { type: mimeType })
+          const filename = `voice-note-${Date.now()}.webm`
+          const file = new File([blob], filename, { type: 'audio/voice' })
           onRecordingComplete(file)
         }
 

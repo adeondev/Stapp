@@ -5,6 +5,14 @@
   margin-top: 0.5rem;
 }
 
+.stapp-voice-note-wrapper {
+  max-width: 380px;
+}
+
+.stapp-audio-attachment-wrapper {
+  max-width: 380px;
+}
+
 .stapp-attachment-image-wrapper {
   max-width: 440px;
   max-height: 320px;
