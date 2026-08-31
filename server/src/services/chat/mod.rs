@@ -72,6 +72,7 @@ pub async fn send(
         text,
         ts: now_ms(),
         attachments,
+        poll: None,
     };
 
     // Se o disco falhar, a conversa continua — so o historico fica torto.

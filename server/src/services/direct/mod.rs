@@ -153,6 +153,7 @@ pub async fn send(
         text,
         ts: now_ms(),
         attachments,
+        poll: None,
     };
 
     if let Err(err) = state.db.insert_direct(&conversation, &msg) {

@@ -36,6 +36,25 @@ export interface Attachment {
   url: string
 }
 
+export interface PollOption {
+  id: string
+  text: string
+  votes: number
+  voted_by_me?: boolean
+}
+
+export interface Poll {
+  id: string
+  message_id: string
+  author_id: UserId
+  question: string
+  allow_mult: boolean
+  closed: boolean
+  total_votes: number
+  options: PollOption[]
+  created_at: number
+}
+
 export interface Message {
   id: string
   channel: string
@@ -46,6 +65,7 @@ export interface Message {
   ts: number
   preview?: UrlPreview
   attachments?: Attachment[]
+  poll?: Poll
 }
 
 export interface UrlPreview {
@@ -67,6 +87,7 @@ export interface ChatEntry {
   kind?: DirectMessageKind
   preview?: UrlPreview
   attachments?: Attachment[]
+  poll?: Poll
 }
 
 export type DirectMessageKind = 'text' | 'call'
@@ -81,6 +102,7 @@ export interface DirectMessage {
   ts: number
   preview?: UrlPreview
   attachments?: Attachment[]
+  poll?: Poll
 }
 
 /** Uma conversa na lista lateral, ja do ponto de vista de quem recebe. */
@@ -190,6 +212,15 @@ export type AuthErrorCode =
 export type ClientMsg =
   | { t: 'auth.access'; access_token: string }
   | { t: 'chat.send'; channel: string; text: string; attachment_ids?: string[] }
+  | {
+      t: 'poll.create'
+      channel: string
+      question: string
+      options: string[]
+      allow_mult: boolean
+    }
+  | { t: 'poll.vote'; poll_id: string; option_id: string }
+  | { t: 'poll.close'; poll_id: string }
   | { t: 'dm.open'; user_id: UserId }
   | { t: 'dm.send'; user_id: UserId; text: string; attachment_ids?: string[] }
   | { t: 'dm.read'; user_id: UserId }
@@ -252,6 +283,7 @@ export type ServerMsg =
   | { t: 'chat.history'; channel: string; msgs: Message[] }
   | { t: 'chat.new'; channel: string; msg: Message }
   | { t: 'chat.preview'; message_id: string; preview: UrlPreview }
+  | { t: 'chat.poll_update'; channel: string; poll: Poll }
   | { t: 'dm.list'; conversations: DirectSummary[] }
   | { t: 'dm.history'; user_id: UserId; msgs: DirectMessage[] }
   | {

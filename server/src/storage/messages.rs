@@ -44,6 +44,7 @@ impl Db {
                 text: row.get(4)?,
                 ts: row.get(5)?,
                 attachments: Vec::new(),
+                poll: None,
             })
         })?;
 
@@ -51,6 +52,9 @@ impl Db {
         for msg in &mut msgs {
             if let Ok(atts) = super::attachments::list_for_message(&conn, &msg.id, None) {
                 msg.attachments = atts;
+            }
+            if let Ok(poll) = super::polls::get_poll_by_message(&conn, &msg.id, None) {
+                msg.poll = poll;
             }
         }
         msgs.reverse();

@@ -27,6 +27,21 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
             attachment_ids,
         } => chat::send(state, peer_id, channel, &text, attachment_ids).await,
 
+        ClientMsg::PollCreate {
+            channel,
+            question,
+            options,
+            allow_mult,
+        } => crate::services::polls::create(state, peer_id, channel, question, options, allow_mult).await,
+
+        ClientMsg::PollVote { poll_id, option_id } => {
+            crate::services::polls::vote(state, peer_id, poll_id, option_id).await
+        }
+
+        ClientMsg::PollClose { poll_id } => {
+            crate::services::polls::close(state, peer_id, poll_id).await
+        }
+
         ClientMsg::DmOpen { user_id } => direct::open(state, peer_id, user_id).await,
         ClientMsg::DmSend {
             user_id,

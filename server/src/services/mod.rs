@@ -11,6 +11,7 @@ pub mod call;
 pub mod chat;
 pub mod direct;
 pub mod media;
+pub mod polls;
 pub mod preview;
 pub mod profile;
 pub mod social;

@@ -95,6 +95,29 @@ pub struct Attachment {
     pub url: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PollOption {
+    pub id: String,
+    pub text: String,
+    pub votes: usize,
+    /// Se o usuário da sessão atual votou nesta opção.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub voted_by_me: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Poll {
+    pub id: String,
+    pub message_id: String,
+    pub author_id: UserId,
+    pub question: String,
+    pub allow_mult: bool,
+    pub closed: bool,
+    pub total_votes: usize,
+    pub options: Vec<PollOption>,
+    pub created_at: i64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
@@ -106,6 +129,8 @@ pub struct Message {
     pub ts: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll: Option<Poll>,
 }
 
 /// Uma mensagem direta. Nao carrega canal: a conversa e o par de contas, e quem
@@ -120,6 +145,8 @@ pub struct DirectMessage {
     pub ts: i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<Attachment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub poll: Option<Poll>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -268,6 +295,26 @@ pub enum ClientMsg {
         attachment_ids: Vec<String>,
     },
 
+    /// Criação de enquete nativa em um canal de texto.
+    #[serde(rename = "poll.create")]
+    PollCreate {
+        channel: String,
+        question: String,
+        options: Vec<String>,
+        allow_mult: bool,
+    },
+
+    /// Votar em uma opção de enquete (ou desmarcar se já votou).
+    #[serde(rename = "poll.vote")]
+    PollVote {
+        poll_id: String,
+        option_id: String,
+    },
+
+    /// Encerrar a votação da enquete (somente autor).
+    #[serde(rename = "poll.close")]
+    PollClose { poll_id: String },
+
     /// Abre uma conversa: pede o historico e marca tudo como lido.
     #[serde(rename = "dm.open")]
     DmOpen { user_id: UserId },
@@ -412,6 +459,13 @@ pub enum ServerMsg {
     LinkPreviewEnriched {
         message_id: String,
         preview: UrlPreview,
+    },
+
+    /// Notificação de atualização de uma enquete (novo voto ou encerramento).
+    #[serde(rename = "chat.poll_update")]
+    ChatPollUpdate {
+        channel: String,
+        poll: Poll,
     },
 
     /// A lista lateral de conversas, com nao-lidas. Vai logo depois do welcome.

@@ -22,6 +22,7 @@ fn message(author: &Account, id: &str, ts: i64) -> Message {
         text: id.into(),
         ts,
         attachments: Vec::new(),
+        poll: None,
     }
 }
 
@@ -224,3 +225,42 @@ fn vincula_e_lista_anexos_de_mensagem() {
     assert_eq!(history[0].attachments[0].content_type, "image/png");
     assert_eq!(history[0].attachments[0].size_bytes, 2048);
 }
+
+#[test]
+fn cria_vota_e_encerra_enquete() {
+    let dir = TestDir::new();
+    let db = Db::open(&dir.database()).unwrap();
+    let author = account(&db, "daniel");
+
+    let msg = message(&author, "msg-enquete", 2000);
+    db.insert(&msg).unwrap();
+
+    let options = vec!["Opcao A".to_string(), "Opcao B".to_string()];
+    let poll = db
+        .insert_poll(
+            &msg.id,
+            Some("geral"),
+            &author.id,
+            "Qual a melhor opção?",
+            false,
+            &options,
+            2000,
+        )
+        .unwrap();
+
+    assert_eq!(poll.question, "Qual a melhor opção?");
+    assert_eq!(poll.options.len(), 2);
+    assert_eq!(poll.total_votes, 0);
+
+    let opt_a_id = &poll.options[0].id;
+    let updated = db
+        .vote_poll(&poll.id, opt_a_id, &author.id, 2005)
+        .unwrap();
+    assert_eq!(updated.total_votes, 1);
+    assert_eq!(updated.options[0].votes, 1);
+    assert_eq!(updated.options[0].voted_by_me, Some(true));
+
+    let closed = db.close_poll(&poll.id, &author.id).unwrap();
+    assert!(closed.closed);
+}
+

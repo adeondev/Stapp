@@ -10,6 +10,7 @@ pub mod attachments;
 mod auth_sessions;
 mod direct;
 mod messages;
+pub mod polls;
 mod profiles;
 mod schema;
 mod social;
@@ -88,6 +89,46 @@ impl Db {
     pub fn list_attachments(&self, message_id: &str, public_base: Option<&str>) -> Result<Vec<crate::protocol::Attachment>> {
         let conn = self.conn.lock().unwrap();
         attachments::list_for_message(&conn, message_id, public_base)
+    }
+
+    pub fn insert_poll(
+        &self,
+        message_id: &str,
+        channel_id: Option<&str>,
+        author_id: &crate::protocol::UserId,
+        question: &str,
+        allow_mult: bool,
+        options: &[String],
+        ts: i64,
+    ) -> Result<crate::protocol::Poll> {
+        let conn = self.conn.lock().unwrap();
+        polls::insert_poll(&conn, message_id, channel_id, author_id, question, allow_mult, options, ts)
+    }
+
+    pub fn get_poll_by_id(&self, poll_id: &str, current_user_id: Option<&crate::protocol::UserId>) -> Result<Option<crate::protocol::Poll>> {
+        let conn = self.conn.lock().unwrap();
+        polls::get_poll_by_id(&conn, poll_id, current_user_id)
+    }
+
+    pub fn get_poll_by_message(&self, message_id: &str, current_user_id: Option<&crate::protocol::UserId>) -> Result<Option<crate::protocol::Poll>> {
+        let conn = self.conn.lock().unwrap();
+        polls::get_poll_by_message(&conn, message_id, current_user_id)
+    }
+
+    pub fn vote_poll(
+        &self,
+        poll_id: &str,
+        option_id: &str,
+        user_id: &crate::protocol::UserId,
+        ts: i64,
+    ) -> Result<crate::protocol::Poll> {
+        let conn = self.conn.lock().unwrap();
+        polls::vote_poll(&conn, poll_id, option_id, user_id, ts)
+    }
+
+    pub fn close_poll(&self, poll_id: &str, user_id: &crate::protocol::UserId) -> Result<crate::protocol::Poll> {
+        let conn = self.conn.lock().unwrap();
+        polls::close_poll(&conn, poll_id, user_id)
     }
 }
 
