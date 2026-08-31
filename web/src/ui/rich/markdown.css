@@ -1,0 +1,130 @@
+﻿.stapp-markdown {
+  word-break: break-word;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.stapp-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.stapp-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.stapp-markdown p {
+  margin: 0 0 0.5rem 0;
+}
+
+.stapp-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.stapp-markdown h1,
+.stapp-markdown h2,
+.stapp-markdown h3,
+.stapp-markdown h4 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.75rem 0 0.4rem 0;
+  color: var(--text);
+}
+
+.stapp-markdown h1 { font-size: 1.25rem; }
+.stapp-markdown h2 { font-size: 1.15rem; }
+.stapp-markdown h3 { font-size: 1.05rem; }
+.stapp-markdown h4 { font-size: 0.95rem; }
+
+.stapp-markdown strong {
+  font-weight: 600;
+  color: #fff;
+}
+
+.stapp-markdown em {
+  font-style: italic;
+}
+
+.stapp-markdown del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.stapp-markdown ul,
+.stapp-markdown ol {
+  margin: 0.25rem 0 0.5rem 1.25rem;
+  padding: 0;
+}
+
+.stapp-markdown li {
+  margin-bottom: 0.15rem;
+}
+
+.stapp-markdown blockquote {
+  margin: 0.4rem 0;
+  padding: 0.25rem 0.75rem;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-raised);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--text-soft);
+}
+
+.stapp-markdown a {
+  color: var(--accent);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.stapp-markdown a:hover {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}
+
+.stapp-markdown code.stapp-inline-code {
+  background: var(--bg-input);
+  padding: 0.15rem 0.35rem;
+  border-radius: var(--radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85em;
+  color: var(--text-soft);
+}
+
+.stapp-markdown pre {
+  margin: 0.5rem 0;
+  background: var(--bg-canvas);
+  border-radius: var(--radius);
+  padding: 0.75rem;
+  overflow-x: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.stapp-markdown pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  color: var(--text);
+}
+
+.stapp-markdown table {
+  border-collapse: collapse;
+  margin: 0.5rem 0;
+  width: 100%;
+  font-size: 0.9rem;
+}
+
+.stapp-markdown th,
+.stapp-markdown td {
+  padding: 0.35rem 0.6rem;
+  text-align: left;
+  background: var(--bg-raised);
+}
+
+.stapp-markdown th {
+  background: var(--bg-input);
+  font-weight: 600;
+}
+
+.stapp-markdown tr:nth-child(even) td {
+  background: var(--bg-app);
+}
