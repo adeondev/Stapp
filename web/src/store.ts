@@ -124,6 +124,20 @@ export function reduce(state: StappState, msg: StappAction): StappState {
       return { ...state, messages: newMessages, directMessages: newDirect }
     }
 
+    case 'chat.poll_update': {
+      const channelMsgs = state.messages[msg.channel]
+      if (!channelMsgs) return state
+
+      const newChannelMsgs = channelMsgs.map((m) =>
+        m.id === msg.poll.message_id ? { ...m, poll: msg.poll } : m
+      )
+
+      return {
+        ...state,
+        messages: { ...state.messages, [msg.channel]: newChannelMsgs },
+      }
+    }
+
     case 'user.online': {
       // Quem criou a conta depois do nosso welcome nao esta no diretorio.
       // Este evento e a prova de que existe, entao aproveitamos para incluir.
