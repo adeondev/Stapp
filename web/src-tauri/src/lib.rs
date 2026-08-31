@@ -20,6 +20,18 @@ pub fn run() {
             #[cfg(windows)]
             if let Some(main) = app.get_webview_window("main") {
                 desktop_permissions::install(&main)?;
+                // Nao usar default_window_icon: o contexto gerado pode manter o
+                // recurso padrao do Tauri mesmo quando o bundle do EXE ja tem o
+                // icone certo. Este PNG fica embutido no binario e e aplicado a
+                // propria janela, que e a fonte usada pela barra de tarefas.
+                let icon = image::load_from_memory(include_bytes!("../icons/128x128.png"))?
+                    .into_rgba8();
+                let (width, height) = icon.dimensions();
+                main.set_icon(tauri::image::Image::new_owned(
+                    icon.into_raw(),
+                    width,
+                    height,
+                ))?;
             }
             Ok(())
         })
