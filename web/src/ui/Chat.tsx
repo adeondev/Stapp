@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatEntry } from '../protocol'
 import { IconAt, IconHash, IconPhone } from './Icons'
+import { MarkdownRenderer } from './rich/MarkdownRenderer'
 import './chat.css'
 
 /** Mensagens seguidas da mesma pessoa dentro disso viram um bloco so. */
@@ -99,7 +100,7 @@ export function Chat({ title, kind, messages, canSend, disabledReason, onSend, o
                   <span className="chat__time">{time(msg.ts)}</span>
                 </div>
               )}
-              <p className="chat__text">{msg.text}</p>
+              <MarkdownRenderer content={msg.text} className="chat__text" />
             </article>
           )
         })}
