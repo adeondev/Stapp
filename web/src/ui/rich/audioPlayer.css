@@ -1,0 +1,86 @@
+.stapp-audio-player {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: var(--bg-raised);
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius);
+  max-width: 380px;
+  width: 100%;
+  margin-top: 0.4rem;
+  border-left: 3px solid var(--accent);
+}
+
+.stapp-audio-play-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-on-accent, #ffffff);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+}
+
+.stapp-audio-play-btn:hover {
+  opacity: 0.9;
+}
+
+.stapp-audio-waveform-wrapper {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.stapp-audio-waveform {
+  width: 100%;
+  height: 36px;
+  cursor: pointer;
+}
+
+.stapp-audio-time {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.stapp-audio-recorder-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-raised);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--accent);
+}
+
+.stapp-audio-record-pulse {
+  width: 10px;
+  height: 10px;
+  background: #ef4444;
+  border-radius: 50%;
+  animation: stapp-pulse 1.2s infinite ease-in-out;
+}
+
+@keyframes stapp-pulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+}

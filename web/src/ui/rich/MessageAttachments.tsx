@@ -1,5 +1,6 @@
 import { memo, useState } from 'react'
 import type { Attachment } from '../../protocol'
+import { AudioPlayer } from './AudioPlayer'
 import './attachments.css'
 import './mediaGallery.css'
 
@@ -25,6 +26,12 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
       <div className="stapp-attachments-container">
         {attachments.map((att) => {
           const isImage = att.content_type.startsWith('image/')
+          const isAudio = att.content_type.startsWith('audio/') || att.filename.endsWith('.webm') || att.filename.endsWith('.ogg') || att.filename.endsWith('.mp3') || att.filename.endsWith('.wav')
+
+          if (isAudio) {
+            return <AudioPlayer key={att.id} src={att.url} filename={att.filename} />
+          }
+
           if (isImage) {
             return (
               <div

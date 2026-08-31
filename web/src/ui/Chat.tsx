@@ -6,6 +6,7 @@ import { EmojiPicker } from './rich/EmojiPicker'
 import { LinkPreviewCard } from './rich/LinkPreviewCard'
 import { MessageAttachments } from './rich/MessageAttachments'
 import { uploadMediaFile } from '../net/mediaUpload'
+import { AudioRecorder } from './rich/AudioRecorder'
 import './chat.css'
 import './rich/mediaGallery.css'
 
@@ -51,6 +52,7 @@ export function Chat({
 }: Props) {
   const [draft, setDraft] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false)
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -260,6 +262,15 @@ export function Chat({
       </div>
 
       <div className="chat__composer relative">
+        {isRecordingAudio && (
+          <AudioRecorder
+            onRecordingComplete={(file) => {
+              setIsRecordingAudio(false)
+              void handleFiles([file])
+            }}
+            onCancel={() => setIsRecordingAudio(false)}
+          />
+        )}
         {pendingUploads.length > 0 && (
           <div className="stapp-media-preview-bar">
             {pendingUploads.map((item) => (
@@ -318,6 +329,19 @@ export function Chat({
           onPaste={onPaste}
         />
         <div className="flex items-center gap-1.5 absolute right-4 bottom-3">
+          <button
+            type="button"
+            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
+            disabled={!canSend || isRecordingAudio}
+            onClick={() => setIsRecordingAudio(true)}
+            title="Gravar mensagem de voz"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="22" />
+            </svg>
+          </button>
           <button
             type="button"
             className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
