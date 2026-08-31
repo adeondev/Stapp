@@ -739,6 +739,68 @@ async fn o_upload_responde_o_preflight_do_navegador() {
     assert_eq!(status, 204, "o preflight de /avatars precisa passar");
 }
 
+#[tokio::test]
+async fn fluxo_e2e_enquetes_no_canal() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let mut daniel = entrar(addr, "daniel").await;
+    let mut alice = entrar(addr, "alice").await;
+
+    // Daniel cria uma enquete
+    daniel
+        .send(json!({
+            "t": "poll.create",
+            "channel": "geral",
+            "question": "Qual sua cor favorita?",
+            "options": ["Azul", "Vermelho"],
+            "allow_mult": false
+        }))
+        .await;
+
+    // Daniel e Alice recebem a mensagem da nova enquete
+    let nova_msg = daniel.wait_for("chat.new").await;
+    assert_eq!(nova_msg["channel"], "geral");
+    assert!(nova_msg["msg"]["poll"].is_object());
+    assert_eq!(nova_msg["msg"]["poll"]["question"], "Qual sua cor favorita?");
+    assert_eq!(nova_msg["msg"]["poll"]["options"].as_array().unwrap().len(), 2);
+
+    let poll_id = nova_msg["msg"]["poll"]["id"].as_str().unwrap();
+    let opt_id = nova_msg["msg"]["poll"]["options"][0]["id"].as_str().unwrap();
+
+    // Alice vota na primeira opção
+    alice
+        .send(json!({
+            "t": "poll.vote",
+            "poll_id": poll_id,
+            "option_id": opt_id
+        }))
+        .await;
+
+    let update = alice.wait_for("chat.poll_update").await;
+    assert_eq!(update["poll"]["total_votes"], 1);
+
+    daniel.close().await;
+    alice.close().await;
+}
+
+#[tokio::test]
+async fn attachments_endpoints_sem_auth_sao_rejeitados() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let client = reqwest::Client::new();
+    let res = client
+        .post(format!("http://{addr}/attachments/presign"))
+        .header("content-type", "application/json")
+        .body(r#"{"filename":"foto.png","content_type":"image/png","size_bytes":100}"#)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status().as_u16(), 401);
+}
+
 const SENHA: &str = "uma senha bem seguraa";
 
 /// Conecta, cria a conta e devolve o cliente logo apos o `auth.required`.

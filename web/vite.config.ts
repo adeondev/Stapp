@@ -19,4 +19,30 @@ export default defineConfig({
   test: {
     setupFiles: ['./src/test-setup.ts'],
   },
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('react') || id.includes('react-dom')) {
+              return 'react-vendor'
+            }
+            if (id.includes('wavesurfer.js')) {
+              return 'wavesurfer-vendor'
+            }
+            if (id.includes('livekit-client')) {
+              return 'livekit-vendor'
+            }
+            if (id.includes('react-markdown') || id.includes('remark') || id.includes('rehype')) {
+              return 'markdown-vendor'
+            }
+            if (id.includes('@emoji-mart') || id.includes('twemoji')) {
+              return 'emoji-vendor'
+            }
+          }
+        },
+      },
+    },
+  },
 })
