@@ -3,6 +3,7 @@ import type { ChatEntry } from '../protocol'
 import { IconAt, IconHash, IconPhone } from './Icons'
 import { MarkdownRenderer } from './rich/MarkdownRenderer'
 import { EmojiPicker } from './rich/EmojiPicker'
+import { LinkPreviewCard } from './rich/LinkPreviewCard'
 import './chat.css'
 
 /** Mensagens seguidas da mesma pessoa dentro disso viram um bloco so. */
@@ -122,6 +123,7 @@ export function Chat({ title, kind, messages, canSend, disabledReason, onSend, o
                 </div>
               )}
               <MarkdownRenderer content={msg.text} className="chat__text" />
+              {msg.preview && <LinkPreviewCard preview={msg.preview} />}
             </article>
           )
         })}

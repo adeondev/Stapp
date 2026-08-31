@@ -94,6 +94,36 @@ export function reduce(state: StappState, msg: StappAction): StappState {
       return { ...state, messages: { ...state.messages, [msg.channel]: [...current, msg.msg] } }
     }
 
+    case 'chat.preview': {
+      let updated = false
+      const newMessages = { ...state.messages }
+      for (const [channel, msgs] of Object.entries(newMessages)) {
+        if (msgs.some((m) => m.id === msg.message_id)) {
+          newMessages[channel] = msgs.map((m) =>
+            m.id === msg.message_id ? { ...m, preview: msg.preview } : m
+          )
+          updated = true
+          break
+        }
+      }
+
+      const newDirect = { ...state.directMessages }
+      if (!updated) {
+        for (const [userId, msgs] of Object.entries(newDirect)) {
+          if (msgs.some((m) => m.id === msg.message_id)) {
+            newDirect[userId] = msgs.map((m) =>
+              m.id === msg.message_id ? { ...m, preview: msg.preview } : m
+            )
+            updated = true
+            break
+          }
+        }
+      }
+
+      if (!updated) return state
+      return { ...state, messages: newMessages, directMessages: newDirect }
+    }
+
     case 'user.online': {
       // Quem criou a conta depois do nosso welcome nao esta no diretorio.
       // Este evento e a prova de que existe, entao aproveitamos para incluir.
