@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChatEntry } from '../protocol'
 import { IconAt, IconHash, IconPhone } from './Icons'
 import { MarkdownRenderer } from './rich/MarkdownRenderer'
+import { EmojiPicker } from './rich/EmojiPicker'
 import './chat.css'
 
 /** Mensagens seguidas da mesma pessoa dentro disso viram um bloco so. */
@@ -24,8 +25,28 @@ interface Props {
 
 export function Chat({ title, kind, messages, canSend, disabledReason, onSend, onCall }: Props) {
   const [draft, setDraft] = useState('')
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pinned = useRef(true)
+
+  function insertEmoji(emoji: string) {
+    const el = textareaRef.current
+    if (!el) {
+      setDraft((prev) => prev + emoji)
+      return
+    }
+    const start = el.selectionStart ?? draft.length
+    const end = el.selectionEnd ?? draft.length
+    const nextDraft = draft.slice(0, start) + emoji + draft.slice(end)
+    setDraft(nextDraft)
+    setShowEmojiPicker(false)
+    setTimeout(() => {
+      el.focus()
+      const cursor = start + emoji.length
+      el.setSelectionRange(cursor, cursor)
+    }, 0)
+  }
 
   // So acompanha o fim se o usuario ja estava no fim — se ele subiu para ler
   // algo antigo, mensagem nova nao arranca a tela dele.
@@ -106,9 +127,10 @@ export function Chat({ title, kind, messages, canSend, disabledReason, onSend, o
         })}
       </div>
 
-      <div className="chat__composer">
+      <div className="chat__composer relative">
         <textarea
-          className="chat__input"
+          ref={textareaRef}
+          className="chat__input pr-12"
           value={draft}
           rows={1}
           placeholder={
@@ -121,6 +143,27 @@ export function Chat({ title, kind, messages, canSend, disabledReason, onSend, o
           disabled={!canSend}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={onKeyDown}
+        />
+        <div className="flex items-center gap-1.5 absolute right-4 bottom-3">
+          <button
+            type="button"
+            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors p-1 rounded-[var(--radius-sm)] flex items-center justify-center cursor-pointer disabled:opacity-40"
+            disabled={!canSend}
+            onClick={() => setShowEmojiPicker((prev) => !prev)}
+            title="Escolher emoji"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+              <line x1="9" y1="9" x2="9.01" y2="9" />
+              <line x1="15" y1="9" x2="15.01" y2="9" />
+            </svg>
+          </button>
+        </div>
+        <EmojiPicker
+          isOpen={showEmojiPicker}
+          onClose={() => setShowEmojiPicker(false)}
+          onSelectEmoji={insertEmoji}
         />
       </div>
     </section>
