@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { fetchTrendingGifs, searchGifs, type KlipyGifItem } from '../../net/klipy'
+import { fetchTrendingGifs, searchGifs, extractGifUrl, extractGifPreview, type KlipyGifItem } from '../../net/klipy'
 import './gifPicker.css'
 
 interface Props {
@@ -95,8 +95,8 @@ export const GifPicker = memo(function GifPicker({ isOpen, onClose, onSelectGif 
 
         {!loading &&
           gifs.map((gif) => {
-            const url = gif.files.original?.url || gif.files.preview?.url
-            const previewUrl = gif.files.preview?.url || url
+            const url = extractGifUrl(gif)
+            const previewUrl = extractGifPreview(gif)
             if (!url) return null
 
             return (
