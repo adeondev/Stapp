@@ -1,7 +1,8 @@
-﻿import React, { memo, useState } from 'react'
+import React, { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+import { EMOJI_REGEX, getTwemojiUrl, isOnlyEmojis } from './twemoji'
 import './markdown.css'
 
 interface Props {
@@ -15,6 +16,7 @@ const sanitizeSchema = {
   attributes: {
     ...defaultSchema.attributes,
     a: ['href', 'title', 'target', 'rel'],
+    img: ['src', 'alt', 'className', 'loading', 'draggable'],
     code: ['className'],
     th: ['align'],
     td: ['align'],
@@ -54,9 +56,47 @@ function CodeBlock({ children, className }: { children: React.ReactNode; classNa
   )
 }
 
+/**
+ * Converte sequências de texto que contenham emojis em imagens Twemoji SVG.
+ */
+function renderWithTwemoji(text: string, jumbo: boolean): React.ReactNode {
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+
+  // Regex global com reset de lastIndex
+  const regex = new RegExp(EMOJI_REGEX.source, 'gu')
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.substring(lastIndex, match.index))
+    }
+    const emoji = match[0]
+    const url = getTwemojiUrl(emoji)
+    parts.push(
+      <img
+        key={`${match.index}-${emoji}`}
+        src={url}
+        alt={emoji}
+        draggable={false}
+        className={jumbo ? 'stapp-emoji-jumbo inline-block' : 'stapp-emoji inline-block'}
+      />
+    )
+    lastIndex = regex.lastIndex
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.substring(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : text
+}
+
 export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className = '' }: Props) {
+  const isJumbo = isOnlyEmojis(content)
+
   return (
-    <div className={`stapp-markdown ${className}`}>
+    <div className={`stapp-markdown ${isJumbo ? 'stapp-markdown-jumbo' : ''} ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeSanitize, sanitizeSchema]]}
@@ -89,8 +129,26 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
             )
           },
           pre({ children }) {
-            // Repassamos diretamente para o CodeBlock não aninhar pre duplicado
             return <>{children}</>
+          },
+          p({ children }) {
+            if (typeof children === 'string') {
+              return <p>{renderWithTwemoji(children, isJumbo)}</p>
+            }
+            if (Array.isArray(children)) {
+              return (
+                <p>
+                  {children.map((child, i) =>
+                    typeof child === 'string' ? (
+                      <React.Fragment key={i}>{renderWithTwemoji(child, isJumbo)}</React.Fragment>
+                    ) : (
+                      child
+                    )
+                  )}
+                </p>
+              )
+            }
+            return <p>{children}</p>
           },
         }}
       >

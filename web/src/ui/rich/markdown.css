@@ -1,4 +1,4 @@
-﻿.stapp-markdown {
+.stapp-markdown {
   word-break: break-word;
   line-height: 1.5;
   color: var(--text);
@@ -127,4 +127,17 @@
 
 .stapp-markdown tr:nth-child(even) td {
   background: var(--bg-app);
+}
+/* Estilos de Emojis Twemoji */
+.stapp-emoji {
+  width: 1.35em;
+  height: 1.35em;
+  vertical-align: -0.25em;
+  margin: 0 0.05em 0 0.1em;
+}
+
+.stapp-markdown-jumbo .stapp-emoji-jumbo {
+  width: 3rem;
+  height: 3rem;
+  margin: 0.25rem;
 }
