@@ -9,11 +9,13 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::protocol::{
-    DirectMessage, DirectMessageKind, DirectSummary, DirectoryEntry, ServerMsg, UserId, now_ms,
+    DirectMessage, DirectMessageKind, DirectSummary, DirectoryEntry, ReplyRef, ServerMsg, UserId,
+    now_ms,
 };
+use crate::services::messages;
 use crate::services::social;
 use crate::session::AppState;
-use crate::storage::conversation_id;
+use crate::storage::{MessageLocation, conversation_id};
 
 /// Todo mundo com conta neste servidor, menos voce. E a lista de quem da para
 /// chamar numa conversa nova.
@@ -110,6 +112,7 @@ pub async fn send(
     other: UserId,
     raw_text: &str,
     attachment_ids: Vec<String>,
+    reply_to: Option<String>,
 ) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
@@ -123,7 +126,10 @@ pub async fn send(
     if !state.db.can_direct(&me.user_id, &other).unwrap_or(false) {
         return denied(state, peer_id, other);
     }
-    let text = clean_text(raw_text).unwrap_or_default();
+    let text = messages::clean_text(raw_text).unwrap_or_default();
+    if !messages::fits(&text, state.config.limits.max_text_chars) {
+        return messages::reject_too_long(state, peer_id, state.config.limits.max_text_chars);
+    }
     if text.is_empty() && attachment_ids.is_empty() {
         return;
     }
@@ -133,6 +139,21 @@ pub async fn send(
         .direct_conversation_exists(&me.user_id, &other)
         .unwrap_or(false);
     let conversation = conversation_id(&me.user_id, &other);
+
+    // Mesma guarda do canal, na outra direcao: responder um id de canal dentro
+    // da conversa colaria um trecho publico onde ele nao foi escrito.
+    let resposta = reply_to.and_then(|alvo| {
+        let mesmo_escopo = matches!(
+            state.db.locate_message(&alvo),
+            Ok(Some(MessageLocation::Direct { conversation_id: ref c, .. })) if *c == conversation
+        );
+        // mesma_conversa: fora do escopo, a resposta simplesmente nao existe.
+        mesmo_escopo
+            .then(|| state.db.reply_ref(&alvo).ok().flatten())
+            .flatten()
+    });
+
+    let citadas = messages::mentions::resolve(state, &text);
     let msg_id = Uuid::new_v4().to_string();
 
     if !attachment_ids.is_empty() {
@@ -155,6 +176,11 @@ pub async fn send(
         ts: now_ms(),
         attachments,
         poll: None,
+        reply_to: resposta,
+        edited_at: None,
+        reactions: Vec::new(),
+        mentions: citadas.user_ids,
+        mentions_everyone: citadas.everyone,
     };
 
     if let Err(err) = state.db.insert_direct(&conversation, &msg) {
@@ -268,16 +294,6 @@ fn refuse(state: &AppState, peer_id: &str, message: &str) {
 
 fn denied(state: &AppState, peer_id: &str, user_id: UserId) {
     state.send_to(peer_id, ServerMsg::DmDenied { user_id });
-}
-
-fn clean_text(raw: &str) -> Option<String> {
-    let text: String = raw
-        .chars()
-        .filter(|c| *c == '\n' || !c.is_control())
-        .take(2000)
-        .collect();
-    let text = text.trim().to_string();
-    (!text.is_empty()).then_some(text)
 }
 
 #[cfg(test)]

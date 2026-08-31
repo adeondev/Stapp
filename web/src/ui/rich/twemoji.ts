@@ -1,49 +1,27 @@
-// Parser utilitário de Twemoji para renderização homogênea de emojis em SVG
-
-const TWEMOJI_BASE_URL = 'https://cdn.jsdelivr.net/gh/jdecked/twemoji@latest/assets/svg/'
-
-// Regex moderno utilizando Unicode property escapes para cobertura precisa de emojis
-const EMOJI_REGEX = /(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*)/gu
-
-/**
- * Converte uma sequência de caracteres de emoji em sua representação hex code point para o Twemoji.
- */
-export function toCodePoint(unicodeSurrogates: string): string {
-  const points: string[] = []
-  let charCode = 0
-  let previous = 0
-
-  for (let i = 0; i < unicodeSurrogates.length; i++) {
-    charCode = unicodeSurrogates.charCodeAt(i)
-    if (previous) {
-      points.push((0x10000 + ((previous - 0xd800) << 10) + (charCode - 0xdc00)).toString(16))
-      previous = 0
-    } else if (charCode >= 0xd800 && charCode <= 0xdbff) {
-      previous = charCode
-    } else {
-      points.push(charCode.toString(16))
-    }
-  }
-
-  // Filtrar variation selector fe0f para padrões onde o SVG do Twemoji não o inclui no nome do arquivo
-  return points.filter((p) => p !== 'fe0f' && p !== 'fe0e').join('-')
-}
-
-/**
- * Retorna a URL completa do SVG Twemoji para um dado emoji.
- */
-export function getTwemojiUrl(emoji: string): string {
-  const codePoint = toCodePoint(emoji)
-  return `${TWEMOJI_BASE_URL}${codePoint}.svg`
-}
+// Shortcode e "jumboji" — o desenho do emoji em si e a fonte Twemoji que
+// resolve, carregada em `ui/theme.css`.
+//
+// Antes este arquivo trocava cada emoji por um <img> do CDN da jsDelivr. Isso
+// so funcionava dentro do override de <p> do markdown: emoji em apelido, lista,
+// tabela, enquete e caixa de escrever continuava com a fonte do sistema, e cada
+// aparelho desenhava o seu. Com a fonte, o desenho e o mesmo em toda a
+// interface, sem JS e sem servico terceiro.
 
 import emojiShortcodes from './emojiShortcodes.json'
+
+// Regex moderno utilizando Unicode property escapes para cobertura precisa de emojis
+const EMOJI_REGEX =
+  /(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*)/gu
 
 const SHORTCODE_MAP: Record<string, string> = emojiShortcodes as Record<string, string>
 const SHORTCODE_REGEX = /:([a-zA-Z0-9_+]+):/g
 
 /**
- * Converte shortcodes no formato :sob:, :smile:, :+1: para seus respectivos caracteres Unicode.
+ * Converte shortcodes no formato :sob:, :smile:, :+1: para seus respectivos
+ * caracteres Unicode.
+ *
+ * Continua no cliente porque o servidor guarda o que a pessoa escreveu, e
+ * `:smile:` e texto valido — quem digitou pode ter querido as duas coisas.
  */
 export function parseShortcodesToUnicode(text: string): string {
   if (!text.includes(':')) return text
@@ -54,7 +32,9 @@ export function parseShortcodesToUnicode(text: string): string {
 }
 
 /**
- * Identifica se uma mensagem é composta exclusivamente por 1 a 3 emojis (estilo jumboji).
+ * Identifica se uma mensagem e composta exclusivamente por 1 a 3 emojis
+ * (estilo jumboji). Com a fonte no lugar do <img>, "aumentar o emoji" virou
+ * so `font-size`.
  */
 export function isOnlyEmojis(text: string): boolean {
   const parsed = parseShortcodesToUnicode(text).trim()

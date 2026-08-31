@@ -207,6 +207,11 @@ async fn record(state: &Arc<AppState>, call: &PendingCall, reason: CallEndReason
         ts: now_ms(),
         attachments: Vec::new(),
         poll: None,
+        reply_to: None,
+        edited_at: None,
+        reactions: Vec::new(),
+        mentions: Vec::new(),
+        mentions_everyone: false,
     };
 
     let conversation = conversation_id(&call.from, &call.to);

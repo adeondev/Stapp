@@ -66,3 +66,17 @@ pub fn list_for_message(conn: &Connection, message_id: &str, public_base: Option
     }
     Ok(result)
 }
+/// As chaves S3 dos anexos desta mensagem.
+///
+/// Precisa ser lida **antes** do delete: depois do commit a linha some e o
+/// objeto ficaria no bucket sem nenhum ponteiro para alguem achar.
+pub fn keys_for_message(conn: &Connection, message_id: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT s3_key FROM attachments WHERE message_id = ?1")?;
+    let linhas = stmt.query_map([message_id], |row| row.get::<_, String>(0))?;
+    Ok(linhas.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+pub fn delete_for_message(conn: &Connection, message_id: &str) -> Result<()> {
+    conn.execute("DELETE FROM attachments WHERE message_id = ?1", [message_id])?;
+    Ok(())
+}

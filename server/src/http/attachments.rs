@@ -58,9 +58,15 @@ async fn presign(
         return responder(StatusCode::SERVICE_UNAVAILABLE, "armazenamento S3 nao configurado", &contexto);
     };
 
-    // Limite de 50MB por anexo
-    if payload.size_bytes > 50 * 1024 * 1024 {
-        return responder(StatusCode::BAD_REQUEST, "arquivo excede o limite de 50MB", &contexto);
+    // O teto sai do stapp.toml. O cliente ja recebe o mesmo numero no `welcome`
+    // e barra antes de subir, mas quem decide e aqui.
+    let teto = state.config.limits.max_upload_bytes();
+    if payload.size_bytes > teto {
+        let aviso = format!(
+            "arquivo excede o limite de {}MB",
+            state.config.limits.max_upload_mb
+        );
+        return responder(StatusCode::BAD_REQUEST, &aviso, &contexto);
     }
 
     match media

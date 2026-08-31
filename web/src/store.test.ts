@@ -10,6 +10,7 @@ const welcome = {
   users: [{ user_id: 'user-1', username: 'Daniel' }],
   voice: { backend: 'mesh' as const, ice_servers: [], max_peers: 4 },
   voice_peers: [],
+  limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
   profiles: [],
   directory: [{ user_id: 'user-2', username: 'Alice' }],
 }
@@ -194,5 +195,82 @@ describe('perfis', () => {
     expect(provisorio.display_name).toBe('fulano')
     expect(provisorio.accent).toBe('blue')
     expect(provisorio.has_avatar).toBe(false)
+  })
+})
+
+describe('editar, apagar e reagir no estado', () => {
+  const msg = (id: string, texto: string) => ({
+    id,
+    channel: 'geral',
+    author_id: 'user-1',
+    author_username: 'Daniel',
+    text: texto,
+    ts: 100,
+  })
+
+  const dm = (id: string, texto: string) => ({
+    id,
+    author_id: 'user-2',
+    author_username: 'Alice',
+    kind: 'text' as const,
+    text: texto,
+    ts: 100,
+  })
+
+  it('a mensagem atualizada chega inteira e substitui a antiga no lugar', () => {
+    let state = reduce(initialState, welcome)
+    state = reduce(state, { t: 'chat.history', channel: 'geral', msgs: [msg('m1', 'errado'), msg('m2', 'outra')] })
+
+    state = reduce(state, {
+      t: 'chat.updated',
+      channel: 'geral',
+      msg: { ...msg('m1', 'corrigido'), edited_at: 200, reactions: [{ emoji: '👍', users: ['user-2'] }] },
+    })
+
+    // Substitui no lugar: a ordem da conversa nao pode mudar por uma edicao.
+    expect(state.messages.geral.map((m) => m.id)).toEqual(['m1', 'm2'])
+    expect(state.messages.geral[0].text).toBe('corrigido')
+    expect(state.messages.geral[0].edited_at).toBe(200)
+    expect(state.messages.geral[0].reactions?.[0].users).toEqual(['user-2'])
+  })
+
+  it('apagar tira a mensagem do canal e nao deixa lapide', () => {
+    let state = reduce(initialState, welcome)
+    state = reduce(state, { t: 'chat.history', channel: 'geral', msgs: [msg('m1', 'a'), msg('m2', 'b')] })
+
+    state = reduce(state, { t: 'chat.deleted', channel: 'geral', message_id: 'm1' })
+
+    expect(state.messages.geral.map((m) => m.id)).toEqual(['m2'])
+  })
+
+  it('apagar uma nao lida na conversa derruba o badge junto', () => {
+    let state = reduce(initialState, welcome)
+    state = reduce(state, { t: 'dm.history', user_id: 'user-2', msgs: [dm('d1', 'oi')] })
+    state = reduce(state, { t: 'dm.new', user_id: 'user-2', msg: dm('d2', 'e ai'), unread: 2 })
+    expect(state.conversations['user-2'].unread).toBe(2)
+
+    state = reduce(state, {
+      t: 'dm.deleted',
+      user_id: 'user-2',
+      message_id: 'd2',
+      unread: 1,
+    })
+
+    expect(state.directMessages['user-2'].map((m) => m.id)).toEqual(['d1'])
+    // Sem o unread recalculado pelo servidor, o badge ficaria preso apontando
+    // para uma mensagem que nao existe mais.
+    expect(state.conversations['user-2'].unread).toBe(1)
+  })
+
+  it('evento de mensagem que este cliente nao carregou nao mexe no estado', () => {
+    let state = reduce(initialState, welcome)
+    state = reduce(state, { t: 'chat.history', channel: 'geral', msgs: [msg('m1', 'a')] })
+
+    const antes = state
+    const depois = reduce(state, { t: 'chat.preview', message_id: 'desconhecida', preview: { url: 'x' } })
+
+    // Identidade preservada: sem isto o React re-renderizaria a conversa
+    // inteira por causa de uma mensagem de outro canal.
+    expect(depois).toBe(antes)
   })
 })

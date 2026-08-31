@@ -3,7 +3,9 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::config::ChannelKind;
-use crate::protocol::{Message, ServerMsg, now_ms};
+use crate::protocol::{Message, ReplyRef, ServerMsg, now_ms};
+use crate::services::messages;
+use crate::storage::MessageLocation;
 use crate::session::AppState;
 
 /// Envia de uma vez o historico de todos os canais de texto.
@@ -31,6 +33,7 @@ pub async fn send(
     channel: String,
     raw_text: &str,
     attachment_ids: Vec<String>,
+    reply_to: Option<String>,
 ) {
     match state.config.channel(&channel) {
         Some(ch) if ch.kind == ChannelKind::Text => {}
@@ -45,7 +48,10 @@ pub async fn send(
         }
     }
 
-    let text = clean_text(raw_text).unwrap_or_default();
+    let text = messages::clean_text(raw_text).unwrap_or_default();
+    if !messages::fits(&text, state.config.limits.max_text_chars) {
+        return messages::reject_too_long(state, peer_id, state.config.limits.max_text_chars);
+    }
     if text.is_empty() && attachment_ids.is_empty() {
         return;
     }
@@ -53,6 +59,21 @@ pub async fn send(
         return;
     };
 
+    // Responder algo de outro escopo nao e so cosmetico: sem esta guarda,
+    // apontar um id de conversa dentro de um canal publico faria a previa vazar
+    // o texto da DM dos outros para o servidor inteiro.
+    let resposta = reply_to.and_then(|alvo| {
+        let mesmo_escopo = matches!(
+            state.db.locate_message(&alvo),
+            Ok(Some(MessageLocation::Channel { channel: ref c, .. })) if *c == channel
+        );
+        // mesmo_canal: fora do escopo, a resposta simplesmente nao existe.
+        mesmo_escopo
+            .then(|| state.db.reply_ref(&alvo).ok().flatten())
+            .flatten()
+    });
+
+    let citadas = messages::mentions::resolve(state, &text);
     let msg_id = Uuid::new_v4().to_string();
     if !attachment_ids.is_empty() {
         if let Err(err) = state.db.bind_attachments(&msg_id, &attachment_ids) {
@@ -74,6 +95,11 @@ pub async fn send(
         ts: now_ms(),
         attachments,
         poll: None,
+        reply_to: resposta,
+        edited_at: None,
+        reactions: Vec::new(),
+        mentions: citadas.user_ids,
+        mentions_everyone: citadas.everyone,
     };
 
     // Se o disco falhar, a conversa continua — so o historico fica torto.
@@ -95,16 +121,6 @@ pub async fn send(
             }
         });
     }
-}
-
-fn clean_text(raw: &str) -> Option<String> {
-    let text: String = raw
-        .chars()
-        .filter(|c| *c == '\n' || !c.is_control())
-        .take(2000)
-        .collect();
-    let text = text.trim().to_string();
-    (!text.is_empty()).then_some(text)
 }
 
 #[cfg(test)]

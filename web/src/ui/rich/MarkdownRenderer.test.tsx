@@ -47,11 +47,16 @@ fn main() { println!("olá"); }
     expect(screen.getByText('copiar')).toBeTruthy()
   })
 
-  it('converte shortcodes como :sob: e :smile: para Twemoji', () => {
+  it('converte shortcodes como :sob: e :smile: em emoji unicode', () => {
+    // O desenho e a fonte Twemoji que faz, entao aqui o que interessa e que o
+    // shortcode virou o caractere — nao existe mais <img> por emoji.
     const { container } = render(<MarkdownRenderer content="chorando :sob: e sorrindo :smile:" />)
-    const imgs = container.querySelectorAll('img.stapp-emoji')
-    expect(imgs.length).toBe(2)
-    expect(imgs[0].getAttribute('alt')).toBe('😭')
-    expect(imgs[1].getAttribute('alt')).toBe('😄')
+    expect(container.textContent).toBe('chorando 😭 e sorrindo 😄')
+    expect(container.querySelectorAll('img').length).toBe(0)
+  })
+
+  it('marca a mensagem so de emoji como jumbo', () => {
+    const { container } = render(<MarkdownRenderer content=":sob::smile:" />)
+    expect(container.firstElementChild?.className).toContain('stapp-markdown-jumbo')
   })
 })

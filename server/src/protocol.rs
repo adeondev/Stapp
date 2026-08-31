@@ -10,7 +10,7 @@ use crate::config::Channel;
 
 pub type PeerId = String;
 pub type UserId = String;
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// String secreta serializada normalmente, mas sempre redigida em logs/debug.
 #[derive(Clone, Serialize, Deserialize)]
@@ -118,6 +118,43 @@ pub struct Poll {
     pub created_at: i64,
 }
 
+/// A mensagem que esta sendo respondida, ja resolvida pelo servidor.
+///
+/// A linha guarda so o id; isto aqui e montado na leitura. Assim o trecho
+/// acompanha uma edicao do alvo sozinho, sem copia para sincronizar.
+///
+/// **Campos internos ausentes = o alvo foi apagado.** Apagar e definitivo e nao
+/// deixa lapide, entao o cliente desenha "mensagem apagada" a partir disso.
+/// `author_username` e registro historico de quem escreveu, como em
+/// `Message::author_username` — o nome que aparece na tela sai do perfil vivo.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReplyRef {
+    pub message_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_id: Option<UserId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author_username: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub excerpt: Option<String>,
+}
+
+/// Quanto do texto do alvo entra na previa de uma resposta.
+pub const REPLY_EXCERPT_CHARS: usize = 120;
+
+/// As reacoes de um emoji, agrupadas.
+///
+/// Guarda **`user_id`, nunca perfil** — quem resolve nome e cor e o mapa de
+/// perfis do cliente. E de proposito que nao existe um `reacted_by_me`: o
+/// payload precisa ser identico para todo mundo, senao o broadcast de
+/// `chat.updated` estaria errado para todos menos um. Quem quer saber se ja
+/// reagiu procura o proprio id em `users`, e a contagem e `users.len()`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Reaction {
+    pub emoji: String,
+    /// Em ordem de chegada.
+    pub users: Vec<UserId>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub id: String,
@@ -131,6 +168,20 @@ pub struct Message {
     pub attachments: Vec<Attachment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub poll: Option<Poll>,
+    /// A mensagem respondida. `None` = mensagem solta.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ReplyRef>,
+    /// Quando foi editada pela ultima vez. `None` = nunca editada.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<Reaction>,
+    /// Contas citadas no texto, resolvidas pelo servidor no envio e na edicao.
+    /// So `user_id`: o nome sai do perfil vivo.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<UserId>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub mentions_everyone: bool,
 }
 
 /// Uma mensagem direta. Nao carrega canal: a conversa e o par de contas, e quem
@@ -147,6 +198,20 @@ pub struct DirectMessage {
     pub attachments: Vec<Attachment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub poll: Option<Poll>,
+    /// A mensagem respondida. `None` = mensagem solta.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ReplyRef>,
+    /// Quando foi editada pela ultima vez. `None` = nunca editada.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reactions: Vec<Reaction>,
+    /// Contas citadas no texto, resolvidas pelo servidor no envio e na edicao.
+    /// So `user_id`: o nome sai do perfil vivo.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mentions: Vec<UserId>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub mentions_everyone: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -238,6 +303,20 @@ pub enum CallEndReason {
     Unavailable,
 }
 
+/// Tetos do servidor que o cliente precisa conhecer para avisar antes de a
+/// pessoa perder o que escreveu.
+///
+/// **E conveniencia de interface, nao autorizacao.** Quem decide continua sendo
+/// o servidor: `/attachments/presign` confere o tamanho do arquivo e o
+/// `clean_text` confere o do texto. O cliente obedece, nao repete a regra —
+/// mesmo padrao de `plaintext_auth_allowed` no `auth.required`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct Limits {
+    pub max_upload_bytes: usize,
+    /// Em caracteres, nao bytes.
+    pub max_text_chars: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "backend", rename_all = "lowercase")]
 pub enum VoiceConfig {
@@ -293,6 +372,9 @@ pub enum ClientMsg {
         text: String,
         #[serde(default)]
         attachment_ids: Vec<String>,
+        /// Id da mensagem respondida, se for uma resposta.
+        #[serde(default)]
+        reply_to: Option<String>,
     },
 
     /// Criação de enquete nativa em um canal de texto.
@@ -315,6 +397,19 @@ pub enum ClientMsg {
     #[serde(rename = "poll.close")]
     PollClose { poll_id: String },
 
+    /// Edita a propria mensagem. Serve canal e conversa: o id e unico entre as
+    /// duas tabelas, e quem descobre onde ela mora e o servidor.
+    #[serde(rename = "message.edit")]
+    MessageEdit { message_id: String, text: String },
+
+    /// Apaga a propria mensagem, de vez.
+    #[serde(rename = "message.delete")]
+    MessageDelete { message_id: String },
+
+    /// Alterna a propria reacao neste emoji.
+    #[serde(rename = "message.react")]
+    MessageReact { message_id: String, emoji: String },
+
     /// Abre uma conversa: pede o historico e marca tudo como lido.
     #[serde(rename = "dm.open")]
     DmOpen { user_id: UserId },
@@ -325,6 +420,8 @@ pub enum ClientMsg {
         text: String,
         #[serde(default)]
         attachment_ids: Vec<String>,
+        #[serde(default)]
+        reply_to: Option<String>,
     },
 
     /// Marca lida ate agora. Usado quando chega mensagem com a conversa aberta.
@@ -446,6 +543,7 @@ pub enum ServerMsg {
         profiles: Vec<Profile>,
         voice: VoiceConfig,
         voice_peers: Vec<VoicePeer>,
+        limits: Limits,
     },
 
     #[serde(rename = "chat.history")]
@@ -462,6 +560,35 @@ pub enum ServerMsg {
     },
 
     /// Notificação de atualização de uma enquete (novo voto ou encerramento).
+    /// A mensagem mudou — texto editado, reacao, o que for. Vem **inteira**: o
+    /// cliente troca por id em vez de aplicar um delta, entao um campo novo
+    /// amanha nao precisa de evento novo.
+    #[serde(rename = "chat.updated")]
+    ChatUpdated { channel: String, msg: Message },
+
+    /// A mensagem sumiu de vez. Nao existe lapide.
+    #[serde(rename = "chat.deleted")]
+    ChatDeleted {
+        channel: String,
+        message_id: String,
+    },
+
+    /// Igual ao `dm.new`: `user_id` e sempre **a outra pessoa** na visao de quem
+    /// recebe, entao cada lado leva um payload diferente. Nao carrega `unread`
+    /// porque editar e reagir nao mexem em nao-lidas.
+    #[serde(rename = "dm.updated")]
+    DmUpdated { user_id: UserId, msg: DirectMessage },
+
+    /// Apagar **muda** a contagem de nao-lidas — a linha sumiu do COUNT —, entao
+    /// este evento leva o `unread` recalculado por destinatario. Sem isso o
+    /// badge ficaria preso apontando para uma mensagem que nao existe mais.
+    #[serde(rename = "dm.deleted")]
+    DmDeleted {
+        user_id: UserId,
+        message_id: String,
+        unread: usize,
+    },
+
     #[serde(rename = "chat.poll_update")]
     ChatPollUpdate {
         channel: String,
@@ -599,4 +726,9 @@ mod secret_tests {
         );
         assert_eq!(format!("{secret:?}"), "[REDACTED]");
     }
+}
+
+/// Existe so para o `skip_serializing_if` de um bool.
+fn is_false(value: &bool) -> bool {
+    !*value
 }

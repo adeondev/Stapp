@@ -37,18 +37,35 @@ export interface KlipyResponse {
 const GIPHY_PUBLIC_KEY = 'sXpGFDGZs0Dv1mmNFvYaGUvYwKX0PWIh'
 const KLIPY_API_KEY = (import.meta as any).env?.VITE_KLIPY_API_KEY || ''
 
+/** Extensoes que identificam midia de verdade, e nao a pagina do GIF. */
+const ARQUIVO_DE_MIDIA = /\.(gif|webp|mp4|webm)(\?|#|$)/i
+
+/**
+ * URL da midia animada, para ir dentro da mensagem.
+ *
+ * ARMADILHA: no Giphy o campo `url` do item e a PAGINA do GIF
+ * (`https://giphy.com/gifs/algo-abc123`), nao o arquivo. Enviar aquilo dentro de
+ * `![GIF](...)` gerava um `<img>` apontando para HTML — o grid do seletor
+ * aparecia certo (ele usa `extractGifPreview`) e o chat ficava com a imagem
+ * quebrada. Por isso as renditions vem primeiro e `item.url` so entra se
+ * terminar em arquivo de midia.
+ */
 export function extractGifUrl(item: KlipyGifItem): string {
-  if (item.url) return item.url
-  if (item.images?.original?.url) return item.images.original.url
-  if (item.images?.fixed_height?.url) return item.images.fixed_height.url
-  if (item.files?.original?.url) return item.files.original.url
-  if (item.files?.preview?.url) return item.files.preview.url
-  if (item.media && item.media.length > 0) {
-    const m = item.media[0]
-    if (m.gif?.url) return m.gif.url
-    if (m.mediumgif?.url) return m.mediumgif.url
-    if (m.tinygif?.url) return m.tinygif.url
+  const candidatos = [
+    item.files?.original?.url,
+    item.images?.original?.url,
+    item.images?.fixed_height?.url,
+    item.files?.preview?.url,
+    item.media?.[0]?.gif?.url,
+    item.media?.[0]?.mediumgif?.url,
+    item.media?.[0]?.tinygif?.url,
+  ]
+
+  for (const candidato of candidatos) {
+    if (candidato) return candidato
   }
+
+  if (item.url && ARQUIVO_DE_MIDIA.test(item.url)) return item.url
   return ''
 }
 

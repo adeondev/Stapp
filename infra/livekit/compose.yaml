@@ -19,7 +19,7 @@ services:
       start_period: 3s
 
   minio:
-    image: minio/minio:RELEASE.2024-01-18T22-51-28Z
+    image: minio/minio:latest
     command: ["server", "/data", "--console-address", ":9001"]
     restart: unless-stopped
     ports:
@@ -37,7 +37,7 @@ services:
       retries: 10
 
   minio-init:
-    image: minio/mc:RELEASE.2024-01-16T16-06-34Z
+    image: minio/mc:latest
     depends_on:
       minio:
         condition: service_healthy

@@ -50,9 +50,9 @@ importers:
       remark-gfm:
         specifier: ^4.0.1
         version: 4.0.1
-      wavesurfer.js:
-        specifier: ^7.12.11
-        version: 7.12.11
+      twemoji-colr-font:
+        specifier: ^15.0.3
+        version: 15.0.3
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.3.3
@@ -1294,6 +1294,10 @@ packages:
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
+  twemoji-colr-font@15.0.3:
+    resolution: {integrity: sha512-UsK4JUpaczeVoMGeYMnKaMTxKt7fujg1nQOk4NaC0teZmdOo+uAai0DIuaSzsMkShtG4J75F0OEsVdGJ+Q1pHQ==}
+    deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
+
   typed-emitter@2.1.0:
     resolution: {integrity: sha512-g/KzbYKbH5C2vPkaXGu8DJlHrGKHLsM25Zg9WuC9pMGfuvT+X25tZQWo5fK1BjBm8+UrVE9LDCvaY0CQk+fXDA==}
 
@@ -1417,9 +1421,6 @@ packages:
   w3c-xmlserializer@5.0.0:
     resolution: {integrity: sha512-o8qghlI8NZHU1lLPrpi2+Uq7abh4GGPpYANlalzWxyWteJOCsr/P+oPBA49TOLu5FTZO4d3F9MnWJfiMo4BkmA==}
     engines: {node: '>=18'}
-
-  wavesurfer.js@7.12.11:
-    resolution: {integrity: sha512-Sx0yZIz7jRJ9J9p7UL+pl9y0UQBB6UN/XNo+R7Gy4tCR5xZI9jMyA0dnt1R8TMVSQ4LZ10SeB2HJYQ+dV2dPSA==}
 
   webidl-conversions@8.0.1:
     resolution: {integrity: sha512-BMhLD/Sw+GbJC21C/UgyaZX41nPt8bUTg+jWyDeg7e7YN4xOM05YPSIXceACnXVtqyEw/LMClUQMtMZ+PGGpqQ==}
@@ -2718,6 +2719,8 @@ snapshots:
 
   tslib@2.8.1: {}
 
+  twemoji-colr-font@15.0.3: {}
+
   typed-emitter@2.1.0:
     optionalDependencies:
       rxjs: 7.8.2
@@ -2810,8 +2813,6 @@ snapshots:
   w3c-xmlserializer@5.0.0:
     dependencies:
       xml-name-validator: 5.0.0
-
-  wavesurfer.js@7.12.11: {}
 
   webidl-conversions@8.0.1: {}
 

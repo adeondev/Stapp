@@ -23,6 +23,11 @@ fn message(author: &Account, id: &str, ts: i64) -> Message {
         ts,
         attachments: Vec::new(),
         poll: None,
+        reply_to: None,
+        edited_at: None,
+        reactions: Vec::new(),
+        mentions: Vec::new(),
+        mentions_everyone: false,
     }
 }
 

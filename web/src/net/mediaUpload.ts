@@ -1,3 +1,5 @@
+import { httpBaseFrom } from './auth'
+
 export interface PresignResponse {
   attachment_id: string
   upload_url: string
@@ -18,7 +20,8 @@ export async function uploadMediaFile(
   file: File,
   onProgress?: UploadProgressCallback
 ): Promise<string> {
-  const baseUrl = serverUrl.replace(/\/+$/, '')
+  // `serverUrl` chega como endereco de WebSocket (ws://) — anexo sobe por HTTP.
+  const baseUrl = httpBaseFrom(serverUrl)
   const presignEndpoint = `${baseUrl}/attachments/presign`
 
   // 1. Solicita a Presigned URL no backend Stapp

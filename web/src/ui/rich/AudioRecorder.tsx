@@ -37,8 +37,12 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
 
         recorder.onstop = () => {
           const blob = new Blob(chunksRef.current, { type: mimeType })
+          // O prefixo `voice-note-` e o que marca a gravacao como nota de voz na
+          // hora de exibir. O tipo continua sendo o mime real: ele vai para o S3
+          // como Content-Type e um `audio/voice` inventado deixaria o <audio>
+          // sem conseguir tocar o arquivo depois.
           const filename = `voice-note-${Date.now()}.webm`
-          const file = new File([blob], filename, { type: 'audio/voice' })
+          const file = new File([blob], filename, { type: mimeType })
           onRecordingComplete(file)
         }
 
@@ -97,7 +101,7 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
         </button>
         <button
           type="button"
-          className="bg-[var(--accent)] text-white text-xs font-semibold px-2.5 py-1 rounded-[var(--radius-sm)] hover:opacity-90 transition-opacity flex items-center gap-1 cursor-pointer"
+          className="bg-[var(--accent)] text-[var(--on-accent)] text-xs font-semibold px-2.5 py-1 rounded-[var(--radius-sm)] hover:opacity-90 transition-opacity flex items-center gap-1 cursor-pointer"
           onClick={finish}
           title="Enviar gravação"
         >

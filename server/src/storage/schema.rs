@@ -9,7 +9,7 @@ use anyhow::{Result, bail};
 use rusqlite::Connection;
 use uuid::Uuid;
 
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 const V1: &str = "BEGIN IMMEDIATE;
      CREATE TABLE users (
@@ -176,6 +176,47 @@ const V6: &str = "BEGIN IMMEDIATE;
      PRAGMA user_version = 6;
      COMMIT;";
 
+/// Resposta, edicao, mencao e reacao.
+///
+/// As colunas sao identicas em `messages` e `dm_messages` de proposito: o que
+/// muda entre canal e conversa e a audiencia do evento, nao o corpo da mensagem.
+///
+/// `reply_to` guarda so o id do alvo; o trecho mostrado e resolvido na leitura,
+/// entao editar o alvo atualiza a previa sozinho. Nao tem FK: apagar e
+/// definitivo, e uma RESTRICT travaria o delete de qualquer mensagem que ja
+/// tivesse sido respondida.
+///
+/// `mentions` e um array JSON de user_id. Mencao so e lida junto com a
+/// mensagem, entao vem de graca no mesmo SELECT em vez de custar mais uma
+/// consulta por lote. FUTURE: quando existir "mencoes nao lidas com indice",
+/// isto vira a tabela `message_mentions (message_id, user_id)` — e uma migracao,
+/// nao uma mudanca de protocolo.
+///
+/// `message_reactions` nao referencia mensagem porque a mesma tabela serve
+/// `messages` e `dm_messages`, exatamente como `attachments` na V5. Quem limpa
+/// e o delete em cascata do servico.
+const V7: &str = "BEGIN IMMEDIATE;
+     ALTER TABLE messages ADD COLUMN reply_to          TEXT;
+     ALTER TABLE messages ADD COLUMN edited_at         INTEGER;
+     ALTER TABLE messages ADD COLUMN mentions          TEXT    NOT NULL DEFAULT '[]';
+     ALTER TABLE messages ADD COLUMN mentions_everyone INTEGER NOT NULL DEFAULT 0;
+
+     ALTER TABLE dm_messages ADD COLUMN reply_to          TEXT;
+     ALTER TABLE dm_messages ADD COLUMN edited_at         INTEGER;
+     ALTER TABLE dm_messages ADD COLUMN mentions          TEXT    NOT NULL DEFAULT '[]';
+     ALTER TABLE dm_messages ADD COLUMN mentions_everyone INTEGER NOT NULL DEFAULT 0;
+
+     CREATE TABLE message_reactions (
+         message_id TEXT NOT NULL,
+         emoji      TEXT NOT NULL,
+         user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+         created_at INTEGER NOT NULL,
+         PRIMARY KEY (message_id, emoji, user_id)
+     );
+     CREATE INDEX idx_message_reactions_message ON message_reactions (message_id, created_at);
+     PRAGMA user_version = 7;
+     COMMIT;";
+
 pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
 
@@ -211,6 +252,9 @@ pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
     if version < 6 {
         conn.execute_batch(V6)?;
     }
+    if version < 7 {
+        conn.execute_batch(V7)?;
+    }
 
     ensure_server_id(conn)?;
 
@@ -236,7 +280,15 @@ fn ensure_server_id(conn: &Connection) -> Result<()> {
 /// montar um banco de versao antiga de verdade, em vez de fingir um.
 #[cfg(test)]
 pub(super) fn migrate_to(conn: &Connection, version: i64) -> Result<()> {
-    for (alvo, passo) in [(1, V1), (2, V2), (3, V3), (4, V4), (5, V5), (6, V6)] {
+    for (alvo, passo) in [
+        (1, V1),
+        (2, V2),
+        (3, V3),
+        (4, V4),
+        (5, V5),
+        (6, V6),
+        (7, V7),
+    ] {
         if version >= alvo {
             conn.execute_batch(passo)?;
         }

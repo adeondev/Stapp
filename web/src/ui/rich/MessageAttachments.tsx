@@ -48,17 +48,24 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
         {attachments.map((att) => {
           const resolvedUrl = resolveAttachmentUrl(att.url, serverUrl)
           const isImage = att.content_type.startsWith('image/')
+          const isVideo =
+            att.content_type.startsWith('video/') ||
+            att.filename.endsWith('.mp4') ||
+            att.filename.endsWith('.mov') ||
+            att.filename.endsWith('.mkv')
           const isVoiceNote =
             att.content_type === 'audio/voice' ||
             att.filename.startsWith('voice-note-') ||
             att.filename.startsWith('audio-recording-')
+          // `.webm` serve para os dois; video ganha na frente para nao virar audio.
           const isAudio =
-            isVoiceNote ||
-            att.content_type.startsWith('audio/') ||
-            att.filename.endsWith('.webm') ||
-            att.filename.endsWith('.ogg') ||
-            att.filename.endsWith('.mp3') ||
-            att.filename.endsWith('.wav')
+            !isVideo &&
+            (isVoiceNote ||
+              att.content_type.startsWith('audio/') ||
+              att.filename.endsWith('.webm') ||
+              att.filename.endsWith('.ogg') ||
+              att.filename.endsWith('.mp3') ||
+              att.filename.endsWith('.wav'))
 
           if (isAudio) {
             return (
@@ -74,6 +81,20 @@ export const MessageAttachments = memo(function MessageAttachments({ attachments
                   </div>
                 )}
                 <AudioPlayer src={resolvedUrl} filename={att.filename} />
+              </div>
+            )
+          }
+
+          if (isVideo) {
+            return (
+              <div key={att.id} className="stapp-attachment-video-wrapper">
+                <video
+                  className="stapp-attachment-video"
+                  src={resolvedUrl}
+                  controls
+                  preload="metadata"
+                  playsInline
+                />
               </div>
             )
           }

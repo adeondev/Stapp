@@ -3,6 +3,7 @@ import type {
   DirectMessage,
   DirectSummary,
   DirectoryEntry,
+  Limits,
   Message,
   OnlineUser,
   PeerId,
@@ -37,6 +38,18 @@ export interface StappState {
    * chegou com a foto velha.
    */
   profiles: Record<UserId, Profile>
+  /**
+   * Tetos que o servidor declarou no `welcome`. Antes deles chegarem, o
+   * cliente usa o fallback abaixo — que so vale ate o primeiro `welcome`,
+   * porque quem manda e o servidor.
+   */
+  limits: Limits
+}
+
+/** Os mesmos defaults do `stapp.toml`, para a tela ter numero antes de conectar. */
+export const LIMITES_PADRAO: Limits = {
+  max_upload_bytes: 15 * 1024 * 1024,
+  max_text_chars: 4000,
 }
 
 export const initialState: StappState = {
@@ -54,6 +67,7 @@ export const initialState: StappState = {
   allowMemberDms: true,
   socialMembers: [],
   profiles: {},
+  limits: LIMITES_PADRAO,
 }
 
 const byUsername = (a: { username: string }, b: { username: string }) =>
@@ -77,6 +91,7 @@ export function reduce(state: StappState, msg: StappAction): StappState {
         voicePeers: msg.voice_peers,
         directory: [...msg.directory].sort(byUsername),
         profiles: Object.fromEntries(msg.profiles.map((profile) => [profile.user_id, profile])),
+        limits: msg.limits,
       }
 
     case 'user.profile':
@@ -94,35 +109,8 @@ export function reduce(state: StappState, msg: StappAction): StappState {
       return { ...state, messages: { ...state.messages, [msg.channel]: [...current, msg.msg] } }
     }
 
-    case 'chat.preview': {
-      let updated = false
-      const newMessages = { ...state.messages }
-      for (const [channel, msgs] of Object.entries(newMessages)) {
-        if (msgs.some((m) => m.id === msg.message_id)) {
-          newMessages[channel] = msgs.map((m) =>
-            m.id === msg.message_id ? { ...m, preview: msg.preview } : m
-          )
-          updated = true
-          break
-        }
-      }
-
-      const newDirect = { ...state.directMessages }
-      if (!updated) {
-        for (const [userId, msgs] of Object.entries(newDirect)) {
-          if (msgs.some((m) => m.id === msg.message_id)) {
-            newDirect[userId] = msgs.map((m) =>
-              m.id === msg.message_id ? { ...m, preview: msg.preview } : m
-            )
-            updated = true
-            break
-          }
-        }
-      }
-
-      if (!updated) return state
-      return { ...state, messages: newMessages, directMessages: newDirect }
-    }
+    case 'chat.preview':
+      return patchMessage(state, msg.message_id, { preview: msg.preview })
 
     case 'chat.poll_update': {
       const channelMsgs = state.messages[msg.channel]
@@ -253,6 +241,51 @@ export function reduce(state: StappState, msg: StappAction): StappState {
       }
     }
 
+    // A mensagem vem inteira e o evento ja diz o escopo — nao ha delta para
+    // aplicar errado, e um campo novo no servidor nao pede caso novo aqui.
+    case 'chat.updated':
+      return {
+        ...state,
+        messages: {
+          ...state.messages,
+          [msg.channel]: trocarNaLista(state.messages[msg.channel], msg.msg),
+        },
+      }
+
+    case 'chat.deleted':
+      return {
+        ...state,
+        messages: {
+          ...state.messages,
+          [msg.channel]: tirarDaLista(state.messages[msg.channel], msg.message_id),
+        },
+      }
+
+    case 'dm.updated':
+      return {
+        ...state,
+        directMessages: {
+          ...state.directMessages,
+          [msg.user_id]: trocarNaLista(state.directMessages[msg.user_id], msg.msg),
+        },
+      }
+
+    case 'dm.deleted': {
+      const semMensagem: StappState = {
+        ...state,
+        directMessages: {
+          ...state.directMessages,
+          [msg.user_id]: tirarDaLista(state.directMessages[msg.user_id], msg.message_id),
+        },
+      }
+      // Apagar uma nao lida derruba a contagem; o servidor ja mandou o numero
+      // certo para este lado, entao nao ha o que recalcular aqui.
+      return {
+        ...semMensagem,
+        conversations: mergeConversation(semMensagem, msg.user_id, { unread: msg.unread }),
+      }
+    }
+
     // Sinalizacao, autenticacao e o telefone tocando nao mexem no estado da
     // sala — o toque e efemero e vive no App.
     case 'auth.required':
@@ -268,6 +301,58 @@ export function reduce(state: StappState, msg: StappAction): StappState {
     case 'dm.denied':
       return state
   }
+}
+
+/** Troca a mensagem de mesmo id, mantendo a ordem. Id ausente = lista intocada. */
+function trocarNaLista<T extends { id: string }>(lista: T[] | undefined, nova: T): T[] {
+  const atual = lista ?? []
+  return atual.map((item) => (item.id === nova.id ? nova : item))
+}
+
+function tirarDaLista<T extends { id: string }>(lista: T[] | undefined, id: string): T[] {
+  return (lista ?? []).filter((item) => item.id !== id)
+}
+
+/**
+ * Aplica um retoque numa mensagem sem saber onde ela esta.
+ *
+ * So o preview de link precisa disto: ele chega depois, por scraping, e o
+ * evento nao diz o escopo. Editar, apagar e reagir sabem o canal ou a conversa
+ * pelo proprio evento, e por isso nao varrem nada. A varredura estava copiada
+ * duas vezes dentro do proprio `chat.preview`; o custo e o mesmo de antes, o
+ * que muda e ter um lugar so.
+ *
+ * Estado intocado quando o id nao aparece — assim o React nao re-renderiza por
+ * uma mensagem que este cliente nem carregou.
+ */
+export function patchMessage(
+  state: StappState,
+  messageId: string,
+  patch: Partial<Message> & Partial<DirectMessage>,
+): StappState {
+  for (const [channel, msgs] of Object.entries(state.messages)) {
+    if (!msgs.some((m) => m.id === messageId)) continue
+    return {
+      ...state,
+      messages: {
+        ...state.messages,
+        [channel]: msgs.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+      },
+    }
+  }
+
+  for (const [userId, msgs] of Object.entries(state.directMessages)) {
+    if (!msgs.some((m) => m.id === messageId)) continue
+    return {
+      ...state,
+      directMessages: {
+        ...state.directMessages,
+        [userId]: msgs.map((m) => (m.id === messageId ? { ...m, ...patch } : m)),
+      },
+    }
+  }
+
+  return state
 }
 
 /**

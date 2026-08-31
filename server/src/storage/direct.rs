@@ -5,10 +5,10 @@
 //! mensagem para alguem e igual a mandar a centesima.
 
 use anyhow::Result;
-use rusqlite::Row;
+use rusqlite::{OptionalExtension, Row};
 
 use super::Db;
-use crate::protocol::{DirectMessage, DirectMessageKind, UserId};
+use crate::protocol::{DirectMessage, DirectMessageKind, ReplyRef, UserId};
 
 /// Id deterministico da conversa entre duas contas: os dois ids em ordem.
 /// Os dois lados calculam o mesmo valor sem combinar nada.
@@ -20,15 +20,17 @@ pub fn conversation_id(a: &str, b: &str) -> String {
     }
 }
 
-const COLUNAS: &str = "id, author_id, author_username, kind, text, ts";
+const COLUNAS: &str =
+    "id, author_id, author_username, kind, text, ts, reply_to, edited_at, mentions, mentions_everyone";
 
 impl Db {
     pub fn insert_direct(&self, conversation: &str, msg: &DirectMessage) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO dm_messages
-                (id, conversation_id, author_id, author_username, kind, text, ts)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                (id, conversation_id, author_id, author_username, kind, text, ts,
+                 reply_to, mentions, mentions_everyone)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             (
                 &msg.id,
                 conversation,
@@ -37,6 +39,9 @@ impl Db {
                 kind_para_texto(msg.kind),
                 &msg.text,
                 msg.ts,
+                msg.reply_to.as_ref().map(|r| r.message_id.clone()),
+                super::mentions_para_json(&msg.mentions),
+                msg.mentions_everyone,
             ),
         )?;
         Ok(())
@@ -53,14 +58,7 @@ impl Db {
         ))?;
         let rows = stmt.query_map((conversation, limit as i64), ler_mensagem)?;
         let mut msgs = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        for msg in &mut msgs {
-            if let Ok(atts) = super::attachments::list_for_message(&conn, &msg.id, None) {
-                msg.attachments = atts;
-            }
-            if let Ok(poll) = super::polls::get_poll_by_message(&conn, &msg.id, None) {
-                msg.poll = poll;
-            }
-        }
+        hidratar(&conn, &mut msgs)?;
         msgs.reverse();
         Ok(msgs)
     }
@@ -76,17 +74,53 @@ impl Db {
         let mut rows = stmt.query([conversation])?;
         match rows.next()? {
             Some(row) => {
-                let mut msg = ler_mensagem(row)?;
-                if let Ok(atts) = super::attachments::list_for_message(&conn, &msg.id, None) {
-                    msg.attachments = atts;
-                }
-                if let Ok(poll) = super::polls::get_poll_by_message(&conn, &msg.id, None) {
-                    msg.poll = poll;
-                }
-                Ok(Some(msg))
+                let mut msgs = vec![ler_mensagem(row)?];
+                hidratar(&conn, &mut msgs)?;
+                Ok(msgs.pop())
             }
             None => Ok(None),
         }
+    }
+
+
+    /// Uma mensagem de conversa, ja hidratada. E o que os eventos de
+    /// atualizacao de DM reenviam.
+    pub fn direct_by_id(&self, id: &str) -> Result<Option<DirectMessage>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!("SELECT {COLUNAS} FROM dm_messages WHERE id = ?1"))?;
+        let Some(msg) = stmt.query_row([id], ler_mensagem).optional()? else {
+            return Ok(None);
+        };
+        let mut msgs = vec![msg];
+        hidratar(&conn, &mut msgs)?;
+        Ok(msgs.pop())
+    }
+
+    /// `Ok(false)` = nao existe ou nao e sua. Autoria no `WHERE`, como no canal.
+    pub fn update_direct_text(
+        &self,
+        id: &str,
+        author_id: &UserId,
+        text: &str,
+        mentions: &[UserId],
+        mentions_everyone: bool,
+        edited_at: i64,
+    ) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        let alteradas = conn.execute(
+            "UPDATE dm_messages
+                SET text = ?3, mentions = ?4, mentions_everyone = ?5, edited_at = ?6
+              WHERE id = ?1 AND author_id = ?2",
+            (
+                id,
+                author_id,
+                text,
+                super::mentions_para_json(mentions),
+                mentions_everyone,
+                edited_at,
+            ),
+        )?;
+        Ok(alteradas > 0)
     }
 
     /// Quantas mensagens da outra pessoa chegaram depois da ultima leitura.
@@ -144,6 +178,70 @@ impl Db {
     }
 }
 
+/// Igual ao do canal, sobre `dm_messages`: anexo e enquete um a um (divida
+/// antiga), reacao e previa de resposta em uma consulta cada.
+fn hidratar(conn: &rusqlite::Connection, msgs: &mut [DirectMessage]) -> Result<()> {
+    for msg in msgs.iter_mut() {
+        if let Ok(atts) = super::attachments::list_for_message(conn, &msg.id, None) {
+            msg.attachments = atts;
+        }
+        if let Ok(poll) = super::polls::get_poll_by_message(conn, &msg.id, None) {
+            msg.poll = poll;
+        }
+    }
+
+    let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
+    let mut reacoes = super::reactions::list_for_messages(conn, &ids)?;
+    let mut respostas = previas_de_resposta(conn, &ids)?;
+    for msg in msgs.iter_mut() {
+        if let Some(lista) = reacoes.remove(&msg.id) {
+            msg.reactions = lista;
+        }
+        if let Some(previa) = respostas.remove(&msg.id) {
+            msg.reply_to = Some(previa);
+        }
+    }
+    Ok(())
+}
+
+/// Mesmo LEFT JOIN do canal: alvo ausente vira previa so com o id, e o cliente
+/// desenha "mensagem apagada".
+fn previas_de_resposta(
+    conn: &rusqlite::Connection,
+    ids: &[String],
+) -> Result<std::collections::HashMap<String, ReplyRef>> {
+    let mut mapa = std::collections::HashMap::new();
+    if ids.is_empty() {
+        return Ok(mapa);
+    }
+
+    let marcadores = vec!["?"; ids.len()].join(",");
+    let mut stmt = conn.prepare(&format!(
+        "SELECT origem.id, origem.reply_to, alvo.author_id, alvo.author_username, alvo.text
+           FROM dm_messages origem
+           LEFT JOIN dm_messages alvo ON alvo.id = origem.reply_to
+          WHERE origem.id IN ({marcadores}) AND origem.reply_to IS NOT NULL"
+    ))?;
+
+    let linhas = stmt.query_map(rusqlite::params_from_iter(ids), |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            super::montar_reply_ref(
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+            ),
+        ))
+    })?;
+
+    for linha in linhas {
+        let (origem, previa) = linha?;
+        mapa.insert(origem, previa);
+    }
+    Ok(mapa)
+}
+
 /// Extrai a outra ponta de um `conversation_id`.
 fn outro_lado(conversation: &str, eu: &str) -> Option<UserId> {
     let (a, b) = conversation.split_once(':')?;
@@ -177,5 +275,23 @@ fn ler_mensagem(row: &Row) -> rusqlite::Result<DirectMessage> {
         ts: row.get(5)?,
         attachments: Vec::new(),
         poll: None,
+        reactions: Vec::new(),
+        // A previa vem do lote em `hidratar`; aqui so sabemos que existe.
+        reply_to: row.get::<_, Option<String>>(6)?.map(|id| ReplyRef {
+            message_id: id,
+            author_id: None,
+            author_username: None,
+            excerpt: None,
+        }),
+        edited_at: row.get(7)?,
+        mentions: super::mentions_de_json(row.get::<_, String>(8)?),
+        mentions_everyone: row.get(9)?,
     })
+}
+
+/// As duas pontas de um `conversation_id`. E o inverso de [`conversation_id`],
+/// e e o que deixa um evento escolher a audiencia a partir da mensagem sozinha.
+pub fn conversation_pair(conversation: &str) -> Option<(UserId, UserId)> {
+    let (a, b) = conversation.split_once(':')?;
+    Some((a.to_string(), b.to_string()))
 }

@@ -59,6 +59,10 @@ export default function App() {
   const [view, setView] = useState<View | null>(null)
   const viewRef = useRef<View | null>(null)
   viewRef.current = view
+  // O `onMessage` e montado uma vez e nao enxerga o estado atual; a ref e o que
+  // deixa a citacao saber se e voce sem remontar a conexao a cada render.
+  const selfUserIdRef = useRef<UserId | null>(null)
+  selfUserIdRef.current = state.selfUserId
   const [call, setCall] = useState<CallState | null>(null)
   const [callFocused, setCallFocused] = useState(false)
   const [callMode, setCallMode] = useState<'embedded' | 'fullscreen'>('embedded')
@@ -213,6 +217,15 @@ export default function App() {
         if (msg.t === 'social.snapshot' && friendRequests.update(msg.members).length > 0) {
           notificationSound.play()
         }
+        // Mensagem de canal nunca tocava nada — so a direta tocava. Citacao e a
+        // excecao: e o unico jeito de chamar alguem num canal que ele nao esta
+        // olhando. A propria mensagem nao toca para quem a escreveu.
+        if (msg.t === 'chat.new') {
+          const eu = selfUserIdRef.current
+          const meChama =
+            (eu !== null && msg.msg.mentions?.includes(eu)) || Boolean(msg.msg.mentions_everyone)
+          if (meChama && msg.msg.author_id !== eu) notificationSound.play()
+        }
         if (msg.t === 'dm.new') {
           const current = viewRef.current
           if (msg.unread > 0 && msg.msg.kind === 'text') notificationSound.play()
@@ -340,24 +353,43 @@ export default function App() {
     setAuthError(null)
   }, [resetRoom])
 
-  const sendMessage = useCallback((text: string, attachmentIds?: string[]) => {
-    const current = viewRef.current
-    if (current?.kind === 'channel') {
-      connection.current?.send({
-        t: 'chat.send',
-        channel: current.id,
-        text,
-        attachment_ids: attachmentIds,
-      })
-    }
-    if (current?.kind === 'direct') {
-      connection.current?.send({
-        t: 'dm.send',
-        user_id: current.userId,
-        text,
-        attachment_ids: attachmentIds,
-      })
-    }
+  const sendMessage = useCallback(
+    (text: string, attachmentIds?: string[], replyTo?: string) => {
+      const current = viewRef.current
+      if (current?.kind === 'channel') {
+        connection.current?.send({
+          t: 'chat.send',
+          channel: current.id,
+          text,
+          attachment_ids: attachmentIds,
+          reply_to: replyTo,
+        })
+      }
+      if (current?.kind === 'direct') {
+        connection.current?.send({
+          t: 'dm.send',
+          user_id: current.userId,
+          text,
+          attachment_ids: attachmentIds,
+          reply_to: replyTo,
+        })
+      }
+    },
+    [],
+  )
+
+  // Editar, apagar e reagir nao dizem o escopo: o id de mensagem e unico e quem
+  // descobre onde ela mora e o servidor.
+  const editMessage = useCallback((messageId: string, text: string) => {
+    connection.current?.send({ t: 'message.edit', message_id: messageId, text })
+  }, [])
+
+  const deleteMessage = useCallback((messageId: string) => {
+    connection.current?.send({ t: 'message.delete', message_id: messageId })
+  }, [])
+
+  const reactMessage = useCallback((messageId: string, emoji: string) => {
+    connection.current?.send({ t: 'message.react', message_id: messageId, emoji })
   }, [])
 
   const votePoll = useCallback((pollId: string, optionId: string) => {
@@ -515,6 +547,11 @@ export default function App() {
       serverUrl={active?.profile.url}
       accessToken={connection.current?.token}
       selfUserId={state.selfUserId ?? undefined}
+      limits={state.limits}
+      mentionables={state.directory}
+      onEdit={editMessage}
+      onDelete={deleteMessage}
+      onReact={reactMessage}
       onSend={sendMessage}
       onVotePoll={votePoll}
       onCreatePoll={createPoll}
@@ -530,6 +567,11 @@ export default function App() {
       serverUrl={active?.profile.url}
       accessToken={connection.current?.token}
       selfUserId={state.selfUserId ?? undefined}
+      limits={state.limits}
+      mentionables={state.directory}
+      onEdit={editMessage}
+      onDelete={deleteMessage}
+      onReact={reactMessage}
       onSend={sendMessage}
       onVotePoll={votePoll}
     />
@@ -604,6 +646,11 @@ export default function App() {
                 serverUrl={active?.profile.url}
                 accessToken={connection.current?.token}
                 selfUserId={state.selfUserId ?? undefined}
+                limits={state.limits}
+                mentionables={state.directory}
+                onEdit={editMessage}
+                onDelete={deleteMessage}
+                onReact={reactMessage}
                 onSend={sendMessage}
                 onVotePoll={votePoll}
                 onCreatePoll={createPoll}
@@ -619,6 +666,11 @@ export default function App() {
                 serverUrl={active?.profile.url}
                 accessToken={connection.current?.token}
                 selfUserId={state.selfUserId ?? undefined}
+                limits={state.limits}
+                mentionables={state.directory}
+                onEdit={editMessage}
+                onDelete={deleteMessage}
+                onReact={reactMessage}
                 onSend={sendMessage}
                 onVotePoll={votePoll}
                 onCall={canDirect ? () => startCall(conversation.user_id, conversation.username) : undefined}

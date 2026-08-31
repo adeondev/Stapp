@@ -9,8 +9,10 @@ mod accounts;
 pub mod attachments;
 mod auth_sessions;
 mod direct;
+pub mod lookup;
 mod messages;
 pub mod polls;
+pub mod reactions;
 mod profiles;
 mod schema;
 mod social;
@@ -22,7 +24,8 @@ use anyhow::{Context, Result};
 use rusqlite::Connection;
 
 pub use accounts::{Account, CreateAccountError};
-pub use direct::conversation_id;
+pub use direct::{conversation_id, conversation_pair};
+pub use lookup::MessageLocation;
 pub use social::Relationship;
 
 /// Um `Mutex<Connection>` basta: o volume aqui e de um grupo de amigos, nao
@@ -130,7 +133,85 @@ impl Db {
         let conn = self.conn.lock().unwrap();
         polls::close_poll(&conn, poll_id, user_id)
     }
+
+    /// Apaga a mensagem e tudo que pendura nela, numa transacao so, e devolve as
+    /// chaves S3 dos anexos para o servico limpar o objeto **depois** do commit.
+    /// `Ok(None)` = a mensagem nao existe ou nao e sua.
+    ///
+    /// PROTOTYPE: so o proprio autor apaga, e apagar e definitivo — nao existe
+    /// papel de moderador neste servidor hoje, entao nao ha "apagar mensagem dos
+    /// outros" nem lapide "mensagem removida". O invariante que nao pode cair: a
+    /// autoria mora no `WHERE` daqui, nunca num `if` do servico. Quando aparecer
+    /// moderacao, este metodo ganha quem autorizou e o servico decide quem pode
+    /// chamar — a assinatura muda aqui, nao no protocolo.
+    pub fn delete_message_cascade(
+        &self,
+        message_id: &str,
+        author_id: &crate::protocol::UserId,
+    ) -> Result<Option<Vec<String>>> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        // Antes de qualquer DELETE: depois do commit a linha some e o objeto
+        // ficaria orfao no S3 sem ninguem saber que existiu.
+        let chaves = attachments::keys_for_message(&tx, message_id)?;
+
+        reactions::delete_for_message(&tx, message_id)?;
+        attachments::delete_for_message(&tx, message_id)?;
+        // As FKs da V6 cascateiam opcoes e votos. Sem isto, apagar a mensagem de
+        // uma enquete deixaria a enquete orfa para sempre.
+        tx.execute("DELETE FROM polls WHERE message_id = ?1", [message_id])?;
+
+        let mut apagadas = tx.execute(
+            "DELETE FROM messages WHERE id = ?1 AND author_id = ?2",
+            (message_id, author_id),
+        )?;
+        if apagadas == 0 {
+            apagadas = tx.execute(
+                "DELETE FROM dm_messages WHERE id = ?1 AND author_id = ?2",
+                (message_id, author_id),
+            )?;
+        }
+
+        if apagadas == 0 {
+            tx.rollback()?;
+            return Ok(None);
+        }
+        tx.commit()?;
+        Ok(Some(chaves))
+    }
+}
+
+/// Mencoes viram um array JSON na propria linha. Elas so sao lidas junto com a
+/// mensagem, entao vem de graca no mesmo SELECT em vez de custar uma tabela e
+/// mais uma consulta por lote.
+pub(crate) fn mentions_para_json(mentions: &[crate::protocol::UserId]) -> String {
+    serde_json::to_string(mentions).unwrap_or_else(|_| "[]".into())
+}
+
+pub(crate) fn mentions_de_json(bruto: String) -> Vec<crate::protocol::UserId> {
+    serde_json::from_str(&bruto).unwrap_or_default()
+}
+
+/// Monta a previa de uma resposta a partir do LEFT JOIN com o alvo.
+///
+/// Alvo ausente (apagado) devolve so o id: e assim que o cliente sabe que a
+/// mensagem original nao existe mais.
+pub(crate) fn montar_reply_ref(
+    message_id: String,
+    author_id: Option<String>,
+    author_username: Option<String>,
+    texto: Option<String>,
+) -> crate::protocol::ReplyRef {
+    crate::protocol::ReplyRef {
+        message_id,
+        author_id,
+        author_username,
+        excerpt: texto.map(|t| messages::recortar(&t)),
+    }
 }
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_v7;

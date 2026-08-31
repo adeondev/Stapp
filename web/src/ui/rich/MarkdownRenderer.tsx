@@ -2,12 +2,21 @@ import React, { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
-import { EMOJI_REGEX, getTwemojiUrl, isOnlyEmojis, parseShortcodesToUnicode } from './twemoji'
+import { isOnlyEmojis, parseShortcodesToUnicode } from './twemoji'
 import './markdown.css'
 
 interface Props {
   content: string
   className?: string
+  /**
+   * Usernames que devem virar pilula quando aparecem como `@nome` no texto.
+   *
+   * O servidor **nao reescreve** o texto: ele guarda `@daniel` e diz em
+   * `mentions` quais contas aquilo alcancou. Entao quem desenha a pilula e o
+   * cliente, e ele precisa saber quais nomes existem — senao qualquer `@coisa`
+   * viraria destaque.
+   */
+  mentionNames?: ReadonlySet<string>
 }
 
 // Configuração segura do schema de sanitização
@@ -56,44 +65,55 @@ function CodeBlock({ children, className }: { children: React.ReactNode; classNa
   )
 }
 
-/**
- * Converte sequências de texto que contenham emojis em imagens Twemoji SVG.
- */
-function renderWithTwemoji(text: string, jumbo: boolean): React.ReactNode {
-  const parts: React.ReactNode[] = []
-  let lastIndex = 0
+/** Divide um texto em pedacos, virando `@nome` conhecido numa pilula. */
+function comMencoes(texto: string, nomes: ReadonlySet<string>): React.ReactNode {
+  const partes: React.ReactNode[] = []
+  const regex = /@([a-zA-Z0-9_.-]+)/g
+  let ultimo = 0
+  let achado: RegExpExecArray | null
 
-  // Regex global com reset de lastIndex
-  const regex = new RegExp(EMOJI_REGEX.source, 'gu')
-  let match: RegExpExecArray | null
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.substring(lastIndex, match.index))
-    }
-    const emoji = match[0]
-    const url = getTwemojiUrl(emoji)
-    parts.push(
-      <img
-        key={`${match.index}-${emoji}`}
-        src={url}
-        alt={emoji}
-        draggable={false}
-        className={jumbo ? 'stapp-emoji-jumbo inline-block' : 'stapp-emoji inline-block'}
-      />
+  while ((achado = regex.exec(texto)) !== null) {
+    const nome = achado[1].toLowerCase()
+    if (!nomes.has(nome)) continue
+    if (achado.index > ultimo) partes.push(texto.slice(ultimo, achado.index))
+    partes.push(
+      <span key={`${achado.index}-${nome}`} className="stapp-mencao">
+        @{achado[1]}
+      </span>,
     )
-    lastIndex = regex.lastIndex
+    ultimo = regex.lastIndex
   }
 
-  if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex))
-  }
-
-  return parts.length > 0 ? parts : text
+  if (partes.length === 0) return texto
+  if (ultimo < texto.length) partes.push(texto.slice(ultimo))
+  return partes
 }
 
-export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className = '' }: Props) {
+/**
+ * Aplica o destaque nos filhos que sao texto puro, deixando o resto intacto.
+ *
+ * O `react-markdown` nao expoe um override de no de texto, entao a saida e
+ * mapear os `children` de cada elemento que carrega texto. E a mesma tecnica
+ * que ja existia aqui para o Twemoji, agora usada nos elementos que importam em
+ * vez de so no paragrafo.
+ */
+function mapear(children: React.ReactNode, nomes: ReadonlySet<string>): React.ReactNode {
+  if (typeof children === 'string') return comMencoes(children, nomes)
+  if (!Array.isArray(children)) return children
+  return children.map((filho, i) =>
+    typeof filho === 'string' ? (
+      <React.Fragment key={i}>{comMencoes(filho, nomes)}</React.Fragment>
+    ) : (
+      filho
+    ),
+  )
+}
+
+const VAZIO: ReadonlySet<string> = new Set()
+
+export const MarkdownRenderer = memo(function MarkdownRenderer({ content, className = '', mentionNames }: Props) {
   const parsedContent = parseShortcodesToUnicode(content)
+  const nomes = mentionNames ?? VAZIO
   const isJumbo = isOnlyEmojis(parsedContent)
 
   return (
@@ -132,25 +152,14 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
           pre({ children }) {
             return <>{children}</>
           },
-          p({ children }) {
-            if (typeof children === 'string') {
-              return <p>{renderWithTwemoji(children, isJumbo)}</p>
-            }
-            if (Array.isArray(children)) {
-              return (
-                <p>
-                  {children.map((child, i) =>
-                    typeof child === 'string' ? (
-                      <React.Fragment key={i}>{renderWithTwemoji(child, isJumbo)}</React.Fragment>
-                    ) : (
-                      child
-                    )
-                  )}
-                </p>
-              )
-            }
-            return <p>{children}</p>
-          },
+          // `code` fica de fora de proposito: `@alguem` dentro de bloco de
+          // codigo e codigo, nao mencao.
+          p: ({ children }) => <p>{mapear(children, nomes)}</p>,
+          li: ({ children }) => <li>{mapear(children, nomes)}</li>,
+          strong: ({ children }) => <strong>{mapear(children, nomes)}</strong>,
+          em: ({ children }) => <em>{mapear(children, nomes)}</em>,
+          td: ({ children }) => <td>{mapear(children, nomes)}</td>,
+          blockquote: ({ children }) => <blockquote>{mapear(children, nomes)}</blockquote>,
         }}
       >
         {parsedContent}

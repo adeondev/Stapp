@@ -7,6 +7,7 @@ use super::Phase;
 use crate::protocol::{AuthErrorCode, ClientMsg, PeerId, ServerMsg};
 use crate::services::chat;
 use crate::services::direct;
+use crate::services::messages;
 use crate::services::profile;
 use crate::services::social;
 use crate::services::voice;
@@ -100,6 +101,7 @@ async fn open_session(state: &Arc<AppState>, peer_id: &PeerId, account: Account)
             profiles: profile::all(state),
             voice: voice::client_config(state),
             voice_peers: voice::all_peers(state).await,
+            limits: messages::client_limits(state),
         },
     );
     chat::send_history(state, peer_id);

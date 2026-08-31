@@ -20,6 +20,8 @@ pub struct Config {
     pub voice: VoiceSettings,
     #[serde(default)]
     pub storage: StorageConfig,
+    #[serde(default)]
+    pub limits: LimitsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,6 +120,27 @@ pub struct StorageConfig {
     pub s3: Option<S3Config>,
 }
 
+/// Tetos que o dono do servidor escolhe. O cliente recebe os dois no `welcome`
+/// e barra antes de a pessoa perder o que escreveu, mas quem decide e o
+/// servidor: `presign` e `clean_text` conferem de novo. E a mesma postura de
+/// `plaintext_auth_allowed` — o cliente obedece, nao repete a regra.
+#[derive(Debug, Clone, Deserialize)]
+pub struct LimitsConfig {
+    #[serde(default = "default_max_upload_mb")]
+    pub max_upload_mb: usize,
+    /// Em caracteres, nao bytes: um emoji conta como um.
+    #[serde(default = "default_max_text_chars")]
+    pub max_text_chars: usize,
+}
+
+impl LimitsConfig {
+    /// O TOML fala em MB porque quem edita e gente; o protocolo fala em bytes
+    /// porque quem compara do outro lado e `File.size`.
+    pub fn max_upload_bytes(&self) -> usize {
+        self.max_upload_mb * 1024 * 1024
+    }
+}
+
 impl Config {
     /// Le o stapp.toml. Caminhos relativos dentro dele sao resolvidos a partir da
     /// pasta do proprio arquivo, entao `cargo run` de qualquer lugar se comporta igual.
@@ -155,6 +178,14 @@ impl Config {
             "auth.max_sessions_per_user precisa ser > 0"
         );
         anyhow::ensure!(self.voice.max_peers > 0, "voice.max_peers precisa ser > 0");
+        anyhow::ensure!(
+            self.limits.max_upload_mb > 0,
+            "limits.max_upload_mb precisa ser > 0"
+        );
+        anyhow::ensure!(
+            self.limits.max_text_chars > 0,
+            "limits.max_text_chars precisa ser > 0"
+        );
         anyhow::ensure!(
             matches!(self.voice.backend.as_str(), "mesh" | "livekit"),
             "voice.backend \"{}\" nao existe ainda — hoje so tem \"mesh\"",
@@ -228,6 +259,15 @@ impl Default for VoiceSettings {
     }
 }
 
+impl Default for LimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_upload_mb: default_max_upload_mb(),
+            max_text_chars: default_max_text_chars(),
+        }
+    }
+}
+
 impl Default for StorageConfig {
     fn default() -> Self {
         Self {
@@ -291,6 +331,12 @@ fn default_s3_secret_key() -> String {
 }
 fn default_s3_public_url() -> Option<String> {
     None
+}
+fn default_max_upload_mb() -> usize {
+    15
+}
+fn default_max_text_chars() -> usize {
+    4000
 }
 
 #[cfg(test)]

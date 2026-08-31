@@ -28,7 +28,7 @@
     "react-markdown": "^10.1.0",
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
-    "wavesurfer.js": "^7.12.11"
+    "twemoji-colr-font": "^15.0.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",

@@ -25,6 +25,27 @@ describe('MessageAttachments', () => {
     expect(img.getAttribute('alt')).toBe('foto.png')
   })
 
+  it('renderiza anexo de vídeo com player, e não como arquivo para baixar', () => {
+    const { container } = render(
+      <MessageAttachments
+        attachments={[
+          {
+            id: 'att-3',
+            filename: 'clipe.mp4',
+            content_type: 'video/mp4',
+            size_bytes: 1024 * 1024,
+            url: 'https://stapp.chat/files/clipe.mp4',
+          },
+        ]}
+      />
+    )
+
+    const video = container.querySelector('video')
+    expect(video?.getAttribute('src')).toBe('https://stapp.chat/files/clipe.mp4')
+    expect(video?.hasAttribute('controls')).toBe(true)
+    expect(screen.queryByRole('link')).toBeNull()
+  })
+
   it('renderiza anexo genérico como link de download com tamanho formatado', () => {
     render(
       <MessageAttachments

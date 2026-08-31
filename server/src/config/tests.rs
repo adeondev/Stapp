@@ -151,3 +151,72 @@ kind = "text"
             .allows_plaintext_from("26.220.166.121".parse().unwrap())
     );
 }
+
+#[test]
+fn limites_tem_default_quando_a_secao_falta() {
+    let dir = TestDir::new();
+    let path = dir.path().join("stapp.toml");
+    std::fs::write(
+        &path,
+        r#"
+[server]
+name = "Stapp"
+[[channels]]
+id = "geral"
+name = "geral"
+kind = "text"
+"#,
+    )
+    .unwrap();
+
+    // Quem ja tem um stapp.toml antigo nao precisa mexer em nada para atualizar.
+    let config = Config::load(&path).unwrap();
+    assert_eq!(config.limits.max_upload_mb, 15);
+    assert_eq!(config.limits.max_text_chars, 4000);
+    assert_eq!(config.limits.max_upload_bytes(), 15 * 1024 * 1024);
+}
+
+#[test]
+fn limites_sao_lidos_do_toml_e_zero_e_recusado() {
+    let dir = TestDir::new();
+    let path = dir.path().join("stapp.toml");
+    std::fs::write(
+        &path,
+        r#"
+[server]
+name = "Stapp"
+[limits]
+max_upload_mb = 50
+max_text_chars = 120
+[[channels]]
+id = "geral"
+name = "geral"
+kind = "text"
+"#,
+    )
+    .unwrap();
+
+    let config = Config::load(&path).unwrap();
+    assert_eq!(config.limits.max_upload_mb, 50);
+    assert_eq!(config.limits.max_text_chars, 120);
+
+    let mut zerado = test_config(PathBuf::from("test.db"), 20, 6);
+    zerado.limits.max_upload_mb = 0;
+    assert!(
+        zerado
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("max_upload_mb")
+    );
+
+    let mut sem_texto = test_config(PathBuf::from("test.db"), 20, 6);
+    sem_texto.limits.max_text_chars = 0;
+    assert!(
+        sem_texto
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("max_text_chars")
+    );
+}

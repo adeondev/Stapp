@@ -38,6 +38,7 @@ impl MediaStorageService {
             .endpoint_url(cfg.endpoint.clone())
             .credentials_provider(creds)
             .force_path_style(true)
+            .sleep_impl(aws_smithy_async::rt::sleep::TokioSleep::new())
             .build();
 
         let client = S3Client::from_conf(s3_config);
@@ -90,6 +91,22 @@ impl MediaStorageService {
             download_url,
             s3_key,
         })
+    }
+
+    /// Remove o objeto do bucket.
+    ///
+    /// Chamada **sempre depois** do commit do banco: a linha em `attachments` e
+    /// o unico ponteiro para esta chave, entao sumir com ela primeiro deixaria a
+    /// mensagem viva apontando para um arquivo inexistente.
+    pub async fn delete_object(&self, key: &str) -> Result<()> {
+        self.client
+            .delete_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .context("erro apagando objeto no s3")?;
+        Ok(())
     }
 
     pub async fn get_object_bytes(&self, key: &str) -> Result<(String, Vec<u8>)> {

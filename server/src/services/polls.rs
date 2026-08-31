@@ -4,6 +4,7 @@ use uuid::Uuid;
 use crate::config::ChannelKind;
 use crate::protocol::{Message, ServerMsg, now_ms};
 use crate::session::AppState;
+use crate::storage::MessageLocation;
 
 pub async fn create(
     state: &Arc<AppState>,
@@ -90,6 +91,11 @@ pub async fn create(
         ts,
         attachments: Vec::new(),
         poll: Some(poll),
+        reply_to: None,
+        edited_at: None,
+        reactions: Vec::new(),
+        mentions: Vec::new(),
+        mentions_everyone: false,
     };
 
     if let Err(err) = state.db.insert(&msg) {
@@ -111,21 +117,11 @@ pub async fn vote(
 
     match state.db.vote_poll(&poll_id, &option_id, &user.user_id, now_ms()) {
         Ok(updated_poll) => {
-            // Descobre o canal para broadcast
-            let channel_name: String = state
-                .db
-                .get_poll_by_id(&poll_id, None)
-                .ok()
-                .flatten()
-                .map(|p| p.message_id)
-                .and_then(|_mid| {
-                    // Descobre canal da mensagem
-                    state.db.history("geral", 1).ok().map(|_| "geral".to_string())
-                })
-                .unwrap_or_else(|| "geral".to_string());
-
+            let Some(channel) = canal_da_enquete(state, &updated_poll.message_id) else {
+                return;
+            };
             state.broadcast(ServerMsg::ChatPollUpdate {
-                channel: channel_name,
+                channel,
                 poll: updated_poll,
             });
         }
@@ -147,8 +143,11 @@ pub async fn close(state: &Arc<AppState>, peer_id: &str, poll_id: String) {
 
     match state.db.close_poll(&poll_id, &user.user_id) {
         Ok(closed_poll) => {
+            let Some(channel) = canal_da_enquete(state, &closed_poll.message_id) else {
+                return;
+            };
             state.broadcast(ServerMsg::ChatPollUpdate {
-                channel: "geral".into(),
+                channel,
                 poll: closed_poll,
             });
         }
@@ -159,6 +158,25 @@ pub async fn close(state: &Arc<AppState>, peer_id: &str, poll_id: String) {
                     message: format!("erro ao encerrar enquete: {err}"),
                 },
             );
+        }
+    }
+}
+
+/// O canal em que a enquete foi criada.
+///
+/// Antes daqui existir, `vote` e `close` chutavam `"geral"` — a enquete de
+/// qualquer outro canal atualizava no canal errado na tela de todo mundo. A
+/// consulta que faltava e a mesma que os comandos de mensagem usam para
+/// descobrir o escopo pelo id.
+fn canal_da_enquete(state: &AppState, message_id: &str) -> Option<String> {
+    match state.db.locate_message(message_id) {
+        Ok(Some(MessageLocation::Channel { channel, .. })) => Some(channel),
+        // Enquete em conversa direta nao existe hoje: `poll.create` so aceita
+        // canal. Se um dia existir, o anuncio tem que sair por `sessions_of`,
+        // nunca por broadcast — por isso aqui e `None` em vez de um palpite.
+        _ => {
+            tracing::warn!(%message_id, "enquete sem canal conhecido; nada anunciado");
+            None
         }
     }
 }

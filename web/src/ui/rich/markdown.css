@@ -128,16 +128,27 @@
 .stapp-markdown tr:nth-child(even) td {
   background: var(--bg-app);
 }
-/* Estilos de Emojis Twemoji */
-.stapp-emoji {
-  width: 1.35em;
-  height: 1.35em;
-  vertical-align: -0.25em;
-  margin: 0 0.05em 0 0.1em;
+/* Jumboji: mensagem que so tem emoji sai grande.
+   Com o Twemoji virando fonte, "aumentar o emoji" e so font-size — antes era
+   width/height de um <img> por emoji. */
+.stapp-markdown-jumbo {
+  font-size: 2.75rem;
+  line-height: 1.15;
 }
-
-.stapp-markdown-jumbo .stapp-emoji-jumbo {
-  width: 3rem;
-  height: 3rem;
-  margin: 0.25rem;
+/* GIF e imagem enviados como markdown (`![GIF](url)`). Sem isto a midia sai no
+   tamanho natural e estoura a largura da conversa. O emoji Twemoji tambem e um
+   <img>, entao ele fica de fora pelas classes proprias. */
+.stapp-markdown img:not(.stapp-emoji):not(.stapp-emoji-jumbo) {
+  display: block;
+  /* `min(100%, …)`: max-width fixo vence o `max-width:100%` do preflight do
+     Tailwind, e ai em painel estreito a midia estoura e o scroller da conversa
+     corta a lateral (overflow-y:auto faz o overflow-x usado virar auto). */
+  max-width: min(100%, 360px);
+  max-height: 300px;
+  width: auto;
+  height: auto;
+  margin: 0.25rem 0;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  object-fit: contain;
 }
