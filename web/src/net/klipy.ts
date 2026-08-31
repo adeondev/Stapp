@@ -33,10 +33,14 @@ export interface KlipyResponse {
   data?: any
 }
 
-const DEFAULT_API_KEY = (import.meta as any).env?.VITE_KLIPY_API_KEY || 'demo'
+// Chave pública padrão para catálogo de GIFs
+const GIPHY_PUBLIC_KEY = 'sXpGFDGZs0Dv1mmNFvYaGUvYwKX0PWIh'
+const KLIPY_API_KEY = (import.meta as any).env?.VITE_KLIPY_API_KEY || ''
 
 export function extractGifUrl(item: KlipyGifItem): string {
   if (item.url) return item.url
+  if (item.images?.original?.url) return item.images.original.url
+  if (item.images?.fixed_height?.url) return item.images.fixed_height.url
   if (item.files?.original?.url) return item.files.original.url
   if (item.files?.preview?.url) return item.files.preview.url
   if (item.media && item.media.length > 0) {
@@ -45,12 +49,11 @@ export function extractGifUrl(item: KlipyGifItem): string {
     if (m.mediumgif?.url) return m.mediumgif.url
     if (m.tinygif?.url) return m.tinygif.url
   }
-  if (item.images?.original?.url) return item.images.original.url
-  if (item.images?.fixed_height?.url) return item.images.fixed_height.url
   return ''
 }
 
 export function extractGifPreview(item: KlipyGifItem): string {
+  if (item.images?.fixed_height?.url) return item.images.fixed_height.url
   if (item.files?.preview?.url) return item.files.preview.url
   if (item.media && item.media.length > 0) {
     const m = item.media[0]
@@ -58,11 +61,10 @@ export function extractGifPreview(item: KlipyGifItem): string {
     if (m.mediumgif?.url) return m.mediumgif.url
     if (m.gif?.url) return m.gif.url
   }
-  if (item.images?.fixed_height?.url) return item.images.fixed_height.url
   return extractGifUrl(item)
 }
 
-function parseKlipyItems(json: any): KlipyGifItem[] {
+function parseItems(json: any): KlipyGifItem[] {
   const rawList: any[] = Array.isArray(json)
     ? json
     : Array.isArray(json.data?.data)
@@ -79,39 +81,71 @@ function parseKlipyItems(json: any): KlipyGifItem[] {
 }
 
 export async function fetchTrendingGifs(
-  apiKey: string = DEFAULT_API_KEY,
+  apiKey: string = KLIPY_API_KEY,
   page: number = 1,
   perPage: number = 20
 ): Promise<KlipyGifItem[]> {
+  // Se houver chave personalizada do Klipy configurada, tenta primeiro o Klipy
+  if (apiKey) {
+    try {
+      const url = `https://api.klipy.com/api/v1/${apiKey}/gifs/trending?page=${page}&per_page=${perPage}`
+      const res = await fetch(url)
+      if (res.ok) {
+        const json = await res.json()
+        const items = parseItems(json)
+        if (items.length > 0) return items
+      }
+    } catch {
+      // Fallback para o provedor público abaixo
+    }
+  }
+
+  // Provedor público de alta disponibilidade (Giphy CDN)
   try {
-    const url = `https://api.klipy.com/api/v1/${apiKey}/gifs/trending?page=${page}&per_page=${perPage}`
+    const offset = (page - 1) * perPage
+    const url = `https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_PUBLIC_KEY}&limit=${perPage}&offset=${offset}&rating=g`
     const res = await fetch(url)
     if (!res.ok) return []
     const json = await res.json()
-    return parseKlipyItems(json)
+    return parseItems(json)
   } catch (err) {
-    console.warn('Erro ao buscar GIFs em alta no Klipy:', err)
+    console.warn('Erro ao buscar GIFs em alta:', err)
     return []
   }
 }
 
 export async function searchGifs(
   query: string,
-  apiKey: string = DEFAULT_API_KEY,
+  apiKey: string = KLIPY_API_KEY,
   page: number = 1,
   perPage: number = 20
 ): Promise<KlipyGifItem[]> {
   const trimmed = query.trim()
   if (!trimmed) return fetchTrendingGifs(apiKey, page, perPage)
 
+  if (apiKey) {
+    try {
+      const url = `https://api.klipy.com/api/v1/${apiKey}/gifs/search?q=${encodeURIComponent(trimmed)}&page=${page}&per_page=${perPage}`
+      const res = await fetch(url)
+      if (res.ok) {
+        const json = await res.json()
+        const items = parseItems(json)
+        if (items.length > 0) return items
+      }
+    } catch {
+      // Fallback para o provedor público abaixo
+    }
+  }
+
   try {
-    const url = `https://api.klipy.com/api/v1/${apiKey}/gifs/search?q=${encodeURIComponent(trimmed)}&page=${page}&per_page=${perPage}`
+    const offset = (page - 1) * perPage
+    const url = `https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_PUBLIC_KEY}&q=${encodeURIComponent(trimmed)}&limit=${perPage}&offset=${offset}&rating=g`
     const res = await fetch(url)
     if (!res.ok) return []
     const json = await res.json()
-    return parseKlipyItems(json)
+    return parseItems(json)
   } catch (err) {
-    console.warn('Erro ao buscar GIFs no Klipy:', err)
+    console.warn('Erro ao buscar GIFs:', err)
     return []
   }
 }

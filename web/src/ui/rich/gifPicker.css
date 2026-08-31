@@ -4,8 +4,8 @@
   right: 0;
   width: 320px;
   height: 380px;
-  background: var(--bg-surface);
-  border: 1px solid var(--bg-raised);
+  background: var(--bg-raised);
+  border: 1px solid var(--bg-input);
   border-radius: var(--radius);
   z-index: 50;
   display: flex;
@@ -15,13 +15,13 @@
 
 .stapp-gif-header {
   padding: 0.5rem;
-  background: var(--bg-app);
-  border-bottom: 1px solid var(--bg-raised);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--bg-input);
 }
 
 .stapp-gif-search-input {
   width: 100%;
-  background: var(--bg-raised);
+  background: var(--bg-input);
   border: 1px solid transparent;
   color: var(--text);
   padding: 0.4rem 0.6rem;
@@ -42,6 +42,7 @@
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 0.4rem;
+  background: var(--bg-raised);
 }
 
 .stapp-gif-item {
@@ -50,7 +51,7 @@
   height: 95px;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--bg-raised);
+  background: var(--bg-input);
   cursor: pointer;
   border: none;
   padding: 0;
@@ -73,5 +74,6 @@
   text-align: right;
   color: var(--text-dim);
   padding: 0.25rem 0.5rem;
-  background: var(--bg-app);
+  background: var(--bg-raised);
+  border-top: 1px solid var(--bg-input);
 }
