@@ -558,13 +558,27 @@ export default function App() {
               <FriendsHome members={state.socialMembers} onlineIds={onlineIds}
                 onOpenDirect={selectDirect} onAction={socialAction} />
             ) : channel ? (
-              <Chat title={channel.name} kind="channel" messages={state.messages[channel.id] ?? []}
-                canSend={status === 'online'} onSend={sendMessage} />
+              <Chat
+                title={channel.name}
+                kind="channel"
+                messages={state.messages[channel.id] ?? []}
+                canSend={status === 'online'}
+                serverUrl={active?.profile.url}
+                accessToken={connection.current?.token}
+                onSend={sendMessage}
+              />
             ) : conversation ? (
-              <Chat title={conversation.username} kind="direct"
-                messages={state.directMessages[conversation.user_id] ?? []} canSend={canDirect}
+              <Chat
+                title={conversation.username}
+                kind="direct"
+                messages={state.directMessages[conversation.user_id] ?? []}
+                canSend={canDirect}
                 disabledReason={status === 'online' ? 'Você não pode enviar mensagens nesta conversa.' : undefined}
-                onSend={sendMessage} onCall={canDirect ? () => startCall(conversation.user_id, conversation.username) : undefined} />
+                serverUrl={active?.profile.url}
+                accessToken={connection.current?.token}
+                onSend={sendMessage}
+                onCall={canDirect ? () => startCall(conversation.user_id, conversation.username) : undefined}
+              />
             ) : (
               <div className="placeholder"><img src={stappLogo} alt="" className="placeholder__logo" />
                 <strong>Escolha onde quer conversar</strong><span>Um canal, uma conversa ou a área de amigos.</span></div>
