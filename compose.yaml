@@ -54,9 +54,35 @@ services:
     networks:
       - stapp-network
 
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: stapp-caddy
+    restart: unless-stopped
+    profiles:
+      - caddy
+      - https
+    ports:
+      - "${STAPP_HTTP_PORT:-80}:80"
+      - "${STAPP_HTTPS_PORT:-443}:443"
+    environment:
+      STAPP_DOMAIN: "${STAPP_DOMAIN:-localhost}"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - stapp-server
+      - livekit
+    networks:
+      - stapp-network
+
 volumes:
   stapp-data:
     name: stapp-data
+  caddy-data:
+    name: caddy-data
+  caddy-config:
+    name: caddy-config
 
 networks:
   stapp-network:

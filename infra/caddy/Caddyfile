@@ -1,0 +1,19 @@
+{
+    admin off
+}
+
+{$STAPP_DOMAIN:localhost} {
+    encode zstd gzip
+
+    # Route LiveKit SFU WebSocket and RTC signaling paths to LiveKit server
+    @livekit {
+        path /rtc /rtc/* /twirp/*
+    }
+    reverse_proxy @livekit livekit:7880
+
+    # Route API, WebSocket (/ws), attachments and react SPA to stapp-server
+    reverse_proxy stapp-server:8787 {
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
