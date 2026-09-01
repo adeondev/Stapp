@@ -72,6 +72,9 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
 
     const start = async () => {
       try {
+        if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+          return fail('O microfone exige uma conexão segura (HTTPS) ou o aplicativo Desktop.')
+        }
         const inputDeviceId = loadVoicePreferences().inputDeviceId
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
@@ -127,7 +130,7 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
         }, 200)
       } catch (cause) {
         const denied = cause instanceof DOMException && cause.name === 'NotAllowedError'
-        fail(denied ? 'Permissao de microfone negada.' : 'Nao foi possivel iniciar o microfone configurado.')
+        fail(denied ? 'Permissão de microfone negada pelo navegador.' : 'Não foi possível iniciar o microfone configurado.')
       }
     }
 

@@ -97,6 +97,24 @@
   border-bottom: 1px solid var(--call-tile);
 }
 
+.callstage__banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--danger-quiet);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(242, 63, 67, 0.2);
+  z-index: 10;
+}
+
+.callstage__banner svg {
+  flex-shrink: 0;
+  color: var(--danger);
+}
+
 .callstage__header-actions {
   display: flex;
   align-items: center;

@@ -72,7 +72,7 @@ export class MeshTransport implements VoiceTransport {
 
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       this.options.onError(
-        'o navegador so libera o microfone em localhost ou HTTPS — pelo IP da rede a voz nao funciona',
+        'O microfone exige uma conexão segura (HTTPS) ou o aplicativo Desktop. Em conexões HTTP remotas, o navegador bloqueia a captura de mídia.',
       )
       return false
     }
@@ -272,6 +272,9 @@ export class MeshTransport implements VoiceTransport {
   }
 
   async enumerateDevices(): Promise<MediaDeviceLists> {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return { inputs: [], outputs: [], cameras: [] }
+    }
     const devices = await navigator.mediaDevices.enumerateDevices()
     return {
       inputs: devices.filter((device) => device.kind === 'audioinput'),
@@ -286,6 +289,9 @@ export class MeshTransport implements VoiceTransport {
   }
 
   async startCameraPreview(element: HTMLVideoElement) {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error('A câmera exige conexão segura (HTTPS) ou o aplicativo Desktop.')
+    }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {

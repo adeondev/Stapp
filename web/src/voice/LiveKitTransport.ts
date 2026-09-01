@@ -369,6 +369,9 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   async enumerateDevices(): Promise<MediaDeviceLists> {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return { inputs: [], outputs: [], cameras: [] }
+    }
     const devices = await navigator.mediaDevices.enumerateDevices()
     return {
       inputs: devices.filter((device) => device.kind === 'audioinput'),
@@ -383,6 +386,9 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   async startCameraPreview(element: HTMLVideoElement) {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error('A câmera exige conexão segura (HTTPS) ou o aplicativo Desktop.')
+    }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
@@ -1298,10 +1304,13 @@ export class LiveKitTransport implements VoiceTransport {
 }
 
 function mediaError(error: unknown, fallback: string) {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'O microfone e a câmera exigem conexão segura (HTTPS) ou o aplicativo Desktop.'
+  }
   if (error instanceof DOMException) {
-    if (error.name === 'NotAllowedError') return 'A permissao de midia foi negada.'
-    if (error.name === 'NotFoundError') return 'Nenhum dispositivo compativel foi encontrado.'
-    if (error.name === 'NotReadableError') return 'O dispositivo esta ocupado por outro aplicativo.'
+    if (error.name === 'NotAllowedError') return 'A permissão de mídia foi negada pelo navegador.'
+    if (error.name === 'NotFoundError') return 'Nenhum dispositivo compatível foi encontrado.'
+    if (error.name === 'NotReadableError') return 'O dispositivo está ocupado por outro aplicativo.'
   }
   if (error instanceof Error && error.message) {
     // O SDK costuma trazer aqui a causa de rede/codec. Redigimos qualquer JWT

@@ -235,6 +235,7 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
     transport.setScreenShareEnabled(true, { preset, sourceId, includeAudio })
 
   const isPartyOnly = ordered.length > 0 && ordered.every((t) => t.kind === 'avatar')
+  const isSecure = typeof window === 'undefined' || (window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia))
 
   return (
     <div className={`callstage ${variant === 'embedded' ? 'callstage--embedded' : 'callstage--fullscreen'} ${isAppFullscreen ? 'callstage--app-fullscreen' : ''} ${focused ? 'callstage--focus' : ''} ${isPartyOnly ? 'callstage--party-mode' : ''} ${isTrayCollapsed ? 'callstage--tray-collapsed' : ''}`} ref={root}
@@ -255,6 +256,15 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
           <h1>{channelName}</h1>
         </div>
       </header>
+
+      {(!isSecure || snapshot.error) && (
+        <div className="callstage__banner" role="alert">
+          <IconMicOff size={16} />
+          <span>
+            {snapshot.error || 'Navegador em conexão HTTP remota: o microfone e a câmera estão bloqueados. Conecte via HTTPS ou use o aplicativo Desktop.'}
+          </span>
+        </div>
+      )}
 
       <div className="callstage__body">
         <div className="callstage__viewport">

@@ -2,6 +2,9 @@ export async function startMicrophoneTest(
   constraints: MediaTrackConstraints,
   onLevel: (level: number) => void,
 ): Promise<() => void> {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error('O microfone exige conexão segura (HTTPS) ou o aplicativo Desktop.')
+  }
   const stream = await navigator.mediaDevices.getUserMedia({ audio: constraints, video: false })
   const context = new AudioContext()
   const source = context.createMediaStreamSource(stream)

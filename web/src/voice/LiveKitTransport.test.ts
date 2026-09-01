@@ -724,7 +724,7 @@ describe('LiveKitTransport', () => {
         expect(mediaUrlForThisDevice('ws://192.168.1.100:7880')).toBe('ws://192.168.1.100:7880')
         expect(mediaUrlForThisDevice('ws://100.64.0.1:7880')).toBe('ws://100.64.0.1:7880')
       } finally {
-        delete (window as Record<string, unknown>).__TAURI_INTERNALS__
+        delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
       }
     })
   })

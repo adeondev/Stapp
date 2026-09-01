@@ -259,4 +259,38 @@ describe('palco da chamada', () => {
     const unsubscribedTiles = container.querySelectorAll('.calltile--unsubscribed')
     expect(unsubscribedTiles.length).toBe(2)
   })
+
+  it('exibe aviso visual quando o contexto nao for seguro', () => {
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
+    const media = transport()
+    render(
+      <CallStage
+        channelName="Sala"
+        snapshot={snapshot}
+        transport={media}
+        onLeave={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.getByText(/o microfone e a câmera estão bloqueados/i)).toBeTruthy()
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: true })
+  })
+
+  it('exibe aviso visual quando houver erro no snapshot', () => {
+    const media = transport()
+    render(
+      <CallStage
+        channelName="Sala"
+        snapshot={{ ...snapshot, error: 'Falha ao acessar o microfone selecionado.' }}
+        transport={media}
+        onLeave={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toBeTruthy()
+    expect(screen.getByText('Falha ao acessar o microfone selecionado.')).toBeTruthy()
+  })
 })

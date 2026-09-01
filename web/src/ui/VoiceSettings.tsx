@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DiagnosticReport, MediaDeviceLists, VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import { DEFAULT_VOICE_PREFERENCES, resetVoicePreferences, type VoicePreferences } from '../voice/preferences'
-import { IconCamera, IconHeadphones, IconMic, IconScreen, IconX } from './Icons'
+import { IconCamera, IconHeadphones, IconMic, IconMicOff, IconScreen, IconX } from './Icons'
 import { DropdownSelect } from './Menu'
 import './voicesettings.css'
 
@@ -20,10 +20,12 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
   const [devices, setDevices] = useState(EMPTY_DEVICES)
   const [testing, setTesting] = useState(false)
   const [level, setLevel] = useState(0)
+  const [testError, setTestError] = useState<string | null>(null)
   const [report, setReport] = useState<DiagnosticReport | null>(null)
   const [previewing, setPreviewing] = useState(false)
   const [previewError, setPreviewError] = useState<string | null>(null)
   const preview = useRef<HTMLVideoElement>(null)
+  const isSecure = typeof window === 'undefined' || (window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia))
 
   useEffect(() => {
     if (!open) return
@@ -34,13 +36,23 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
   useEffect(() => {
     if (open) return
     setTesting(false)
+    setTestError(null)
     setPreviewing(false)
   }, [open])
 
   useEffect(() => {
     if (!testing) return
     let stop: (() => void) | undefined
-    void transport.startMicrophoneTest(setLevel).then((cleanup) => { stop = cleanup }).catch(() => setTesting(false))
+    setTestError(null)
+    void transport.startMicrophoneTest(setLevel).then((cleanup) => {
+      stop = cleanup
+    }).catch((err) => {
+      setTesting(false)
+      const msg = err instanceof DOMException && err.name === 'NotAllowedError'
+        ? 'Permissão de microfone negada pelo navegador.'
+        : (err instanceof Error ? err.message : 'Não foi possível iniciar o teste de microfone.')
+      setTestError(msg)
+    })
     return () => stop?.()
   }, [testing, transport])
 
@@ -87,6 +99,16 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
       <header><div><span>Configurações</span><h2 id="voice-settings-title">Voz e Vídeo</h2></div>
         <button onClick={onClose} aria-label="fechar"><IconX size={18} /></button></header>
       <div className="voicesettings__body">
+        {!isSecure && (
+          <div className="voicesettings__insecure-banner" role="alert">
+            <IconMicOff size={18} />
+            <div>
+              <strong>Microfone e câmera bloqueados pelo navegador</strong>
+              <p>Em conexões HTTP remotas, o navegador bloqueia dispositivos de mídia. Para usar voz e vídeo, conecte via HTTPS ou use o aplicativo Desktop (Tauri).</p>
+            </div>
+          </div>
+        )}
+
         <SettingsGroup icon={<IconMic />} title="Dispositivos de voz">
           <div className="voicesettings__columns">
             <Select label="Entrada" value={preferences.inputDeviceId}
@@ -100,6 +122,7 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
             onChange={(value) => update('outputVolume', value)} suffix="%" />
           <button className={`voicesettings__test ${testing ? 'is-active' : ''}`} onClick={() => setTesting((value) => !value)}>
             {testing ? 'Parar teste do microfone' : 'Testar microfone'}</button>
+          {testError && <span className="voicesettings__test-error" role="status">{testError}</span>}
           <div className="voicesettings__meter" aria-label={`nível do microfone ${Math.round(level * 100)}%`}>
             <span style={{ width: `${level * 100}%` }} /></div>
         </SettingsGroup>
