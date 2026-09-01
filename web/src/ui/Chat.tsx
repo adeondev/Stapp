@@ -587,6 +587,7 @@ export function Chat({
       const nonce = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
       setVoicePendingNonce(nonce)
       setOptimistic((current) => [...current, { nonce, text: '', attachmentIds: [attachmentId], status: 'sending' }])
+      setVoicePreview(null)
       onSend('', [attachmentId], undefined, nonce)
     } catch (err) {
       setVoiceError(err instanceof Error ? err.message : 'Falha ao enviar o áudio')
@@ -1045,7 +1046,9 @@ export function Chat({
         <EmojiPicker isOpen={showEmojiPicker} onClose={() => setShowEmojiPicker(false)} onSelectEmoji={insertEmoji} />
         <GifPicker isOpen={showGifPicker} onClose={() => setShowGifPicker(false)} onSelectGif={(gifUrl) => {
           setShowGifPicker(false)
-          setDraft((current) => `${current}${current ? ' ' : ''}![GIF](${gifUrl})`)
+          const replyTo = respondendo?.id
+          setRespondendo(null)
+          onSend(`![GIF](${gifUrl})`, undefined, replyTo)
         }} />
         <PollCreatorModal isOpen={showPollModal} onClose={() => setShowPollModal(false)} onCreatePoll={(question, options, allowMult) => onCreatePoll?.(question, options, allowMult)} />
         {typingUsers.filter((entry) => entry.expiresAt > Date.now()).length > 0 && (

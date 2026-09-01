@@ -5,6 +5,7 @@ import './audioPlayer.css'
 interface Props {
   src: string
   filename?: string
+  initialDurationSec?: number
 }
 
 function formatDuration(seconds: number): string {
@@ -55,11 +56,11 @@ function guardarVolume(valor: number) {
  * sem tocar, com o `GET` respondendo 200 o tempo todo. Elemento de midia nao
  * passa por CORS; por isso a reproducao aqui nao depende de baixar nada.
  */
-export const AudioPlayer = memo(function AudioPlayer({ src, filename }: Props) {
+export const AudioPlayer = memo(function AudioPlayer({ src, filename, initialDurationSec }: Props) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
+  const [duration, setDuration] = useState(initialDurationSec && initialDurationSec > 0 ? initialDurationSec : 0)
   const [volume, setVolume] = useState(volumeGuardado)
   /** Ultimo volume audivel, para o botao de mudo saber ao que voltar. */
   const antesDoMudo = useRef(volume || 1)
@@ -75,8 +76,8 @@ export const AudioPlayer = memo(function AudioPlayer({ src, filename }: Props) {
     medindo.current = false
     setIsPlaying(false)
     setCurrentTime(0)
-    setDuration(0)
-  }, [src])
+    setDuration(initialDurationSec && initialDurationSec > 0 ? initialDurationSec : 0)
+  }, [src, initialDurationSec])
 
   /**
    * O webm que sai do `MediaRecorder` nao tem duracao no cabecalho: o navegador

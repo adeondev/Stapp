@@ -391,10 +391,17 @@ pub(super) fn origin_context(state: &AppState, headers: &HeaderMap) -> Option<Or
         .get(header::HOST)
         .and_then(|value| value.to_str().ok());
     let same_site = host.is_some_and(|host| authority(origin_value) == Some(host));
+    let is_dev_loopback = origin_value.starts_with("http://localhost:")
+        || origin_value.starts_with("http://127.0.0.1:")
+        || origin_value.starts_with("http://[::1]:");
     let built_in = matches!(
         origin_value,
-        "http://tauri.localhost" | "https://tauri.localhost" | "tauri://localhost"
-    );
+        "http://tauri.localhost"
+            | "https://tauri.localhost"
+            | "tauri://localhost"
+            | "http://localhost"
+            | "http://127.0.0.1"
+    ) || is_dev_loopback;
     let configured = state
         .config
         .auth

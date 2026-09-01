@@ -77,7 +77,11 @@ function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: 
     return (
       <div className={voice ? 'stapp-voice-note-wrapper' : 'stapp-audio-attachment-wrapper'}>
         {voice && <div className="stapp-voice-note-label">Mensagem de voz</div>}
-        <AudioPlayer src={url} filename={attachment.filename} />
+        <AudioPlayer
+          src={url}
+          filename={attachment.filename}
+          initialDurationSec={attachment.duration_ms ? attachment.duration_ms / 1000 : undefined}
+        />
       </div>
     )
   }
