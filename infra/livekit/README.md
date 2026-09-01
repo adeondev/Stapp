@@ -1,25 +1,28 @@
 # LiveKit local do Stapp
 
-Alvo inicial: Windows 10/11, Radmin VPN e no máximo seis participantes. O SFU é o
-LiveKit `v1.13.6`; não há LiveKit Cloud, TURN, gravação, ingress, egress ou
-telemetria externa configurada.
+Servidor SFU WebRTC LiveKit `v1.13.6` para chamadas de voz e transmissões de tela com múltiplos participantes sem sobrecarga de CPU/rede P2P. Compatível com redes locais (LAN), Tailscale, Radmin VPN, WireGuard ou IP público.
 
-1. Copie `.env.example` para `.env` e troque IP, chave e segredo. O `.env` é
-   ignorado pelo Git.
-2. Abra no Firewall do Windows, somente para a rede usada pelo Radmin:
-   TCP 7880 (sinalização/API), TCP 7881 (ICE fallback) e UDP 7882 (mídia).
-3. Execute uma das formas equivalentes:
+> **Dica:** Para rodar a stack completa (Stapp Server + Web SPA + LiveKit) com um único comando, use o `docker compose up -d` na raiz do projeto.
 
+### Inicialização Isolada do LiveKit:
+
+1. Copie `.env.example` para `.env` e configure o IP do host (`STAPP_HOST_IP`), chave e segredo.
+2. Certifique-se de que as portas necessárias estão liberadas no Firewall da sua rede/máquina:
+   - **TCP 7880** (Sinalização WebSocket / API)
+   - **TCP 7881** (ICE TCP fallback)
+   - **UDP 7882** (Tráfego de mídia WebRTC)
+3. Execute o script de inicialização:
+
+   **No Windows (PowerShell):**
    ```powershell
    .\Start-LiveKit.ps1 -Mode Docker -StartStapp
+   # ou nativo:
    .\Start-LiveKit.ps1 -Mode Native -StartStapp
    ```
 
-O modo Docker fixa `livekit/livekit-server:v1.13.6`. O modo nativo baixa o release
-oficial Windows AMD64 e recusa o arquivo se o SHA-256 não for
-`9df299b6c6c32f1be88d3d106a9a63f8f921b424b353cc59f57d6b84532a4475`.
-O script gera `livekit.generated.yaml` e `server/stapp.livekit.toml`, ambos
-ignorados, espera o health check e nunca cria regra de firewall silenciosamente.
+   **No Linux / macOS (Bash):**
+   ```bash
+   ./start-livekit.sh
+   ```
 
-O cliente deve ser o app Tauri/WebView2. Por HTTP remoto, navegadores não liberam
-microfone ou captura; localhost ou HTTPS continuam funcionando.
+O modo Docker utiliza a imagem oficial `livekit/livekit-server:v1.13.6`. O modo nativo baixa o release oficial e valida a soma criptográfica SHA-256. Em navegadores remotos sobre HTTP não seguro, lembre-se de usar o aplicativo Desktop (Tauri) ou configurar HTTPS (ex.: perfil Caddy na raiz).
