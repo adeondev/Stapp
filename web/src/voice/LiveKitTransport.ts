@@ -102,7 +102,7 @@ export class LiveKitTransport implements VoiceTransport {
 
   async join(channel: string): Promise<boolean> {
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      this.fail('No Radmin, voz e captura exigem o aplicativo Stapp; navegador remoto por HTTP nao tem permissao segura.')
+      this.fail('O microfone exige uma conexão segura (HTTPS) ou o aplicativo Desktop. Em conexões HTTP remotas, o navegador bloqueia a captura de mídia.')
       return false
     }
     if (this.requestedChannel === channel && this.state.status !== 'idle') return true
@@ -1329,16 +1329,16 @@ function statNumber(stats: Record<string, unknown>, key: string) {
 }
 
 /**
- * No computador que hospeda o Stapp, o loopback e a rota correta e tambem e
- * tratado como origem confiavel pelos navegadores. Isso impede que modos
- * HTTPS-only tentem converter o WebSocket Radmin sem TLS para HTTPS. Clientes
- * Tauri e maquinas remotas continuam recebendo exatamente o endereco Radmin.
+ * No computador que hospeda o Stapp, o loopback e a rota correta e direta para o navegador.
+ * Redireciona enderecos ws: para localhost quando o app roda no host local no navegador.
+ * Clientes Desktop (Tauri), conexoes seguras (wss:) e acessos de outras maquinas mantem o host original.
  */
-function mediaUrlForThisDevice(raw: string) {
+export function mediaUrlForThisDevice(raw: string) {
   try {
     const url = new URL(raw)
-    const localPage = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-    if (localPage && url.protocol === 'ws:' && url.hostname.startsWith('26.')) {
+    const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
+    const localPage = !isTauri && typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    if (localPage && url.protocol === 'ws:') {
       url.hostname = location.hostname
     }
     return url.toString().replace(/\/$/, '')

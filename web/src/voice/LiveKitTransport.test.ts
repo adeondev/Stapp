@@ -183,7 +183,7 @@ vi.mock('livekit-client', () => {
   }
 })
 
-import { LiveKitTransport } from './LiveKitTransport'
+import { LiveKitTransport, mediaUrlForThisDevice } from './LiveKitTransport'
 
 const config = {
   backend: 'livekit' as const, max_peers: 6, camera: true, screen_share: true, screen_audio: true,
@@ -689,5 +689,43 @@ describe('LiveKitTransport', () => {
     transport.handleServerMessage({ t: 'voice.grant', channel: 'sala', url: 'ws://sfu', token: 'old', expires_at: Date.now() - 1 })
     expect(transport.snapshot().status).toBe('idle')
     expect(errors).toContain('A autorizacao de midia expirou; tente entrar novamente.')
+  })
+
+  it('falha ao entrar se o contexto nao for seguro', async () => {
+    Object.defineProperty(window, 'isSecureContext', { configurable: true, value: false })
+    const errors: string[] = []
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: (message) => errors.push(message),
+    })
+    const started = await transport.join('sala')
+    expect(started).toBe(false)
+    expect(errors).toContain('O microfone exige uma conexão segura (HTTPS) ou o aplicativo Desktop. Em conexões HTTP remotas, o navegador bloqueia a captura de mídia.')
+    expect(transport.snapshot().status).toBe('idle')
+  })
+
+  describe('mediaUrlForThisDevice', () => {
+    it('resolve qualquer IP/host nao-TLS para localhost quando executado em navegador local', () => {
+      // Local browser environment (localhost)
+      expect(mediaUrlForThisDevice('ws://192.168.1.100:7880')).toBe('ws://localhost:7880')
+      expect(mediaUrlForThisDevice('ws://10.0.0.5:7880')).toBe('ws://localhost:7880')
+      expect(mediaUrlForThisDevice('ws://100.64.0.1:7880')).toBe('ws://localhost:7880')
+      expect(mediaUrlForThisDevice('ws://26.1.2.3:7880')).toBe('ws://localhost:7880')
+      expect(mediaUrlForThisDevice('ws://172.18.0.2:7880')).toBe('ws://localhost:7880')
+    })
+
+    it('preserva conexoes seguras com wss://', () => {
+      expect(mediaUrlForThisDevice('wss://sfu.example.com:7880')).toBe('wss://sfu.example.com:7880')
+      expect(mediaUrlForThisDevice('wss://192.168.1.100:7880')).toBe('wss://192.168.1.100:7880')
+    })
+
+    it('preserva host remoto quando executado no aplicativo desktop Tauri', () => {
+      Object.defineProperty(window, '__TAURI_INTERNALS__', { configurable: true, value: {} })
+      try {
+        expect(mediaUrlForThisDevice('ws://192.168.1.100:7880')).toBe('ws://192.168.1.100:7880')
+        expect(mediaUrlForThisDevice('ws://100.64.0.1:7880')).toBe('ws://100.64.0.1:7880')
+      } finally {
+        delete (window as Record<string, unknown>).__TAURI_INTERNALS__
+      }
+    })
   })
 })
