@@ -35,13 +35,15 @@ function formatTime(milliseconds: number) {
 
 function normalizeWaveform(samples: number[]): number[] {
   if (samples.length === 0) {
-    return Array.from({ length: 64 }, () => 32)
+    return Array.from({ length: 64 }, () => 20)
   }
   if (samples.length <= 64) {
     const result: number[] = []
     for (let i = 0; i < 64; i++) {
       const idx = Math.floor((i / 64) * samples.length)
-      result.push(samples[idx] ?? 32)
+      const raw = samples[idx] ?? 20
+      const scaled = Math.round((raw / 255) * 100)
+      result.push(Math.max(2, Math.min(100, scaled)))
     }
     return result
   }
@@ -54,7 +56,8 @@ function normalizeWaveform(samples: number[]): number[] {
     for (let j = start; j < end; j++) {
       if (samples[j] > peak) peak = samples[j]
     }
-    result.push(Math.max(4, Math.min(255, peak)))
+    const scaled = Math.round((peak / 255) * 100)
+    result.push(Math.max(2, Math.min(100, scaled)))
   }
   return result
 }

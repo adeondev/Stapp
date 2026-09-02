@@ -912,7 +912,7 @@ export function Chat({
           <div className="chat__voice-preview">
             <audio src={voicePreviewUrl} controls preload="metadata" />
             <div className="chat__voice-waveform" aria-hidden="true">
-              {voicePreview.waveform.map((value, index) => <i key={index} style={{ height: `${Math.max(3, value / 4)}%` }} />)}
+              {voicePreview.waveform.map((value, index) => <i key={index} style={{ height: `${Math.max(5, value)}%` }} />)}
             </div>
             <div className="chat__voice-preview-actions">
               <button type="button" onClick={() => { setVoicePreview(null); setVoiceError(null) }}>Apagar</button>
