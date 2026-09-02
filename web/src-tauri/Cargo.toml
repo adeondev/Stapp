@@ -28,7 +28,7 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-xcap = "0.0.14"
+xcap = "0.9.8"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"

@@ -325,8 +325,8 @@ fn audio_target(locator: SourceLocator) -> Result<AudioTarget, String> {
             xcap::Window::all()
                 .map_err(|error| error.to_string())?
                 .into_iter()
-                .find(|window| window.id() == id)
-                .map(|window| window.process_id())
+                .find(|window| window.id().ok() == Some(id))
+                .and_then(|window| window.pid().ok())
                 .ok_or_else(|| "a janela selecionada desapareceu".to_string())?,
         ),
     };
@@ -620,12 +620,12 @@ fn resolve_source(locator: SourceLocator) -> Option<CaptureSource> {
         SourceLocator::Screen(id) => xcap::Monitor::all()
             .ok()?
             .into_iter()
-            .find(|monitor| monitor.id() == id)
+            .find(|monitor| monitor.id().ok() == Some(id))
             .map(CaptureSource::Screen),
         SourceLocator::Window(id) => xcap::Window::all()
             .ok()?
             .into_iter()
-            .find(|window| window.id() == id)
+            .find(|window| window.id().ok() == Some(id))
             .map(CaptureSource::Window),
     }
 }

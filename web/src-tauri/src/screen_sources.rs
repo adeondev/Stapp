@@ -27,29 +27,31 @@ pub fn list_screen_sources() -> Vec<ScreenSource> {
 
     if let Ok(monitors) = xcap::Monitor::all() {
         for (index, monitor) in monitors.into_iter().enumerate() {
-            let name = if monitor.name().trim().is_empty() {
+            let monitor_name = monitor.name().unwrap_or_default();
+            let name = if monitor_name.trim().is_empty() {
                 format!("Tela {}", index + 1)
             } else {
-                monitor.name().to_string()
+                monitor_name
             };
             sources.push(ScreenSource {
-                id: format!("screen:{}:0", monitor.id()),
+                id: format!("screen:{}:0", monitor.id().unwrap_or(0)),
                 name,
                 kind: "screen",
-                width: monitor.width(),
-                height: monitor.height(),
+                width: monitor.width().unwrap_or(0),
+                height: monitor.height().unwrap_or(0),
             });
         }
     }
 
     if let Ok(windows) = xcap::Window::all() {
         for window in windows.into_iter().filter(is_shareable_window) {
+            let title = window.title().unwrap_or_default().trim().to_string();
             sources.push(ScreenSource {
-                id: format!("window:{}:0", window.id()),
-                name: window.title().trim().to_string(),
+                id: format!("window:{}:0", window.id().unwrap_or(0)),
+                name: title,
                 kind: "window",
-                width: window.width(),
-                height: window.height(),
+                width: window.width().unwrap_or(0),
+                height: window.height().unwrap_or(0),
             });
         }
     }
@@ -63,12 +65,12 @@ pub fn capture_screen_source_thumbnail(source_id: String) -> Result<Option<Strin
         SourceLocator::Screen(id) => xcap::Monitor::all()
             .map_err(|error| error.to_string())?
             .into_iter()
-            .find(|monitor| monitor.id() == id)
+            .find(|monitor| monitor.id().ok() == Some(id))
             .and_then(|monitor| monitor.capture_image().ok()),
         SourceLocator::Window(id) => xcap::Window::all()
             .map_err(|error| error.to_string())?
             .into_iter()
-            .find(|window| window.id() == id)
+            .find(|window| window.id().ok() == Some(id))
             .and_then(|window| window.capture_image().ok()),
     };
 
@@ -94,10 +96,10 @@ pub(crate) fn parse_source_id(source_id: &str) -> Result<SourceLocator, String> 
 }
 
 fn is_shareable_window(window: &xcap::Window) -> bool {
-    !window.is_minimized()
-        && window.width() >= 80
-        && window.height() >= 60
-        && !window.title().trim().is_empty()
+    !window.is_minimized().unwrap_or(false)
+        && window.width().unwrap_or(0) >= 80
+        && window.height().unwrap_or(0) >= 60
+        && !window.title().unwrap_or_default().trim().is_empty()
 }
 
 fn encode_thumbnail(source: ImageBuffer<Rgba<u8>, Vec<u8>>) -> Option<String> {
