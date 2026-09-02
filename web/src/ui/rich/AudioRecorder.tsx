@@ -69,6 +69,10 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
   const samplesRef = useRef<number[]>([])
   const startedAt = useRef(0)
   const canceled = useRef(false)
+  const onCompleteRef = useRef(onRecordingComplete)
+  onCompleteRef.current = onRecordingComplete
+  const onCancelRef = useRef(onCancel)
+  onCancelRef.current = onCancel
 
   useEffect(() => {
     let disposed = false
@@ -156,13 +160,13 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
           window.clearInterval(sampleTimer)
           audioCtx?.close().catch(() => {})
           stream.getTracks().forEach((track) => track.stop())
-          if (canceled.current || disposed) return
+          if (canceled.current) return
           const durationMs = Math.min(MAX_RECORDING_MS, Math.max(0, performance.now() - startedAt.current))
           const blob = new Blob(chunksRef.current, { type: actualMime })
           if (blob.size === 0) return fail('A gravação ficou vazia. Tente novamente.')
           const waveform = normalizeWaveform(samplesRef.current)
           const file = new File([blob], `voice-note-${Date.now()}.${extension}`, { type: actualMime })
-          if (!disposed) onRecordingComplete({ file, durationMs: Math.round(durationMs), waveform })
+          onCompleteRef.current({ file, durationMs: Math.round(durationMs), waveform })
         }
 
         startedAt.current = performance.now()
@@ -191,7 +195,7 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
       }
       streamRef.current?.getTracks().forEach((track) => track.stop())
     }
-  }, [onRecordingComplete])
+  }, [])
 
   const stop = () => {
     if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
@@ -202,7 +206,7 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
     if (recorderRef.current?.state === 'recording') {
       try { recorderRef.current.stop() } catch {}
     }
-    onCancel()
+    onCancelRef.current()
   }
 
   return (
@@ -215,7 +219,7 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
       <div className="stapp-recorder-actions">
         <button type="button" onClick={cancel}>Cancelar</button>
         {status === 'recording' && <button type="button" className="is-primary" onClick={stop}>Concluir</button>}
-        {status === 'error' && <button type="button" className="is-primary" onClick={onCancel}>Fechar</button>}
+        {status === 'error' && <button type="button" className="is-primary" onClick={() => onCancelRef.current()}>Fechar</button>}
       </div>
     </div>
   )
