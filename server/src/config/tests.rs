@@ -2,6 +2,8 @@ use super::*;
 use crate::config::ChannelKind;
 use crate::test_support::{TestDir, config as test_config};
 
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn accepts_a_valid_configuration() {
     let config = test_config(PathBuf::from("test.db"), 20, 6);
@@ -77,6 +79,7 @@ fn rejects_invalid_limits_and_voice_backend() {
 
 #[test]
 fn resolves_paths_relative_to_the_config_file() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new();
     let path = dir.path().join("stapp.toml");
     std::fs::write(
@@ -126,6 +129,7 @@ fn uma_rede_confiavel_libera_so_a_propria_faixa() {
 
 #[test]
 fn redes_confiaveis_sao_lidas_do_toml() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new();
     let path = dir.path().join("stapp.toml");
     std::fs::write(
@@ -154,6 +158,7 @@ kind = "text"
 
 #[test]
 fn limites_tem_default_quando_a_secao_falta() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new();
     let path = dir.path().join("stapp.toml");
     std::fs::write(
@@ -178,6 +183,7 @@ kind = "text"
 
 #[test]
 fn limites_sao_lidos_do_toml_e_zero_e_recusado() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new();
     let path = dir.path().join("stapp.toml");
     std::fs::write(
@@ -285,6 +291,7 @@ fn trust_private_networks_libera_lan_tailscale_e_radmin() {
 
 #[test]
 fn sobrescritas_por_variaveis_de_ambiente_funcionam() {
+    let _guard = ENV_LOCK.lock().unwrap();
     // Usamos chaves com prefixo STAPP_TEST_ENV_ para nao colidir com o ambiente
     let mut config = test_config(PathBuf::from("test.db"), 20, 6);
 
@@ -329,4 +336,17 @@ fn sobrescritas_por_variaveis_de_ambiente_funcionam() {
         std::env::remove_var("STAPP_VOICE_PUBLIC_URL");
         std::env::remove_var("STAPP_LIMITS_MAX_UPLOAD_MB");
     }
+}
+
+#[test]
+fn validates_min_client_version() {
+    let mut config = test_config(PathBuf::from("test.db"), 20, 6);
+    config.server.min_client_version = Some("0.2.0".into());
+    assert!(config.validate().is_ok());
+
+    config.server.min_client_version = Some("v1.0.0-rc.1".into());
+    assert!(config.validate().is_ok());
+
+    config.server.min_client_version = Some("invalido".into());
+    assert!(config.validate().is_err());
 }
