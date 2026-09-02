@@ -1,6 +1,7 @@
 import type { AvailableUpdate, UpdateDownloadProgress, UpdaterService } from './types'
+import pkg from '../../../package.json'
 
-export const WEB_APP_VERSION = '0.1.0'
+export const WEB_APP_VERSION = pkg.version
 
 export class WebUpdater implements UpdaterService {
   readonly isDesktop = false

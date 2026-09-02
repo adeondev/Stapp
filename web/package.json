@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -b",
+    "bump": "node scripts/bump.js",
     "tauri": "tauri",
     "app": "tauri dev",
     "app:build": "tauri build"
