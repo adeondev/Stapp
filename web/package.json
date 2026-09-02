@@ -46,5 +46,10 @@
     "typescript": "^5.9.3",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
+  },
+  "pnpm": {
+    "patchedDependencies": {
+      "@jitsi/rnnoise-wasm@0.2.1": "patches/@jitsi__rnnoise-wasm@0.2.1.patch"
+    }
   }
 }

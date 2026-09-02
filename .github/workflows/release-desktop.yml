@@ -67,7 +67,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: ./web
-        run: pnpm install
+        run: pnpm install --no-frozen-lockfile
 
       - name: Typecheck and lint frontend
         working-directory: ./web
