@@ -366,6 +366,7 @@ pub enum AuthErrorCode {
     ServerFull,
     TooManySessions,
     SecureTransportRequired,
+    ClientOutdated,
 }
 
 // ---------------------------------------------------------------- cliente -> servidor
@@ -375,7 +376,11 @@ pub enum AuthErrorCode {
 #[serde(tag = "t")]
 pub enum ClientMsg {
     #[serde(rename = "auth.access")]
-    AuthAccess { access_token: String },
+    AuthAccess {
+        access_token: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_version: Option<String>,
+    },
 
     #[serde(rename = "chat.send")]
     ChatSend {
@@ -544,6 +549,10 @@ pub enum ServerMsg {
         /// Se os endpoints HTTP de autenticacao podem receber senha sem TLS
         /// nesta rede. Quem decide e o servidor (`auth.trusted_networks`).
         plaintext_auth_allowed: bool,
+        /// Versao minima exigida do cliente (semver). Quando presente, clientes
+        /// com versao inferior devem bloquear o acesso e exigir atualizacao.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_client_version: Option<String>,
     },
 
     #[serde(rename = "auth.error")]

@@ -274,9 +274,10 @@ export type AuthErrorCode =
   | 'server_full'
   | 'too_many_sessions'
   | 'secure_transport_required'
+  | 'client_outdated'
 
 export type ClientMsg =
-  | { t: 'auth.access'; access_token: string }
+  | { t: 'auth.access'; access_token: string; client_version?: string }
   | {
       t: 'chat.send'
       channel: string
@@ -352,6 +353,8 @@ export type ServerMsg =
       registration_enabled: boolean
       /** Se os endpoints HTTP de autenticacao podem receber senha sem TLS nesta rede. */
       plaintext_auth_allowed: boolean
+      /** Versao minima exigida do cliente (semver). */
+      min_client_version?: string
     }
   | { t: 'auth.error'; code: AuthErrorCode; message: string; retry_after_ms?: number }
   | {
