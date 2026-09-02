@@ -1052,3 +1052,43 @@ async fn mensagem_apagada_nao_volta_no_historico_depois_de_reiniciar() {
 
     daniel.close().await;
 }
+
+#[tokio::test]
+async fn redes_privadas_e_variaveis_de_ambiente_habilitam_cenarios_de_hospedagem() {
+    let dir = common::TestDir::new();
+    let mut config = common::config(dir.database(), false);
+    config.auth.trust_private_networks = true;
+
+    // Simula sobrescrita de ambiente
+    unsafe {
+        std::env::set_var("STAPP_SERVER_NAME", "Stapp LAN & VPN");
+        std::env::set_var("STAPP_AUTH_ALLOW_REGISTRATION", "true");
+    }
+    config.apply_env_overrides();
+
+    let addr = common::start(config).await;
+    let mut cliente = common::Client::connect(addr).await;
+    let aviso = cliente.wait_for("auth.required").await;
+
+    assert_eq!(aviso["server_name"], "Stapp LAN & VPN");
+    assert_eq!(aviso["registration_enabled"], true);
+    assert_eq!(aviso["plaintext_auth_allowed"], true);
+
+    // Registro funciona normalmente
+    let sessao = common::auth(addr, "register", "usuario_lan", "senha_super_segura_123", false).await;
+    assert_eq!(sessao.status, 200);
+
+    cliente
+        .authenticate(sessao.body["access_token"].as_str().unwrap())
+        .await;
+    let welcome = cliente.wait_for("welcome").await;
+    assert_eq!(welcome["server_name"], "Stapp LAN & VPN");
+    assert!(welcome["self_user_id"].as_str().is_some_and(|id| !id.is_empty()));
+
+    cliente.close().await;
+
+    unsafe {
+        std::env::remove_var("STAPP_SERVER_NAME");
+        std::env::remove_var("STAPP_AUTH_ALLOW_REGISTRATION");
+    }
+}

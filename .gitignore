@@ -11,6 +11,7 @@ node_modules/
 /web/.vite/
 /web/dev.*.log
 *.local
+*.tsbuildinfo
 
 # Tauri
 /web/src-tauri/target/

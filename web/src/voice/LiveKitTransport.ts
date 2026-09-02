@@ -102,7 +102,7 @@ export class LiveKitTransport implements VoiceTransport {
 
   async join(channel: string): Promise<boolean> {
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-      this.fail('No Radmin, voz e captura exigem o aplicativo Stapp; navegador remoto por HTTP nao tem permissao segura.')
+      this.fail('O microfone exige uma conexão segura (HTTPS) ou o aplicativo Desktop. Em conexões HTTP remotas, o navegador bloqueia a captura de mídia.')
       return false
     }
     if (this.requestedChannel === channel && this.state.status !== 'idle') return true
@@ -369,6 +369,9 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   async enumerateDevices(): Promise<MediaDeviceLists> {
+    if (!navigator.mediaDevices?.enumerateDevices) {
+      return { inputs: [], outputs: [], cameras: [] }
+    }
     const devices = await navigator.mediaDevices.enumerateDevices()
     return {
       inputs: devices.filter((device) => device.kind === 'audioinput'),
@@ -383,6 +386,9 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   async startCameraPreview(element: HTMLVideoElement) {
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      throw new Error('A câmera exige conexão segura (HTTPS) ou o aplicativo Desktop.')
+    }
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: false,
       video: {
@@ -1298,10 +1304,13 @@ export class LiveKitTransport implements VoiceTransport {
 }
 
 function mediaError(error: unknown, fallback: string) {
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return 'O microfone e a câmera exigem conexão segura (HTTPS) ou o aplicativo Desktop.'
+  }
   if (error instanceof DOMException) {
-    if (error.name === 'NotAllowedError') return 'A permissao de midia foi negada.'
-    if (error.name === 'NotFoundError') return 'Nenhum dispositivo compativel foi encontrado.'
-    if (error.name === 'NotReadableError') return 'O dispositivo esta ocupado por outro aplicativo.'
+    if (error.name === 'NotAllowedError') return 'A permissão de mídia foi negada pelo navegador.'
+    if (error.name === 'NotFoundError') return 'Nenhum dispositivo compatível foi encontrado.'
+    if (error.name === 'NotReadableError') return 'O dispositivo está ocupado por outro aplicativo.'
   }
   if (error instanceof Error && error.message) {
     // O SDK costuma trazer aqui a causa de rede/codec. Redigimos qualquer JWT
@@ -1329,16 +1338,16 @@ function statNumber(stats: Record<string, unknown>, key: string) {
 }
 
 /**
- * No computador que hospeda o Stapp, o loopback e a rota correta e tambem e
- * tratado como origem confiavel pelos navegadores. Isso impede que modos
- * HTTPS-only tentem converter o WebSocket Radmin sem TLS para HTTPS. Clientes
- * Tauri e maquinas remotas continuam recebendo exatamente o endereco Radmin.
+ * No computador que hospeda o Stapp, o loopback e a rota correta e direta para o navegador.
+ * Redireciona enderecos ws: para localhost quando o app roda no host local no navegador.
+ * Clientes Desktop (Tauri), conexoes seguras (wss:) e acessos de outras maquinas mantem o host original.
  */
-function mediaUrlForThisDevice(raw: string) {
+export function mediaUrlForThisDevice(raw: string) {
   try {
     const url = new URL(raw)
-    const localPage = location.hostname === 'localhost' || location.hostname === '127.0.0.1'
-    if (localPage && url.protocol === 'ws:' && url.hostname.startsWith('26.')) {
+    const isTauri = typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
+    const localPage = !isTauri && typeof location !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+    if (localPage && url.protocol === 'ws:') {
       url.hostname = location.hostname
     }
     return url.toString().replace(/\/$/, '')

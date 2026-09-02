@@ -30,15 +30,31 @@ foreach ($line in Get-Content -LiteralPath $envPath) {
     $values[$name.Trim()] = $value.Trim()
 }
 
-$radminIp = $values['STAPP_RADMIN_IP']
+$hostIp = if ($values.ContainsKey('STAPP_HOST_IP') -and $values['STAPP_HOST_IP']) {
+    $values['STAPP_HOST_IP']
+} elseif ($values.ContainsKey('STAPP_RADMIN_IP') -and $values['STAPP_RADMIN_IP']) {
+    $values['STAPP_RADMIN_IP']
+} else {
+    $null
+}
+
+if (-not $hostIp -or $hostIp -eq 'auto') {
+    try {
+        $detected = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+            Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+            Select-Object -First 1
+        $hostIp = if ($detected) { $detected.IPAddress } else { '127.0.0.1' }
+        Write-Host "IP do host detectado automaticamente: $hostIp"
+    } catch {
+        $hostIp = '127.0.0.1'
+    }
+}
+
 $apiKey = $values['STAPP_LIVEKIT_API_KEY']
 $apiSecret = $values['STAPP_LIVEKIT_API_SECRET']
 $parsedIp = $null
-if (-not [System.Net.IPAddress]::TryParse($radminIp, [ref]$parsedIp) -or $parsedIp.AddressFamily -ne 'InterNetwork') {
-    throw 'STAPP_RADMIN_IP precisa ser um IPv4 valido.'
-}
-if ($radminIp.Split('.')[0] -ne '26') {
-    throw 'STAPP_RADMIN_IP nao parece pertencer a faixa 26.0.0.0/8 do Radmin VPN.'
+if (-not [System.Net.IPAddress]::TryParse($hostIp, [ref]$parsedIp) -or $parsedIp.AddressFamily -ne 'InterNetwork') {
+    throw "STAPP_HOST_IP '$hostIp' precisa ser um IPv4 valido."
 }
 if ($apiKey -notmatch '^[A-Za-z0-9_-]{12,128}$') {
     throw 'STAPP_LIVEKIT_API_KEY precisa ter 12-128 caracteres alfanumericos, _ ou -.'
@@ -48,14 +64,15 @@ if ($apiSecret.Length -lt 32 -or $apiSecret -match '["\r\n]') {
 }
 
 $livekitConfig = (Get-Content -LiteralPath $templatePath -Raw)
-$livekitConfig = $livekitConfig.Replace('__RADMIN_IP__', $radminIp)
+$livekitConfig = $livekitConfig.Replace('__NODE_IP__', $hostIp)
+$livekitConfig = $livekitConfig.Replace('__RADMIN_IP__', $hostIp)
 $livekitConfig = $livekitConfig.Replace('__API_KEY__', $apiKey)
 $livekitConfig = $livekitConfig.Replace('__API_SECRET__', $apiSecret)
 [System.IO.File]::WriteAllText($generatedPath, $livekitConfig, $utf8NoBom)
 
 $stappConfig = Get-Content -LiteralPath $serverTemplate -Raw
 $stappConfig = $stappConfig -replace '(?m)^backend\s*=\s*"[^"]+"', 'backend     = "livekit"'
-$stappConfig = $stappConfig -replace '(?m)^public_url\s*=\s*"[^"]+"', "public_url  = `"ws://${radminIp}:7880`""
+$stappConfig = $stappConfig -replace '(?m)^public_url\s*=\s*"[^"]+"', "public_url  = `"ws://${hostIp}:7880`""
 [System.IO.File]::WriteAllText($serverGenerated, $stappConfig, $utf8NoBom)
 
 $env:STAPP_LIVEKIT_API_KEY = $apiKey
@@ -101,8 +118,8 @@ for ($attempt = 0; $attempt -lt 30; $attempt += 1) {
 }
 if (-not $healthy) { throw 'LiveKit nao respondeu em 7880 depois de 30 segundos. Veja livekit.error.log ou docker compose logs.' }
 
-Write-Host "LiveKit v$livekitVersion pronto em ws://${radminIp}:7880"
-Write-Host 'Firewall do Windows: permita TCP 7880, TCP 7881 e UDP 7882 somente no perfil/rede do Radmin. Nenhuma regra foi criada automaticamente.'
+Write-Host "LiveKit v$livekitVersion pronto em ws://${hostIp}:7880"
+Write-Host 'Firewall: permita TCP 8787, TCP 7880, TCP 7881 e UDP 7882 na sua rede local/VPN. Nenhuma regra foi criada automaticamente.'
 
 if ($StartStapp) {
     $serverLog = Join-Path $scriptRoot 'stapp-server.log'

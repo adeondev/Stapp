@@ -1,35 +1,59 @@
 # Stapp
 
-Um Discord só nosso. Servidor auto-hospedado + aplicação que conecta nele — no espírito de um
+Um Discord só nosso. Servidor auto-hospedado + aplicação web e desktop — no espírito de um
 servidor de Minecraft: alguém sobe o servidor, o resto entra.
 
-O Stapp oferece **canais, mensagens diretas, amizades, privacidade, bloqueio e chamadas de voz**
-com contas locais por servidor. Cada host controla seus próprios usernames; não existe conta
+O Stapp oferece **canais, mensagens diretas, amizades, privacidade, bloqueio, chamadas de voz, vídeo e transmissão de tela**
+com contas locais por servidor. Cada host controla seus próprios usuários; não existe conta
 Stapp global nem um serviço central recebendo credenciais.
 
-## Requisitos
+---
 
-- [Rust](https://rustup.rs) (edição 2021+)
-- [Node.js](https://nodejs.org) 20+ e [pnpm](https://pnpm.io)
+## Início Rápido com Docker (Recomendado)
 
-## Subindo o servidor
+O projeto possui orquestração completa com Docker Compose, subindo o servidor Stapp (API + SPA Web integrado) e o servidor de voz LiveKit com um único comando:
 
 ```bash
-cd server
-cargo run
+# 1. Clone o repositório
+git clone https://github.com/adeondev/Stapp.git
+cd Stapp
+
+# 2. Configure as variáveis de ambiente
+cp .env.example .env
+
+# (Opcional) Edite o .env para definir STAPP_HOST_IP com o IP da sua LAN/Tailscale/VPN
+
+# 3. Inicie todos os serviços
+docker compose up -d
 ```
 
-Sobe em `http://localhost:8787`. Na primeira execução ele cria o `data/stapp.db`. Se encontrar o
-esquema antigo, que guardava somente apelidos, o servidor para e mostra o caminho do arquivo:
-faça backup ou remova o banco conscientemente e inicie novamente.
+Acesse **`http://localhost:8787`** (ou no IP configurado). O frontend web já vem compilado e servido diretamente pelo backend!
 
-As configurações ficam em [`server/stapp.toml`](server/stapp.toml) — é o `server.properties` daqui.
-Dá pra mudar nome, porta, canais, limites, registro público e servidores de ICE.
+### HTTPS Automático com Caddy (Microfone liberado em qualquer navegador)
 
-Por padrão o registro pelo aplicativo vem fechado. Crie a primeira conta no terminal; a senha é
-solicitada sem aparecer na tela ou no histórico do shell:
+Navegadores bloqueiam microfone e câmera em conexões HTTP remotas. Para liberar o microfone automaticamente com certificado TLS válido:
 
 ```bash
+# No .env, defina seu domínio e ative o perfil Caddy:
+# STAPP_DOMAIN=stapp.meudominio.com
+# STAPP_VOICE_PUBLIC_URL=wss://stapp.meudominio.com
+
+docker compose --profile caddy up -d
+```
+
+---
+
+## Criando Contas e Administração (CLI)
+
+Por padrão, o registro público pode ser liberado no `.env` (`STAPP_ALLOW_REGISTRATION=true`) ou administrado manualmente pelo host:
+
+```bash
+# Via Docker:
+docker compose exec stapp-server /usr/local/bin/stapp-server user add daniel
+docker compose exec stapp-server /usr/local/bin/stapp-server user list
+docker compose exec stapp-server /usr/local/bin/stapp-server user passwd daniel
+
+# Via Cargo local:
 cd server
 cargo run -- user add daniel
 cargo run -- user list
@@ -38,85 +62,57 @@ cargo run -- user disable daniel
 cargo run -- user enable daniel
 ```
 
-Para outro arquivo, use `--config caminho/stapp.toml`. O formato antigo
-`stapp-server caminho/stapp.toml` continua aceito temporariamente para iniciar o servidor.
+---
 
-Para permitir que qualquer pessoa alcançando o servidor crie a própria conta:
+## Desenvolvimento Local (Sem Docker)
 
-```toml
-[auth]
-allow_registration = true
-max_sessions_per_user = 3
+### Requisitos
+- [Rust](https://rustup.rs) (edição 2021+)
+- [Node.js](https://nodejs.org) 20+ e [pnpm](https://pnpm.io)
+
+### 1. Subindo o backend
+```bash
+cd server
+cargo run
 ```
+Sobe em `http://localhost:8787`. Configurações em [`server/stapp.toml`](server/stapp.toml) ou via variáveis de ambiente com prefixo `STAPP_`.
 
-Usernames têm de 3 a 24 letras ASCII, números, ponto, hífen ou sublinhado e não diferenciam
-maiúsculas de minúsculas para unicidade. Senhas têm de 12 a 128 caracteres e são guardadas como
-hashes Argon2id com salt individual.
-
-## Subindo o cliente
-
+### 2. Subindo o frontend (Vite Dev Server)
 ```bash
 cd web
 pnpm install
 pnpm dev
 ```
+Abre em `http://localhost:5173`.
 
-Abre em `http://localhost:5173`. A aplicação pode lembrar vários servidores, mas mantém apenas
-uma conexão ativa. "Lembrar servidor" salva somente URL, nome e username; senha e tokens nunca
-entram no `localStorage`.
-
-Login e registro usam `/auth/login` e `/auth/register`. O access token curto fica apenas em
-memória e o WebSocket recebe somente esse token. "Lembrar usuário" usa um refresh token de 30
-dias em cookie `HttpOnly`, `Secure` e exclusivo daquela instância; o SQLite guarda apenas seu
-hash. Sem HTTPS (exceto localhost), a opção fica indisponível e a sessão é temporária.
-
-Para testar de verdade, abra **duas abas** com contas diferentes. A mesma conta pode manter até
-três sessões, mas aparece uma vez na lista online e apenas uma delas entra em voz.
-
-> **Microfone:** o navegador só libera microfone em `localhost` ou HTTPS. Acessar o cliente pelo
-> IP da rede local (`http://192.168.x.x`) faz o texto funcionar mas a voz não. Para usar na LAN,
-> use o app desktop (Tauri) ou coloque HTTPS.
-
-## HTTPS/WSS e senhas na rede
-
-O servidor não termina TLS. Em produção, coloque Caddy ou Nginx **no mesmo host**, exponha
-HTTPS/WSS e encaminhe tanto `/auth` quanto `/ws` para `127.0.0.1:8787`. O backend recusa senha
-sem TLS fora de loopback ou de `auth.trusted_networks`; uma rede confiável habilita apenas sessão
-temporária, pois o refresh cookie continua exigindo HTTPS. Não publique a porta 8787 na internet.
-
-Se o cliente estiver hospedado em outro domínio, liste origens exatas em
-`auth.allowed_origins`. Curingas não são aceitos.
-
-Exemplo mínimo de Caddyfile:
-
-```caddyfile
-stapp.exemplo.com {
-    reverse_proxy 127.0.0.1:8787
-}
-```
-
-## App de desktop
-
+### 3. Subindo o App Desktop (Tauri)
 ```bash
 cd web
-pnpm app          # roda o app nativo (Tauri) apontando pro dev server
-pnpm app:build    # gera o instalador
+pnpm app          # Roda o app nativo Tauri apontando para o dev server
+pnpm app:build    # Gera o instalador standalone
 ```
 
-O app desktop tem uma vantagem concreta sobre o navegador: como a origem `tauri://` conta como
-contexto seguro, o microfone funciona mesmo conectando num servidor da rede local pelo IP.
+> **Dica sobre o Microfone:** Acessar o cliente via navegador web remoto em HTTP simples bloqueia o microfone por restrição de segurança dos navegadores. O **App Desktop (Tauri)** roda em contexto seguro (`tauri://`) e funciona nativamente com voz/vídeo em qualquer IP de rede local ou VPN sem precisar de HTTPS.
 
-## Estrutura
+---
+
+## Arquitetura
 
 ```
-server/   Rust (axum + tokio) — auth HTTP, WebSocket, presença, social, chat, SQLite
-web/      Vite + React + TS — shell multi-servidor e aplicação
-web/src-tauri/   casca desktop (o app web roda inteiro sem ela)
+├── compose.yaml          # Orquestração Docker do stapp-server, livekit e caddy
+├── server/               # Backend em Rust (Axum + Tokio + SQLite bundled)
+│   ├── Dockerfile        # Build multi-stage (Node SPA + Rust Release + Debian Runtime)
+│   ├── src/              # Auth HTTP, WebSocket, presença, chat, chamadas e SQLite
+│   └── stapp.toml        # Arquivo de configuração padrão do servidor
+├── web/                  # Frontend Vite + React + TypeScript
+│   ├── src/              # UI flat sem sombras, cliente de voz e gerência de estado
+│   └── src-tauri/        # Casca desktop nativa (Windows, Linux, macOS)
+└── infra/
+    ├── caddy/            # Configuração de proxy reverso e terminação TLS
+    └── livekit/          # Configurações e scripts para o SFU de voz e vídeo WebRTC
 ```
 
-A voz é P2P: o áudio vai direto de uma pessoa pra outra, o servidor só apresenta uma à outra.
-Funciona bem até umas 6 pessoas na mesma call — daí em diante o upload de cada um satura, e a
-troca por um servidor de mídia (SFU) já está preparada no código.
+---
 
 ## Licença
 

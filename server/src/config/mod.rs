@@ -30,6 +30,13 @@ pub struct AuthConfig {
     pub allow_registration: bool,
     #[serde(default = "default_max_sessions_per_user")]
     pub max_sessions_per_user: usize,
+    /// Aceita autenticacao sem TLS em redes privadas (LAN RFC1918, CGNAT/Tailscale e VPNs).
+    ///
+    /// Ideal para servidores locais, de teste ou executados em VPNs entre amigos.
+    /// Em servidores expostos diretamente a internet publica sem proxy reverso TLS,
+    /// mantenha false.
+    #[serde(default)]
+    pub trust_private_networks: bool,
     /// Redes onde a autenticacao sem TLS e aceita, alem do loopback.
     ///
     /// A senha viaja no endpoint HTTP de autenticacao. Sem TLS, so entra aqui
@@ -50,10 +57,35 @@ impl AuthConfig {
     /// rodando no mesmo host.
     pub fn allows_plaintext_from(&self, ip: IpAddr) -> bool {
         ip.is_loopback()
+            || (self.trust_private_networks && is_private_or_vpn_ip(ip))
             || self
                 .trusted_networks
                 .iter()
                 .any(|network| network.contains(&ip))
+    }
+}
+
+/// Identifica se um IP pertence a faixas privadas locais, CGNAT ou VPNs conhecidas.
+pub fn is_private_or_vpn_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ipv4) => {
+            let octets = ipv4.octets();
+            ipv4.is_loopback()
+                || ipv4.is_private()
+                || ipv4.is_link_local()
+                // RFC 6598 Carrier-Grade NAT (100.64.0.0/10 - Tailscale & ISP CGNAT)
+                || (octets[0] == 100 && (octets[1] & 0xC0) == 64)
+                // Radmin VPN (26.0.0.0/8)
+                || octets[0] == 26
+        }
+        IpAddr::V6(ipv6) => {
+            let segments = ipv6.segments();
+            ipv6.is_loopback()
+                // Unique Local IPv6 (fc00::/7 - RFC 4193)
+                || (segments[0] & 0xfe00) == 0xfc00
+                // Link-local IPv6 (fe80::/10 - RFC 4291)
+                || (segments[0] & 0xffc0) == 0xfe80
+        }
     }
 }
 
@@ -149,6 +181,7 @@ impl LimitsConfig {
 impl Config {
     /// Le o stapp.toml. Caminhos relativos dentro dele sao resolvidos a partir da
     /// pasta do proprio arquivo, entao `cargo run` de qualquer lugar se comporta igual.
+    /// Variaveis de ambiente com prefixo `STAPP_` sobrescrevem as chaves do arquivo.
     pub fn load(path: &Path) -> Result<Self> {
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("nao consegui ler {}", path.display()))?;
@@ -160,8 +193,87 @@ impl Config {
         cfg.storage.attachments_dir = base.join(&cfg.storage.attachments_dir);
         cfg.server.static_dir = cfg.server.static_dir.map(|d| base.join(d));
 
+        cfg.apply_env_overrides();
+
         cfg.validate()?;
         Ok(cfg)
+    }
+
+    /// Aplica sobrescritas a partir de variaveis de ambiente com prefixo `STAPP_`.
+    pub fn apply_env_overrides(&mut self) {
+        if let Some(val) = env_var(&["STAPP_SERVER_NAME", "STAPP_NAME"]) {
+            self.server.name = val;
+        }
+        if let Some(val) = parse_env_ip(&["STAPP_SERVER_BIND", "STAPP_BIND"]) {
+            self.server.bind = val;
+        }
+        if let Some(val) = parse_env_u16(&["STAPP_SERVER_PORT", "STAPP_PORT"]) {
+            self.server.port = val;
+        }
+        if let Some(val) = parse_env_usize(&["STAPP_SERVER_MAX_USERS", "STAPP_MAX_USERS"]) {
+            self.server.max_users = val;
+        }
+        if let Some(val) = env_var(&["STAPP_SERVER_STATIC_DIR", "STAPP_STATIC_DIR"]) {
+            self.server.static_dir = Some(PathBuf::from(val));
+        }
+
+        if let Some(val) = parse_env_bool(&["STAPP_AUTH_ALLOW_REGISTRATION", "STAPP_ALLOW_REGISTRATION"]) {
+            self.auth.allow_registration = val;
+        }
+        if let Some(val) = parse_env_usize(&["STAPP_AUTH_MAX_SESSIONS_PER_USER", "STAPP_MAX_SESSIONS_PER_USER"]) {
+            self.auth.max_sessions_per_user = val;
+        }
+        if let Some(val) = parse_env_bool(&["STAPP_AUTH_TRUST_PRIVATE_NETWORKS", "STAPP_TRUST_PRIVATE_NETWORKS"]) {
+            self.auth.trust_private_networks = val;
+        }
+        if let Some(val) = parse_env_networks(&["STAPP_AUTH_TRUSTED_NETWORKS", "STAPP_TRUSTED_NETWORKS"]) {
+            self.auth.trusted_networks = val;
+        }
+        if let Some(val) = parse_env_list(&["STAPP_AUTH_ALLOWED_ORIGINS", "STAPP_ALLOWED_ORIGINS"]) {
+            self.auth.allowed_origins = val;
+        }
+
+        if let Some(val) = env_var(&["STAPP_VOICE_BACKEND", "STAPP_BACKEND"]) {
+            self.voice.backend = val;
+        }
+        if let Some(val) = parse_env_usize(&["STAPP_VOICE_MAX_PEERS", "STAPP_MAX_PEERS"]) {
+            self.voice.max_peers = val;
+        }
+        if let Some(val) = env_var(&["STAPP_VOICE_PUBLIC_URL", "STAPP_PUBLIC_URL"]) {
+            self.voice.public_url = Some(val);
+        }
+        if let Some(val) = env_var(&["STAPP_VOICE_API_URL", "STAPP_API_URL"]) {
+            self.voice.api_url = Some(val);
+        }
+        if let Some(val) = parse_env_list(&["STAPP_VOICE_ICE_SERVERS", "STAPP_ICE_SERVERS"]) {
+            self.voice.ice_servers = val;
+        }
+        if let Some(val) = env_var(&["STAPP_VOICE_API_KEY_ENV"]) {
+            self.voice.api_key_env = val;
+        }
+        if let Some(val) = env_var(&["STAPP_VOICE_API_SECRET_ENV"]) {
+            self.voice.api_secret_env = val;
+        }
+
+        if let Some(val) = env_var(&["STAPP_STORAGE_DATABASE", "STAPP_DATABASE"]) {
+            self.storage.database = PathBuf::from(val);
+        }
+        if let Some(val) = parse_env_usize(&["STAPP_STORAGE_HISTORY_LIMIT", "STAPP_HISTORY_LIMIT"]) {
+            self.storage.history_limit = val;
+        }
+        if let Some(val) = env_var(&["STAPP_STORAGE_ATTACHMENTS_DIR", "STAPP_ATTACHMENTS_DIR"]) {
+            self.storage.attachments_dir = PathBuf::from(val);
+        }
+
+        if let Some(val) = parse_env_usize(&["STAPP_LIMITS_MAX_UPLOAD_MB", "STAPP_MAX_UPLOAD_MB"]) {
+            self.limits.max_upload_mb = val;
+        }
+        if let Some(val) = parse_env_usize(&["STAPP_LIMITS_MAX_TEXT_CHARS", "STAPP_MAX_TEXT_CHARS"]) {
+            self.limits.max_text_chars = val;
+        }
+        if let Some(val) = parse_env_usize(&["STAPP_LIMITS_MAX_ATTACHMENTS_PER_MESSAGE", "STAPP_MAX_ATTACHMENTS_PER_MESSAGE"]) {
+            self.limits.max_attachments_per_message = val;
+        }
     }
 
     fn validate(&self) -> Result<()> {
@@ -249,6 +361,7 @@ impl Default for AuthConfig {
         Self {
             allow_registration: false,
             max_sessions_per_user: default_max_sessions_per_user(),
+            trust_private_networks: false,
             trusted_networks: Vec::new(),
             allowed_origins: Vec::new(),
         }
@@ -355,6 +468,58 @@ fn default_max_attachments_per_message() -> usize {
 }
 fn default_max_text_chars() -> usize {
     4000
+}
+
+fn env_var(keys: &[&str]) -> Option<String> {
+    for key in keys {
+        if let Ok(val) = std::env::var(key) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn parse_env_bool(keys: &[&str]) -> Option<bool> {
+    env_var(keys).and_then(|val| match val.to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Some(true),
+        "0" | "false" | "no" | "off" => Some(false),
+        _ => None,
+    })
+}
+
+fn parse_env_usize(keys: &[&str]) -> Option<usize> {
+    env_var(keys).and_then(|val| val.parse::<usize>().ok())
+}
+
+fn parse_env_u16(keys: &[&str]) -> Option<u16> {
+    env_var(keys).and_then(|val| val.parse::<u16>().ok())
+}
+
+fn parse_env_ip(keys: &[&str]) -> Option<IpAddr> {
+    env_var(keys).and_then(|val| val.parse::<IpAddr>().ok())
+}
+
+fn parse_env_list(keys: &[&str]) -> Option<Vec<String>> {
+    env_var(keys).map(|val| {
+        val.split([',', ';'])
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .collect()
+    })
+}
+
+fn parse_env_networks(keys: &[&str]) -> Option<Vec<IpNet>> {
+    env_var(keys).map(|val| {
+        val.split([',', ';'])
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .filter_map(|s| s.parse::<IpNet>().ok())
+            .collect()
+    })
 }
 
 #[cfg(test)]

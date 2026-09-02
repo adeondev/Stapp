@@ -47,8 +47,12 @@ Sem biblioteca de UI e sem framework de CSS. CSS na mão, um arquivo por compone
 ## Arquitetura
 
 ```
-server/   Rust — axum + tokio. Binário único, config em stapp.toml, SQLite em data/stapp.db.
-web/      Vite + React + TS. Roda no navegador hoje, empacotado em Tauri depois.
+compose.yaml      Orquestração completa: stapp-server, livekit e caddy (opcional)
+server/Dockerfile Build multi-stage (Node 22 SPA + Rust 1.85 release + Debian runtime)
+server/           Rust — axum + tokio. Binário único, config em stapp.toml ou env STAPP_*, SQLite em data/stapp.db.
+web/              Vite + React + TS. Roda no navegador ou empacotado em Tauri.
+infra/caddy/      Terminação TLS reversa opcional para HTTPS e portas unificadas.
+infra/livekit/    Configurações e scripts para SFU LiveKit WebRTC.
 ```
 
 Login, registro, refresh e logout passam por HTTP em `/auth`. O cliente guarda o access token
@@ -201,31 +205,35 @@ vê, é de integração. Não duplique o mesmo caso nas duas camadas.
 ## Como rodar
 
 ```bash
+# Produção / Orquestração completa (stapp-server + web SPA + livekit):
+cp .env.example .env
+docker compose up -d
+
+# Desenvolvimento local nativo:
 cd server && cargo run      # :8787
 cd web && pnpm dev          # :5173  (navegador)
 cd web && pnpm app          # app desktop (Tauri), usa o mesmo dev server
 ```
 
-Antes da primeira entrada, crie uma conta com `cargo run -- user add <username>` ou habilite
-`auth.allow_registration` no `stapp.toml`. Testar de verdade = duas contas em duas abas.
+Antes da primeira entrada, crie uma conta com `docker compose exec stapp-server /usr/local/bin/stapp-server user add <username>` (ou `cargo run -- user add <username>`) ou habilite `auth.allow_registration` no `stapp.toml` / `.env`. Testar de verdade = duas contas em duas abas.
 
 ---
 
 ## Armadilhas (já custaram tempo, não repita)
 
 - **Microfone exige contexto seguro.** `getUserMedia` só funciona em `localhost` ou HTTPS.
-  Abrir o cliente em `http://192.168.0.x:5173` **bloqueia o microfone silenciosamente**. Para
-  testar na LAN: app Tauri (origem `tauri://` é secure context) ou TLS de verdade.
-- **Senha sem TLS só sai de rede declarada.** O servidor recusa `/auth/login` e `/auth/register` de
-  qualquer origem que não seja loopback ou uma faixa em `auth.trusted_networks` (`stapp.toml`).
+  Abrir o cliente em `http://192.168.0.x:8787` **bloqueia o microfone silenciosamente**. Para
+  usar na LAN/VPN: app Tauri (origem `tauri://` é secure context) ou ativar HTTPS (`docker compose --profile caddy up -d`).
+- **Senha sem TLS só sai de rede privada/declarada.** O servidor recusa `/auth/login` e `/auth/register` de
+  qualquer origem que não seja loopback, privada (LAN RFC1918, CGNAT/Tailscale 100.64.0.0/10, Radmin 26.0.0.0/8 quando `auth.trust_private_networks = true`) ou uma faixa em `auth.trusted_networks` (`stapp.toml`).
   Quem decide é o servidor, e ele avisa a decisão daquela conexão no `auth.required`, no campo
   `plaintext_auth_allowed` — **o cliente obedece, não repete a regra**. Se você se pegar
   escrevendo política de rede em `web/`, é sinal de que ela deveria estar no servidor.
 - **Duas travas diferentes, não confunda.** Autenticação por rede confiável e microfone por
   contexto seguro são independentes: numa VPN o texto funciona e a voz não, porque o navegador
   não sabe nada de `trusted_networks`. Voz fora do localhost = app Tauri ou TLS.
-- **Mesh sem TURN falha em alguns NATs** (CGNAT de operadora). O `ice_servers` vem do
-  `stapp.toml`, então adicionar um coturn depois é config, não código.
+- **Mesh sem TURN falha em alguns NATs** (CGNAT de operadora). O LiveKit SFU é o transporte padrão
+  para chamadas em grupo, e o mesh permanece como fallback.
 - **Anti-glare do mesh:** quem *entra* na call cria as offers para todo mundo que já estava;
   quem já estava **só responde**. Nunca os dois lados ofertando.
 - **`rusqlite` usa a feature `bundled`** (compila o SQLite em C). No Windows precisa do MSVC
@@ -239,6 +247,5 @@ Antes da primeira entrada, crie uma conta com `cargo run -- user add <username>`
   o grafo de audio praticamente nao roda, e o microfone falso do Chrome so emite bipes muito
   curtos. O caminho de audio (RTP nos dois sentidos) **da** para testar; o medidor de voz
   precisa de conferencia manual com microfone de verdade.
-- **Senha exige transporte seguro.** `ws://` so autentica em loopback. Fora da propria maquina,
-  termine TLS em um proxy no mesmo host e conecte por `wss://`; nunca afrouxe essa validacao para
-  fazer a LAN funcionar.
+- **Senha exige transporte seguro.** `ws://` so autentica em loopback ou redes privadas autorizadas. Fora dessas redes,
+  termine TLS em um proxy no mesmo host e conecte por `wss://`.

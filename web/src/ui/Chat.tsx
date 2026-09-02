@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChatEntry, DirectoryEntry, Limits, UserId } from '../protocol'
 import { IconAt, IconEdit, IconHash, IconPhone, IconReaction, IconReply, IconTrash } from './Icons'
 import { Avatar, ProfileName } from './Avatar'
@@ -133,6 +133,16 @@ export function Chat({
   const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null)
   const [voiceSending, setVoiceSending] = useState(false)
   const [voiceError, setVoiceError] = useState<string | null>(null)
+
+  const handleRecordingComplete = useCallback((recording: RecordedVoice) => {
+    setIsRecordingAudio(false)
+    setVoicePreview(recording)
+    setVoiceError(null)
+  }, [])
+
+  const handleCancelRecording = useCallback(() => {
+    setIsRecordingAudio(false)
+  }, [])
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([])
   const [optimistic, setOptimistic] = useState<OptimisticSend[]>([])
   const [composerSend, setComposerSend] = useState<OptimisticSend | null>(null)
@@ -894,19 +904,15 @@ export function Chat({
       <div className="chat__composer">
         {isRecordingAudio && (
           <AudioRecorder
-            onRecordingComplete={(recording) => {
-              setIsRecordingAudio(false)
-              setVoicePreview(recording)
-              setVoiceError(null)
-            }}
-            onCancel={() => setIsRecordingAudio(false)}
+            onRecordingComplete={handleRecordingComplete}
+            onCancel={handleCancelRecording}
           />
         )}
         {voicePreview && voicePreviewUrl && (
           <div className="chat__voice-preview">
             <audio src={voicePreviewUrl} controls preload="metadata" />
             <div className="chat__voice-waveform" aria-hidden="true">
-              {voicePreview.waveform.map((value, index) => <i key={index} style={{ height: `${Math.max(3, value / 4)}%` }} />)}
+              {voicePreview.waveform.map((value, index) => <i key={index} style={{ height: `${Math.max(5, value)}%` }} />)}
             </div>
             <div className="chat__voice-preview-actions">
               <button type="button" onClick={() => { setVoicePreview(null); setVoiceError(null) }}>Apagar</button>

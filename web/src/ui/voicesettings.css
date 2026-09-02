@@ -27,6 +27,11 @@
 .voicesettings__processor-status { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-dim); }
 .voicesettings__processor-status.is-active { color: var(--online); }
 .voicesettings__processor-status.is-fallback { color: var(--warning); }
+.voicesettings__insecure-banner { display: flex; align-items: flex-start; gap: 12px; padding: 12px 16px; border-radius: var(--radius-lg); background: var(--danger-quiet); color: var(--text); }
+.voicesettings__insecure-banner svg { flex-shrink: 0; margin-top: 2px; color: var(--danger); }
+.voicesettings__insecure-banner strong { display: block; margin-bottom: 2px; color: var(--danger); font-weight: 600; }
+.voicesettings__insecure-banner p { margin: 0; color: var(--text-soft); font-size: 12px; line-height: 1.4; }
+.voicesettings__test-error { color: var(--danger); font-size: 12px; }
 .voicesettings__test { align-self: flex-start; padding: 8px 12px; background: var(--bg-raised); }
 .voicesettings__test.is-active { background: var(--danger-quiet); color: var(--danger); }
 .voicesettings__meter { height: 7px; overflow: hidden; border-radius: var(--radius-pill); background: var(--bg-raised); }

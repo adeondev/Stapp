@@ -85,11 +85,30 @@ function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: 
       </div>
     )
   }
-  if (video) return <div className="stapp-attachment-video-wrapper"><video className="stapp-attachment-video" src={url} controls preload="metadata" playsInline /></div>
+  if (video) {
+    return (
+      <div className="stapp-attachment-video-wrapper">
+        <video
+          className="stapp-attachment-video"
+          src={url}
+          controls
+          preload="metadata"
+          playsInline
+          onError={() => setError(true)}
+        />
+      </div>
+    )
+  }
   if (image) {
     return (
       <button type="button" className="stapp-attachment-image-wrapper" onClick={() => onLightbox(url)}>
-        <img src={url} alt={attachment.description || attachment.filename} loading="lazy" className="stapp-attachment-image" />
+        <img
+          src={url}
+          alt={attachment.description || attachment.filename}
+          loading="lazy"
+          className="stapp-attachment-image"
+          onError={() => setError(true)}
+        />
       </button>
     )
   }

@@ -1,0 +1,90 @@
+name: stapp
+
+services:
+  stapp-server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: stapp-server:latest
+    container_name: stapp-server
+    restart: unless-stopped
+    ports:
+      - "${STAPP_PORT:-8787}:8787"
+    environment:
+      STAPP_SERVER_NAME: "${STAPP_SERVER_NAME:-Stapp}"
+      STAPP_SERVER_BIND: "0.0.0.0"
+      STAPP_SERVER_PORT: "8787"
+      STAPP_SERVER_STATIC_DIR: "/app/web/dist"
+      STAPP_STORAGE_DATABASE: "/app/data/stapp.db"
+      STAPP_STORAGE_ATTACHMENTS_DIR: "/app/data/attachments"
+      STAPP_AUTH_ALLOW_REGISTRATION: "${STAPP_ALLOW_REGISTRATION:-true}"
+      STAPP_AUTH_TRUST_PRIVATE_NETWORKS: "${STAPP_TRUST_PRIVATE_NETWORKS:-true}"
+      STAPP_VOICE_BACKEND: "${STAPP_VOICE_BACKEND:-livekit}"
+      STAPP_VOICE_PUBLIC_URL: "${STAPP_VOICE_PUBLIC_URL:-ws://${STAPP_HOST_IP:-127.0.0.1}:7880}"
+      STAPP_VOICE_API_URL: "http://livekit:7880"
+      STAPP_LIVEKIT_API_KEY: "${STAPP_LIVEKIT_API_KEY:-stapp_dev_key}"
+      STAPP_LIVEKIT_API_SECRET: "${STAPP_LIVEKIT_API_SECRET:-stapp_dev_secret_must_be_at_least_32_chars_long}"
+    volumes:
+      - stapp-data:/app/data
+    depends_on:
+      livekit:
+        condition: service_healthy
+    networks:
+      - stapp-network
+
+  livekit:
+    image: livekit/livekit-server:v1.13.6
+    container_name: stapp-livekit
+    restart: unless-stopped
+    command:
+      - "--keys"
+      - "${STAPP_LIVEKIT_API_KEY:-stapp_dev_key}: ${STAPP_LIVEKIT_API_SECRET:-stapp_dev_secret_must_be_at_least_32_chars_long}"
+      - "--node-ip"
+      - "${STAPP_HOST_IP:-127.0.0.1}"
+    ports:
+      - "${STAPP_LIVEKIT_PORT:-7880}:7880/tcp"
+      - "${STAPP_LIVEKIT_TCP_PORT:-7881}:7881/tcp"
+      - "${STAPP_LIVEKIT_UDP_PORT:-7882}:7882/udp"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7880/"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - stapp-network
+
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: stapp-caddy
+    restart: unless-stopped
+    profiles:
+      - caddy
+      - https
+    ports:
+      - "${STAPP_HTTP_PORT:-80}:80"
+      - "${STAPP_HTTPS_PORT:-443}:443"
+    environment:
+      STAPP_DOMAIN: "${STAPP_DOMAIN:-localhost}"
+    volumes:
+      - ./infra/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - stapp-server
+      - livekit
+    networks:
+      - stapp-network
+
+volumes:
+  stapp-data:
+    name: stapp-data
+  caddy-data:
+    name: caddy-data
+  caddy-config:
+    name: caddy-config
+
+networks:
+  stapp-network:
+    name: stapp-network
+    driver: bridge

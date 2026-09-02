@@ -65,6 +65,7 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
         auth: AuthConfig {
             allow_registration,
             max_sessions_per_user: 3,
+            trust_private_networks: false,
             trusted_networks: Vec::new(),
             allowed_origins: Vec::new(),
         },
