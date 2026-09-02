@@ -103,6 +103,10 @@ pub struct ServerConfig {
     /// o app na mesma origem — e o que usamos em producao.
     #[serde(default)]
     pub static_dir: Option<PathBuf>,
+    /// Versao minima exigida dos clientes (semver). Clientes com versao menor
+    /// serao instruidos/bloqueados para atualizacao obrigatoria.
+    #[serde(default)]
+    pub min_client_version: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -216,6 +220,9 @@ impl Config {
         if let Some(val) = env_var(&["STAPP_SERVER_STATIC_DIR", "STAPP_STATIC_DIR"]) {
             self.server.static_dir = Some(PathBuf::from(val));
         }
+        if let Some(val) = env_var(&["STAPP_SERVER_MIN_CLIENT_VERSION", "STAPP_MIN_CLIENT_VERSION"]) {
+            self.server.min_client_version = Some(val);
+        }
 
         if let Some(val) = parse_env_bool(&["STAPP_AUTH_ALLOW_REGISTRATION", "STAPP_ALLOW_REGISTRATION"]) {
             self.auth.allow_registration = val;
@@ -328,6 +335,13 @@ impl Config {
                 !self.voice.api_key_env.trim().is_empty()
                     && !self.voice.api_secret_env.trim().is_empty(),
                 "os nomes das variaveis de ambiente do LiveKit nao podem estar vazios"
+            );
+        }
+        if let Some(min_ver) = &self.server.min_client_version {
+            anyhow::ensure!(
+                semver::Version::parse(min_ver.trim_start_matches('v')).is_ok(),
+                "server.min_client_version \"{}\" nao e um semver valido (ex: 0.1.0)",
+                min_ver
             );
         }
         Ok(())

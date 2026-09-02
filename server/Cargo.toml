@@ -28,6 +28,7 @@ livekit-api = { version = "0.6.4", default-features = false, features = ["access
 rpassword = "7"
 rand_core = { version = "0.6", features = ["getrandom"] }
 rusqlite = { version = "0.40", features = ["bundled"] }
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

@@ -61,6 +61,7 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
             port: 0,
             max_users: 10,
             static_dir: None,
+            min_client_version: None,
         },
         auth: AuthConfig {
             allow_registration,
