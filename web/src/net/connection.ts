@@ -1,4 +1,5 @@
 import type { ClientMsg, ServerMsg } from '../protocol'
+import { APP_VERSION } from '../platform/updater'
 
 export type ConnectionStatus = 'connecting' | 'online' | 'reconnecting' | 'offline'
 
@@ -93,7 +94,7 @@ export class Connection {
 
   private sendAccess() {
     if (!this.authReady || this.authSent || !this.accessToken) return
-    this.send({ t: 'auth.access', access_token: this.accessToken })
+    this.send({ t: 'auth.access', access_token: this.accessToken, client_version: APP_VERSION })
     this.authSent = true
   }
 
