@@ -26,6 +26,9 @@ import { VoiceSettings } from './ui/VoiceSettings'
 import { UserMenuProvider } from './ui/UserMenu'
 import { createVoiceTransport, emptySnapshot, type VoiceSnapshot, type VoiceTransport } from './voice/VoiceTransport'
 import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
+import { useAutoUpdater } from './platform/updater/useAutoUpdater'
+import { UpdateModal } from './ui/updater/UpdateModal'
+import { MandatoryUpdateLock } from './ui/updater/MandatoryUpdateLock'
 import './ui/app.css'
 
 interface CallState { channel: string; muted: boolean; deafened: boolean }
@@ -39,6 +42,7 @@ const CALL_REASON: Record<CallEndReason, string> = {
 }
 
 export default function App() {
+  const updater = useAutoUpdater()
   const [servers, setServers] = useState(loadServers)
   const [active, setActive] = useState<ActiveServer | null>(() => {
     const profile = lastServer()
@@ -170,6 +174,9 @@ export default function App() {
             plaintextAuthAllowed: msg.plaintext_auth_allowed,
           })
           updateActiveProfile({ serverId: msg.server_id, name: msg.server_name, lastUsed: Date.now() })
+          if (msg.min_client_version) {
+            updater.enforceMandatoryVersion(msg.min_client_version, msg.server_name)
+          }
           if (msg.protocol_version !== PROTOCOL_VERSION) {
             setAuthBusy(false)
             setAuthError(`Versão incompatível: servidor ${msg.protocol_version}, aplicativo ${PROTOCOL_VERSION}.`)
@@ -183,6 +190,10 @@ export default function App() {
           conn.clearAccess()
           setAuthBusy(false)
           setAuthError(msg.message)
+          if (msg.code === 'client_outdated') {
+            updater.enforceMandatoryVersion(msg.message, activeRef.current?.profile.name)
+            return
+          }
           void attemptRefresh()
           return
         }
@@ -537,11 +548,43 @@ export default function App() {
     return dir?.user_id
   }, [state.selfPeerId, state.selfUserId, state.voicePeers, state.users, state.directory])
 
+  if (updater.mandatoryRequirement) {
+    return (
+      <MandatoryUpdateLock
+        currentVersion={updater.currentVersion}
+        requiredVersion={updater.mandatoryRequirement.minVersion}
+        serverName={updater.mandatoryRequirement.serverName}
+        isDesktop={updater.isDesktop}
+        isDownloading={updater.isDownloading}
+        progress={updater.progress}
+        isReadyToRelaunch={updater.isReadyToRelaunch}
+        error={updater.error}
+        onStartUpdate={updater.startUpdate}
+        onRelaunch={updater.relaunch}
+      />
+    )
+  }
+
   if (!active || !authenticated) {
-    return <Connect serverUrl={active?.profile.url ?? null} serverProfile={active?.profile ?? null}
-      savedServers={servers} authInfo={authInfo} status={status} busy={authBusy} error={authError}
-      onChooseServer={chooseServer} onSelectServer={selectServer} onRemoveServer={removeSaved}
-      onAuthenticate={authenticate} onBack={backToServers} />
+    return (
+      <>
+        <Connect serverUrl={active?.profile.url ?? null} serverProfile={active?.profile ?? null}
+          savedServers={servers} authInfo={authInfo} status={status} busy={authBusy} error={authError}
+          onChooseServer={chooseServer} onSelectServer={selectServer} onRemoveServer={removeSaved}
+          onAuthenticate={authenticate} onBack={backToServers} />
+        <UpdateModal
+          isOpen={updater.isModalOpen}
+          update={updater.availableUpdate}
+          isDownloading={updater.isDownloading}
+          progress={updater.progress}
+          isReadyToRelaunch={updater.isReadyToRelaunch}
+          error={updater.error}
+          onClose={updater.dismissModal}
+          onStartUpdate={updater.startUpdate}
+          onRelaunch={updater.relaunch}
+        />
+      </>
+    )
   }
 
   const channel = view?.kind === 'channel' ? state.channels.find((item) => item.id === view.id) ?? null : null
@@ -719,6 +762,18 @@ export default function App() {
           onPreferencesChange={setVoicePreferences}
         />
       )}
+
+      <UpdateModal
+        isOpen={updater.isModalOpen}
+        update={updater.availableUpdate}
+        isDownloading={updater.isDownloading}
+        progress={updater.progress}
+        isReadyToRelaunch={updater.isReadyToRelaunch}
+        error={updater.error}
+        onClose={updater.dismissModal}
+        onStartUpdate={updater.startUpdate}
+        onRelaunch={updater.relaunch}
+      />
     </div>
     </UserMenuProvider>
     </ProfileProvider>

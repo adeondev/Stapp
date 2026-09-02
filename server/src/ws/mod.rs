@@ -60,6 +60,7 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
         server_name: state.config.server.name.clone(),
         registration_enabled: state.config.auth.allow_registration,
         plaintext_auth_allowed: state.config.auth.allows_plaintext_from(origin.ip()),
+        min_client_version: state.config.server.min_client_version.clone(),
     };
     if send_direct(&mut socket, &hello).await.is_err() {
         return;

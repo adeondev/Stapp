@@ -40,7 +40,11 @@ describe('Connection', () => {
       server_name: 'Stapp', registration_enabled: true, plaintext_auth_allowed: true,
     }))
 
-    expect(socket.sent.map((value) => JSON.parse(value))).toEqual([{ t: 'auth.access', access_token: 'access-opaco' }])
+    expect(socket.sent.map((value) => JSON.parse(value))).toEqual([{
+      t: 'auth.access',
+      access_token: 'access-opaco',
+      client_version: '0.1.0',
+    }])
     expect(socket.sent.join('')).not.toContain('password')
     expect(connection.hasAccess()).toBe(true)
     connection.close()

@@ -40,8 +40,11 @@ pub(super) async fn handle(
     origin: SocketAddr,
     msg: ClientMsg,
 ) -> Phase {
-    let access_token = match msg {
-        ClientMsg::AuthAccess { access_token } => access_token,
+    let (access_token, client_version) = match msg {
+        ClientMsg::AuthAccess {
+            access_token,
+            client_version,
+        } => (access_token, client_version),
         _ => {
             return refuse(
                 state,
@@ -50,6 +53,28 @@ pub(super) async fn handle(
             );
         }
     };
+
+    if let Some(min_ver_str) = &state.config.server.min_client_version {
+        if let Ok(min_req) = semver::Version::parse(min_ver_str.trim_start_matches('v')) {
+            let client_outdated = match &client_version {
+                Some(v) => match semver::Version::parse(v.trim_start_matches('v')) {
+                    Ok(ver) => ver < min_req,
+                    Err(_) => true,
+                },
+                None => true,
+            };
+            if client_outdated {
+                return refuse(
+                    state,
+                    peer_id,
+                    Failure::new(
+                        AuthErrorCode::ClientOutdated,
+                        "versao do cliente desatualizada; atualizacao obrigatoria",
+                    ),
+                );
+            }
+        }
+    }
 
     let _ = origin;
     match state.auth.tokens.verify_access(&state.db, &access_token) {

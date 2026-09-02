@@ -49,6 +49,16 @@ impl TestServer {
         Self { state, _dir: dir }
     }
 
+    pub fn with_config(config: Config) -> Self {
+        let dir = TestDir::new();
+        let mut cfg = config;
+        cfg.storage.database = dir.database();
+        cfg.storage.attachments_dir = dir.database().parent().unwrap().join("attachments");
+        let db = Db::open(&cfg.storage.database).expect("abrir banco temporario");
+        let state = AppState::new(cfg, db).unwrap();
+        Self { state, _dir: dir }
+    }
+
     pub fn account(&self, username: &str) -> Account {
         self.state
             .db
@@ -69,6 +79,7 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
             port: 0,
             max_users,
             static_dir: None,
+            min_client_version: None,
         },
         auth: AuthConfig {
             allow_registration: false,

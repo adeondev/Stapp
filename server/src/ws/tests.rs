@@ -46,6 +46,7 @@ async fn access_token_valido_abre_a_sessao() {
         Phase::Anonymous,
         ClientMsg::AuthAccess {
             access_token: access.token,
+            client_version: Some("0.1.0".into()),
         },
     )
     .await;
@@ -66,6 +67,7 @@ async fn access_token_invalido_permanece_anonimo() {
         Phase::Anonymous,
         ClientMsg::AuthAccess {
             access_token: "nao-existe".into(),
+            client_version: None,
         },
     )
     .await;
@@ -116,6 +118,7 @@ async fn sessao_autenticada_ignora_nova_tentativa_de_auth() {
         Phase::Anonymous,
         ClientMsg::AuthAccess {
             access_token: first.token,
+            client_version: None,
         },
     )
     .await;
@@ -127,6 +130,7 @@ async fn sessao_autenticada_ignora_nova_tentativa_de_auth() {
         phase,
         ClientMsg::AuthAccess {
             access_token: second.token,
+            client_version: None,
         },
     )
     .await;
@@ -147,6 +151,7 @@ async fn welcome_dispara_snapshot_social_personalizado() {
         Phase::Anonymous,
         ClientMsg::AuthAccess {
             access_token: access.token,
+            client_version: Some("0.1.0".into()),
         },
     )
     .await;
@@ -157,4 +162,50 @@ async fn welcome_dispara_snapshot_social_personalizado() {
         )),
         ServerMsg::SocialSnapshot { .. }
     ));
+}
+
+#[tokio::test]
+async fn cliente_desatualizado_e_rejeitado_com_client_outdated() {
+    let mut cfg = crate::test_support::config(std::path::PathBuf::from("temp.db"), 10, 4);
+    cfg.server.min_client_version = Some("0.2.0".into());
+    let server = TestServer::with_config(cfg);
+
+    let account = server.account("Daniel");
+    let access = server.state.auth.tokens.issue_access(&account);
+    let mut events = server.state.subscribe();
+
+    // Cliente com versao inferior (0.1.0 < 0.2.0)
+    let phase = route(
+        &server.state,
+        &peer(),
+        "127.0.0.1:1234".parse().unwrap(),
+        Phase::Anonymous,
+        ClientMsg::AuthAccess {
+            access_token: access.token.clone(),
+            client_version: Some("0.1.0".into()),
+        },
+    )
+    .await;
+    assert_eq!(phase, Phase::Anonymous);
+    assert!(matches!(
+        events.try_recv().unwrap().msg,
+        ServerMsg::AuthError {
+            code: AuthErrorCode::ClientOutdated,
+            ..
+        }
+    ));
+
+    // Cliente com versao compativel (0.2.0 >= 0.2.0)
+    let phase = route(
+        &server.state,
+        &peer(),
+        "127.0.0.1:1234".parse().unwrap(),
+        Phase::Anonymous,
+        ClientMsg::AuthAccess {
+            access_token: access.token,
+            client_version: Some("0.2.0".into()),
+        },
+    )
+    .await;
+    assert_eq!(phase, Phase::Authenticated);
 }
