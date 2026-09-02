@@ -18,11 +18,14 @@ const MAX_RECORDING_MS = 20 * 60 * 1000
 function selectFormat() {
   const formats = [
     ['audio/webm;codecs=opus', 'webm'],
+    ['audio/webm', 'webm'],
     ['audio/ogg;codecs=opus', 'ogg'],
     ['audio/mp4', 'm4a'],
-    ['audio/webm', 'webm'],
   ] as const
-  return formats.find(([mime]) => MediaRecorder.isTypeSupported(mime)) ?? ['', 'webm'] as const
+  if (typeof MediaRecorder === 'undefined') return ['', 'webm'] as const
+  return formats.find(([mime]) => {
+    try { return MediaRecorder.isTypeSupported(mime) } catch { return false }
+  }) ?? ['', 'webm'] as const
 }
 
 function formatTime(milliseconds: number) {
@@ -30,24 +33,30 @@ function formatTime(milliseconds: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`
 }
 
-async function makeWaveform(blob: Blob): Promise<number[]> {
-  try {
-    const context = new AudioContext()
-    const buffer = await context.decodeAudioData(await blob.arrayBuffer())
-    const channel = buffer.getChannelData(0)
-    const step = Math.max(1, Math.floor(channel.length / 64))
-    const result = Array.from({ length: 64 }, (_, index) => {
-      const start = index * step
-      const end = Math.min(channel.length, start + step)
-      let peak = 0
-      for (let cursor = start; cursor < end; cursor += 1) peak = Math.max(peak, Math.abs(channel[cursor]))
-      return Math.max(2, Math.min(255, Math.round(peak * 255)))
-    })
-    await context.close()
-    return result
-  } catch {
+function normalizeWaveform(samples: number[]): number[] {
+  if (samples.length === 0) {
     return Array.from({ length: 64 }, () => 32)
   }
+  if (samples.length <= 64) {
+    const result: number[] = []
+    for (let i = 0; i < 64; i++) {
+      const idx = Math.floor((i / 64) * samples.length)
+      result.push(samples[idx] ?? 32)
+    }
+    return result
+  }
+  const step = samples.length / 64
+  const result: number[] = []
+  for (let i = 0; i < 64; i++) {
+    const start = Math.floor(i * step)
+    const end = Math.min(samples.length, Math.floor((i + 1) * step))
+    let peak = 0
+    for (let j = start; j < end; j++) {
+      if (samples[j] > peak) peak = samples[j]
+    }
+    result.push(Math.max(4, Math.min(255, peak)))
+  }
+  return result
 }
 
 export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, onCancel }: Props) {
@@ -57,12 +66,15 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const chunksRef = useRef<Blob[]>([])
+  const samplesRef = useRef<number[]>([])
   const startedAt = useRef(0)
   const canceled = useRef(false)
 
   useEffect(() => {
     let disposed = false
     let timer = 0
+    let sampleTimer = 0
+    let audioCtx: AudioContext | null = null
 
     const fail = (message: string) => {
       if (disposed) return
@@ -75,22 +87,50 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
         if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
           return fail('O microfone exige uma conexão segura (HTTPS) ou o aplicativo Desktop.')
         }
-        const inputDeviceId = loadVoicePreferences().inputDeviceId
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: inputDeviceId ? { exact: inputDeviceId } : undefined,
-            channelCount: 1,
-            sampleRate: 48_000,
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: false,
-          },
-        })
+
+        const prefs = loadVoicePreferences()
+        const audioConstraints: MediaTrackConstraints = {
+          echoCancellation: prefs.echoCancellation,
+          noiseSuppression: prefs.noiseMode !== 'off',
+          autoGainControl: prefs.autoGainControl,
+        }
+        if (prefs.inputDeviceId && prefs.inputDeviceId !== 'default') {
+          audioConstraints.deviceId = { ideal: prefs.inputDeviceId }
+        }
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints })
         if (disposed) {
           stream.getTracks().forEach((track) => track.stop())
           return
         }
         streamRef.current = stream
+
+        // Setup real-time waveform capture
+        try {
+          const AudioCtxClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
+          if (AudioCtxClass) {
+            audioCtx = new AudioCtxClass()
+            const source = audioCtx.createMediaStreamSource(stream)
+            const analyser = audioCtx.createAnalyser()
+            analyser.fftSize = 256
+            analyser.smoothingTimeConstant = 0.3
+            source.connect(analyser)
+            const dataArray = new Uint8Array(analyser.frequencyBinCount)
+
+            sampleTimer = window.setInterval(() => {
+              if (recorderRef.current?.state !== 'recording') return
+              analyser.getByteFrequencyData(dataArray)
+              let max = 0
+              for (let i = 0; i < dataArray.length; i++) {
+                if (dataArray[i] > max) max = dataArray[i]
+              }
+              samplesRef.current.push(Math.max(4, max))
+            }, 100)
+          }
+        } catch {
+          // AudioContext optional fallback
+        }
+
         const [mimeType, extension] = selectFormat()
         const recorder = new MediaRecorder(stream, {
           ...(mimeType ? { mimeType } : {}),
@@ -98,30 +138,35 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
         })
         recorderRef.current = recorder
         chunksRef.current = []
+        samplesRef.current = []
         const actualMime = recorder.mimeType || mimeType || 'audio/webm'
 
         stream.getAudioTracks()[0]?.addEventListener('ended', () => {
           if (recorder.state === 'recording') recorder.stop()
           fail('O dispositivo de microfone foi desconectado.')
         })
+
         recorder.onerror = () => fail('O gravador encontrou um erro e preservou o rascunho.')
         recorder.ondataavailable = (event) => {
-          if (event.data.size > 0) chunksRef.current.push(event.data)
+          if (event.data && event.data.size > 0) chunksRef.current.push(event.data)
         }
-        recorder.onstop = async () => {
+
+        recorder.onstop = () => {
           window.clearInterval(timer)
+          window.clearInterval(sampleTimer)
+          audioCtx?.close().catch(() => {})
           stream.getTracks().forEach((track) => track.stop())
           if (canceled.current || disposed) return
-          setStatus('processing')
           const durationMs = Math.min(MAX_RECORDING_MS, Math.max(0, performance.now() - startedAt.current))
           const blob = new Blob(chunksRef.current, { type: actualMime })
-          if (blob.size === 0) return fail('A gravacao ficou vazia. Tente novamente.')
-          const waveform = await makeWaveform(blob)
+          if (blob.size === 0) return fail('A gravação ficou vazia. Tente novamente.')
+          const waveform = normalizeWaveform(samplesRef.current)
           const file = new File([blob], `voice-note-${Date.now()}.${extension}`, { type: actualMime })
           if (!disposed) onRecordingComplete({ file, durationMs: Math.round(durationMs), waveform })
         }
+
         startedAt.current = performance.now()
-        recorder.start(1_000)
+        recorder.start(250)
         setStatus('recording')
         timer = window.setInterval(() => {
           const current = performance.now() - startedAt.current
@@ -138,9 +183,11 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
     return () => {
       disposed = true
       window.clearInterval(timer)
+      window.clearInterval(sampleTimer)
+      audioCtx?.close().catch(() => {})
       if (recorderRef.current?.state === 'recording') {
         canceled.current = true
-        recorderRef.current.stop()
+        try { recorderRef.current.stop() } catch {}
       }
       streamRef.current?.getTracks().forEach((track) => track.stop())
     }
@@ -149,9 +196,12 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
   const stop = () => {
     if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
   }
+
   const cancel = () => {
     canceled.current = true
-    if (recorderRef.current?.state === 'recording') recorderRef.current.stop()
+    if (recorderRef.current?.state === 'recording') {
+      try { recorderRef.current.stop() } catch {}
+    }
     onCancel()
   }
 
@@ -159,12 +209,12 @@ export const AudioRecorder = memo(function AudioRecorder({ onRecordingComplete, 
     <div className="stapp-audio-recorder-bar" role={status === 'error' ? 'alert' : 'status'}>
       <div className="stapp-recorder-copy">
         {status === 'recording' && <span className="stapp-audio-record-pulse" />}
-        <strong>{status === 'requesting' ? 'Solicitando microfone...' : status === 'processing' ? 'Preparando previa...' : error ?? formatTime(elapsed)}</strong>
+        <strong>{status === 'requesting' ? 'Solicitando microfone...' : status === 'processing' ? 'Preparando prévia...' : error ?? formatTime(elapsed)}</strong>
         {status === 'recording' && <span>Gravando mensagem de voz</span>}
       </div>
       <div className="stapp-recorder-actions">
         <button type="button" onClick={cancel}>Cancelar</button>
-        {status === 'recording' && <button type="button" className="is-primary" onClick={stop}>Parar</button>}
+        {status === 'recording' && <button type="button" className="is-primary" onClick={stop}>Concluir</button>}
         {status === 'error' && <button type="button" className="is-primary" onClick={onCancel}>Fechar</button>}
       </div>
     </div>
