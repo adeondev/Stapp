@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use axum::Router;
 use axum::extract::Request;
-use axum::http::{HeaderName, HeaderValue};
+use axum::http::{HeaderName, HeaderValue, header};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::get;
@@ -43,6 +43,8 @@ pub fn build(config: Config) -> Result<Router> {
 }
 
 async fn security_headers(request: Request, next: Next) -> Response {
+    let path = request.uri().path().to_string();
+    let is_media_path = path.starts_with("/attachments") || path.starts_with("/avatars");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -65,13 +67,22 @@ async fn security_headers(request: Request, next: Next) -> Response {
         HeaderName::from_static("cross-origin-opener-policy"),
         HeaderValue::from_static("same-origin"),
     );
-    // Padrao restrito, mas uma rota pode abrir mao dele de proposito: o avatar
-    // existe para ser embutido com <img> a partir do app, que em dev roda em
-    // outra porta. Sem esta excecao, `same-origin` bloqueia a imagem no
-    // navegador mesmo com o GET respondendo 200.
+    // Padrao restrito, mas rotas de midia (anexos e avatares) devem ter cross-origin
+    // mesmo em respostas de erro (ex: 404) para evitar que o navegador bloqueie
+    // com net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin quando o app roda em outra porta.
     let corp = HeaderName::from_static("cross-origin-resource-policy");
     if !headers.contains_key(&corp) {
-        headers.insert(corp, HeaderValue::from_static("same-origin"));
+        if is_media_path {
+            headers.insert(corp, HeaderValue::from_static("cross-origin"));
+        } else {
+            headers.insert(corp, HeaderValue::from_static("same-origin"));
+        }
+    }
+    if is_media_path && !headers.contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN) {
+        headers.insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("*"),
+        );
     }
     headers.insert(
         HeaderName::from_static("x-content-type-options"),
