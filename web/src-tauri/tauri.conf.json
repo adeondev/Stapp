@@ -40,5 +40,13 @@
     "android": {
       "debugApplicationIdSuffix": ".debug"
     }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZFRTg0NkVCNzAxRTM1OEIKUldTTE5SNXc2MGJvL3A1WXJib3lrYzhSQWtDZDROUU9kY0dkQk9FNWhUY0h0QldXWll5Zml2WkQK",
+      "endpoints": [
+        "https://github.com/adeondev/Stapp/releases/latest/download/latest.json"
+      ]
+    }
   }
 }
