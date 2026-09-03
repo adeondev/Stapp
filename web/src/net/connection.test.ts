@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { APP_VERSION } from '../platform/updater'
 import { Connection, defaultServerUrl } from './connection'
 
 class FakeWebSocket {
@@ -43,7 +44,7 @@ describe('Connection', () => {
     expect(socket.sent.map((value) => JSON.parse(value))).toEqual([{
       t: 'auth.access',
       access_token: 'access-opaco',
-      client_version: '0.1.0',
+      client_version: APP_VERSION,
     }])
     expect(socket.sent.join('')).not.toContain('password')
     expect(connection.hasAccess()).toBe(true)

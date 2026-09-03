@@ -60,8 +60,15 @@ export interface AudioExclusionValidation {
   reason: string
 }
 
-type AudioValidationEvent = { event: 'ready' }
+type AudioValidationEvent =
+  | { event: 'ready' }
+  | { event: 'failed'; reason: string }
+
 let cachedAudioExclusionValidation: Promise<AudioExclusionValidation> | null = null
+
+export function resetAudioExclusionValidationCache() {
+  cachedAudioExclusionValidation = null
+}
 
 type CaptureEvent =
   | {
@@ -509,23 +516,38 @@ export async function startNativeScreenCapture(options: {
   }
 }
 
-async function validateAudioExclusion(
+export async function validateAudioExclusion(
   Channel: typeof import('@tauri-apps/api/core')['Channel'],
   invoke: typeof import('@tauri-apps/api/core')['invoke'],
 ) {
   cachedAudioExclusionValidation ??= (async () => {
     const channel = new Channel<AudioValidationEvent>()
     let resolveReady!: () => void
-    const ready = new Promise<void>((resolve) => { resolveReady = resolve })
+    let rejectReady!: (error: Error) => void
+    const ready = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
+    })
     channel.onmessage = (event) => {
-      if (event.event === 'ready') resolveReady()
+      if (event.event === 'ready') {
+        resolveReady()
+      } else if (event.event === 'failed') {
+        rejectReady(new Error(event.reason))
+      }
     }
     const validation = invoke<AudioExclusionValidation>('validate_screen_audio_exclusion', { channel })
+    const earlyFailure = validation.then((result) => {
+      if (!result.safe) {
+        throw new Error(result.reason)
+      }
+      return new Promise<never>(() => {})
+    })
     await Promise.race([
       ready,
+      earlyFailure,
       new Promise<never>((_, reject) => window.setTimeout(
         () => reject(new Error('a validacao nativa de audio nao ficou pronta')),
-        2_000,
+        5_000,
       )),
     ])
     await playExclusionProbe()
@@ -538,6 +560,9 @@ async function validateAudioExclusion(
     reason: mediaErrorMessage(error, 'a validacao de exclusao falhou'),
   }))
   const result = await cachedAudioExclusionValidation
+  if (!result.safe) {
+    cachedAudioExclusionValidation = null
+  }
   console.info('[screen-audio] validacao de exclusao', result)
   return result
 }

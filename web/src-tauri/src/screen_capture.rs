@@ -64,6 +64,7 @@ pub enum CaptureEvent {
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum AudioValidationEvent {
     Ready,
+    Failed { reason: String },
 }
 
 #[derive(Serialize, Clone, Debug)]
@@ -101,29 +102,38 @@ pub fn validate_screen_audio_exclusion(
                 },
             }
         }
-        Err(reason) => AudioExclusionValidation {
-            safe: false,
-            process_id,
-            windows_build: windows_build_number(),
-            include_level: 0.0,
-            exclude_level: 0.0,
-            reason,
-        },
+        Err(reason) => {
+            let _ = channel.send(AudioValidationEvent::Failed {
+                reason: reason.clone(),
+            });
+            AudioExclusionValidation {
+                safe: false,
+                process_id,
+                windows_build: windows_build_number(),
+                include_level: 0.0,
+                exclude_level: 0.0,
+                reason,
+            }
+        }
     }
 }
 
 #[cfg(not(windows))]
 #[tauri::command]
 pub fn validate_screen_audio_exclusion(
-    _channel: Channel<AudioValidationEvent>,
+    channel: Channel<AudioValidationEvent>,
 ) -> AudioExclusionValidation {
+    let reason = "a exclusao de audio esta disponivel somente no Windows".to_string();
+    let _ = channel.send(AudioValidationEvent::Failed {
+        reason: reason.clone(),
+    });
     AudioExclusionValidation {
         safe: false,
         process_id: std::process::id(),
         windows_build: None,
         include_level: 0.0,
         exclude_level: 0.0,
-        reason: "a exclusao de audio esta disponivel somente no Windows".to_string(),
+        reason,
     }
 }
 

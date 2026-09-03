@@ -1,7 +1,12 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { browserAudioExclusionIsSafe, startBrowserScreenCapture } from './screenCapture'
+import {
+  browserAudioExclusionIsSafe,
+  resetAudioExclusionValidationCache,
+  startBrowserScreenCapture,
+  validateAudioExclusion,
+} from './screenCapture'
 
 describe('captura web segura', () => {
   beforeEach(() => {
@@ -57,3 +62,70 @@ describe('captura web segura', () => {
     expect(audioTrack.stop).toHaveBeenCalledOnce()
   })
 })
+
+describe('validacao nativa de exclusao de audio', () => {
+  beforeEach(() => {
+    resetAudioExclusionValidationCache()
+  })
+
+  it('retorna imediatamente o erro do Rust sem esperar timeout quando safe e false', async () => {
+    class MockChannel {
+      onmessage?: (event: unknown) => void
+    }
+
+    const invoke = vi.fn(async () => ({
+      safe: false,
+      processId: 1234,
+      includeLevel: 0,
+      excludeLevel: 0,
+      reason: 'controle de loopback indisponivel: dispositivo de saida ausente',
+    }))
+
+    const start = performance.now()
+    const result = await validateAudioExclusion(
+      MockChannel as unknown as typeof import('@tauri-apps/api/core')['Channel'],
+      invoke as unknown as typeof import('@tauri-apps/api/core')['invoke'],
+    )
+    const elapsed = performance.now() - start
+
+    expect(result.safe).toBe(false)
+    expect(result.reason).toBe('controle de loopback indisponivel: dispositivo de saida ausente')
+    expect(elapsed).toBeLessThan(1000)
+  })
+
+  it('trata evento failed do canal e nao bloqueia no cache', async () => {
+    class MockChannel {
+      onmessage?: (event: { event: string; reason?: string }) => void
+      constructor() {
+        queueMicrotask(() => {
+          this.onmessage?.({ event: 'failed', reason: 'COM de audio indisponivel: init falhou' })
+        })
+      }
+    }
+
+    const invoke = vi.fn(async () => new Promise<never>(() => {}))
+
+    const result = await validateAudioExclusion(
+      MockChannel as unknown as typeof import('@tauri-apps/api/core')['Channel'],
+      invoke as unknown as typeof import('@tauri-apps/api/core')['invoke'],
+    )
+
+    expect(result.safe).toBe(false)
+    expect(result.reason).toBe('COM de audio indisponivel: init falhou')
+
+    // Tentar de novo deve chamar o invoke novamente porque a falha nao pode ficar em cache permanente
+    const invokeSecond = vi.fn(async () => ({
+      safe: false,
+      processId: 5678,
+      includeLevel: 0,
+      excludeLevel: 0,
+      reason: 'segunda tentativa',
+    }))
+    await validateAudioExclusion(
+      MockChannel as unknown as typeof import('@tauri-apps/api/core')['Channel'],
+      invokeSecond as unknown as typeof import('@tauri-apps/api/core')['invoke'],
+    )
+    expect(invokeSecond).toHaveBeenCalledOnce()
+  })
+})
+
