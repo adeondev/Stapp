@@ -15,7 +15,9 @@ use std::collections::VecDeque;
 use tauri::ipc::Channel;
 
 #[cfg(windows)]
-use wasapi::{initialize_mta, AudioClient, Direction, SampleType, StreamMode, WaveFormat};
+use wasapi::{
+    deinitialize, initialize_mta, AudioClient, Direction, SampleType, StreamMode, WaveFormat,
+};
 
 static NEXT_CAPTURE_ID: AtomicU32 = AtomicU32::new(1);
 static CAPTURES: OnceLock<Mutex<HashMap<u32, CaptureSession>>> = OnceLock::new();
@@ -88,7 +90,23 @@ pub fn validate_screen_audio_exclusion(
     channel: Channel<AudioValidationEvent>,
 ) -> AudioExclusionValidation {
     let process_id = std::process::id();
-    match validate_process_tree_exclusion(process_id, &channel) {
+    let thread_channel = channel.clone();
+    let join_handle = thread::Builder::new()
+        .name("stapp-validate-audio-exclusion".to_string())
+        .spawn(move || {
+            let res = validate_process_tree_exclusion(process_id, &thread_channel);
+            deinitialize();
+            res
+        });
+
+    let result = match join_handle {
+        Ok(handle) => handle.join().unwrap_or_else(|_| {
+            Err("a thread de validacao de audio encerrou inesperadamente".to_string())
+        }),
+        Err(err) => Err(format!("falha ao iniciar thread de validacao: {err}")),
+    };
+
+    match result {
         Ok((include_level, exclude_level)) => {
             let safe = exclusion_is_safe(include_level, exclude_level);
             AudioExclusionValidation {
@@ -389,6 +407,7 @@ fn audio_capture_loop(
 ) {
     let result =
         target.and_then(|target| capture_process_audio(capture_id, target, &channel, &stop));
+    deinitialize();
     if let Err(reason) = result {
         let _ = channel.send(CaptureEvent::AudioUnavailable { capture_id, reason });
     }
