@@ -2,7 +2,7 @@ use crate::screen_sources::{parse_source_id, scale_to_fit, SourceLocator};
 use base64::Engine;
 use serde::Serialize;
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         Arc, Mutex, OnceLock,
@@ -10,6 +10,8 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
+#[cfg(any(windows, test))]
+use std::collections::VecDeque;
 use tauri::ipc::Channel;
 
 #[cfg(windows)]
@@ -32,6 +34,7 @@ enum CaptureSource {
     Window(xcap::Window),
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Clone)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum CaptureEvent {
@@ -60,6 +63,7 @@ pub enum CaptureEvent {
     },
 }
 
+#[allow(dead_code)]
 #[derive(Serialize, Clone)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum AudioValidationEvent {
@@ -146,6 +150,7 @@ pub fn start_screen_capture(
     include_audio: bool,
     channel: Channel<CaptureEvent>,
 ) -> Result<u32, String> {
+    let _ = include_audio;
     let locator = parse_source_id(&source_id)?;
     if resolve_source(locator).is_none() {
         return Err("a tela ou janela selecionada nao esta mais disponivel".to_string());
@@ -179,6 +184,7 @@ pub fn start_screen_capture(
         })
         .map_err(|error| format!("nao foi possivel iniciar a captura: {error}"))?;
 
+    #[allow(unused_mut)]
     let mut threads = vec![worker];
     #[cfg(windows)]
     if include_audio {
@@ -369,6 +375,7 @@ fn make_audio_target(
     }
 }
 
+#[cfg(any(windows, test))]
 fn take_pcm_chunk(samples: &mut VecDeque<u8>, chunk_bytes: usize) -> Option<Vec<u8>> {
     (samples.len() >= chunk_bytes).then(|| samples.drain(..chunk_bytes).collect())
 }
@@ -560,6 +567,7 @@ fn read_available_pcm(
     Ok(())
 }
 
+#[cfg(any(windows, test))]
 fn goertzel_level(pcm: &VecDeque<u8>, sample_rate: f64, frequency: f64, channels: usize) -> f64 {
     let bytes: Vec<u8> = pcm.iter().copied().collect();
     let samples: Vec<f64> = bytes
@@ -590,6 +598,7 @@ fn goertzel_level(pcm: &VecDeque<u8>, sample_rate: f64, frequency: f64, channels
     power.max(0.0).sqrt() * 2.0 / samples.len() as f64
 }
 
+#[cfg(any(windows, test))]
 fn exclusion_is_safe(include_level: f64, exclude_level: f64) -> bool {
     include_level >= 0.002 && exclude_level <= 0.0007_f64.max(include_level * 0.18)
 }

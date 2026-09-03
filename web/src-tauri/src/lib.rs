@@ -2,6 +2,7 @@ mod desktop_permissions;
 mod screen_capture;
 mod screen_sources;
 
+#[cfg(windows)]
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
