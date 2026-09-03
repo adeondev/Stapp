@@ -55,6 +55,10 @@ jobs:
             libxcb-randr0-dev \
             libxcb-shm0-dev \
             libxrandr-dev \
+            libgbm-dev \
+            libdrm-dev \
+            libegl-dev \
+            libwayland-dev \
             patchelf
 
       - name: Setup Node.js
@@ -96,7 +100,6 @@ jobs:
           releaseBody: 'Stapp Desktop ${{ github.ref_name }}'
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          uploadUpdaterJson: true
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
