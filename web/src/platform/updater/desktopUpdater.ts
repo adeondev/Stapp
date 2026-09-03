@@ -1,19 +1,84 @@
-import type { AvailableUpdate, UpdateDownloadProgress, UpdaterService } from './types'
+import type { AvailableUpdate, UpdateChannel, UpdateDownloadProgress, UpdaterService } from './types'
+import { resolveUpdateEndpoint } from './githubReleases'
+import { WEB_APP_VERSION } from './webUpdater'
+
+const STORAGE_KEY_CHANNEL = 'stapp_updater_channel'
 
 export class DesktopUpdater implements UpdaterService {
   readonly isDesktop = true
+
+  getChannel(): UpdateChannel {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem(STORAGE_KEY_CHANNEL)
+        if (saved === 'stable' || saved === 'beta') return saved
+      }
+    } catch {
+      // ignore
+    }
+    return WEB_APP_VERSION.includes('-') ? 'beta' : 'stable'
+  }
+
+  setChannel(channel: UpdateChannel): void {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem(STORAGE_KEY_CHANNEL, channel)
+      }
+    } catch {
+      // ignore
+    }
+  }
 
   async getCurrentVersion(): Promise<string> {
     try {
       const { getVersion } = await import('@tauri-apps/api/app')
       return await getVersion()
-    } catch {
+    } catch (err) {
+      console.warn('[DesktopUpdater] Falha ao obter versao nativa via getVersion():', err)
       return '0.1.0'
     }
   }
 
-  async checkForUpdate(): Promise<AvailableUpdate | null> {
+  async checkForUpdate(channel?: UpdateChannel): Promise<AvailableUpdate | null> {
+    const activeChannel = channel ?? this.getChannel()
+    console.info(`[DesktopUpdater] Verificando atualizacoes no canal: ${activeChannel}`)
+
+    let customEndpoint: string | null = null
     try {
+      customEndpoint = await resolveUpdateEndpoint(activeChannel)
+      if (customEndpoint) {
+        console.info(`[DesktopUpdater] Endpoint resolvido para ${activeChannel}:`, customEndpoint)
+      }
+    } catch (err) {
+      console.warn('[DesktopUpdater] Falha ao consultar endpoint dinâmico do GitHub:', err)
+    }
+
+    try {
+      const { invoke } = await import('@tauri-apps/api/core')
+      const { Update } = await import('@tauri-apps/plugin-updater')
+      const metadata = await invoke<any>('check_update_with_endpoint', {
+        endpoint: customEndpoint ?? undefined,
+      })
+
+      if (!metadata) {
+        console.info('[DesktopUpdater] Nenhuma atualizacao disponivel.')
+        return null
+      }
+
+      const update = new Update(metadata)
+      const isPrerelease = metadata.version.includes('-')
+      console.info(`[DesktopUpdater] Atualizacao encontrada: v${update.version} (pre-release: ${isPrerelease})`)
+
+      return {
+        version: update.version,
+        currentVersion: update.currentVersion,
+        date: update.date,
+        body: update.body,
+        isPrerelease,
+        rawUpdate: update,
+      }
+    } catch (err) {
+      console.warn('[DesktopUpdater] Erro no check_update_with_endpoint, tentando fallback no plugin:', err)
       const { check } = await import('@tauri-apps/plugin-updater')
       const update = await check()
       if (!update) return null
@@ -23,11 +88,9 @@ export class DesktopUpdater implements UpdaterService {
         currentVersion: update.currentVersion,
         date: update.date,
         body: update.body,
+        isPrerelease: update.version.includes('-'),
         rawUpdate: update,
       }
-    } catch (err) {
-      console.warn('[DesktopUpdater] Erro ao verificar atualizacoes:', err)
-      return null
     }
   }
 

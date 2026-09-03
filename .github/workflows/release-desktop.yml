@@ -95,7 +95,8 @@ jobs:
           releaseName: 'Stapp Desktop v__VERSION__'
           releaseBody: 'Stapp Desktop ${{ github.ref_name }}'
           releaseDraft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          uploadUpdaterJson: true
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}

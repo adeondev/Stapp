@@ -62,7 +62,9 @@ export function UpdateModal({
       <div className="updater-dialog">
         <header className="updater-header">
           <div className="updater-header__info">
-            <span className="updater-header__badge">Nova Versão</span>
+            <span className="updater-header__badge">
+              {update.isPrerelease || update.version.includes('-') ? 'Versão Beta' : 'Nova Versão'}
+            </span>
             <h2 id="updater-modal-title" className="updater-header__title">
               Atualização Disponível
             </h2>

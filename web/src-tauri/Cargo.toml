@@ -1,6 +1,6 @@
 [package]
 name = "stapp-desktop"
-version = "0.1.0-beta.2"
+version = "0.1.0-beta.3"
 description = "Cliente desktop privado do Stapp"
 authors = ["Stapp"]
 license = ""
@@ -29,6 +29,8 @@ tauri-plugin-process = "2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 xcap = "0.9.8"
+url = "2"
+time = "0.3"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"

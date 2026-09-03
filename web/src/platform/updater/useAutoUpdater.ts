@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { APP_VERSION, isSatisfied, updaterService } from './index'
-import type { AvailableUpdate, UpdateDownloadProgress } from './types'
+import type { AvailableUpdate, UpdateChannel, UpdateDownloadProgress } from './types'
 
 export interface MandatoryRequirement {
   minVersion: string
@@ -10,6 +10,7 @@ export interface MandatoryRequirement {
 export function useAutoUpdater() {
   const [currentVersion, setCurrentVersion] = useState<string>(APP_VERSION)
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null)
+  const [channel, setChannelState] = useState<UpdateChannel>(() => updaterService.getChannel())
   const [isChecking, setIsChecking] = useState(false)
   const [isDownloading, setIsDownloading] = useState(false)
   const [progress, setProgress] = useState<UpdateDownloadProgress | null>(null)
@@ -30,23 +31,11 @@ export function useAutoUpdater() {
     return () => { active = false }
   }, [])
 
-  // Verificacao em background ao iniciar o aplicativo Desktop
-  useEffect(() => {
-    if (!isDesktop || initialCheckRan.current) return
-    initialCheckRan.current = true
-
-    const timer = setTimeout(() => {
-      void checkForUpdates(false)
-    }, 2500)
-
-    return () => clearTimeout(timer)
-  }, [isDesktop])
-
-  const checkForUpdates = useCallback(async (interactive = false): Promise<AvailableUpdate | null> => {
+  const checkForUpdates = useCallback(async (interactive = false, targetChannel?: UpdateChannel): Promise<AvailableUpdate | null> => {
     setIsChecking(true)
     setError(null)
     try {
-      const update = await updaterService.checkForUpdate()
+      const update = await updaterService.checkForUpdate(targetChannel)
       if (update) {
         setAvailableUpdate(update)
         setIsModalOpen(true)
@@ -66,6 +55,24 @@ export function useAutoUpdater() {
       setIsChecking(false)
     }
   }, [])
+
+  const setChannel = useCallback((newChannel: UpdateChannel) => {
+    updaterService.setChannel(newChannel)
+    setChannelState(newChannel)
+    void checkForUpdates(false, newChannel)
+  }, [checkForUpdates])
+
+  // Verificacao em background ao iniciar o aplicativo Desktop
+  useEffect(() => {
+    if (!isDesktop || initialCheckRan.current) return
+    initialCheckRan.current = true
+
+    const timer = setTimeout(() => {
+      void checkForUpdates(false)
+    }, 2500)
+
+    return () => clearTimeout(timer)
+  }, [isDesktop, checkForUpdates])
 
   const enforceMandatoryVersion = useCallback((minVersion: string, serverName?: string) => {
     if (!isSatisfied(currentVersion, minVersion)) {
@@ -125,6 +132,8 @@ export function useAutoUpdater() {
     error,
     isModalOpen,
     mandatoryRequirement,
+    channel,
+    setChannel,
     checkForUpdates,
     enforceMandatoryVersion,
     startUpdate,

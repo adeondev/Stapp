@@ -1,6 +1,7 @@
 mod desktop_permissions;
 mod screen_capture;
 mod screen_sources;
+mod updater;
 
 #[cfg(windows)]
 use tauri::Manager;
@@ -44,6 +45,7 @@ pub fn run() {
             screen_capture::start_screen_capture,
             screen_capture::stop_screen_capture,
             screen_capture::validate_screen_audio_exclusion,
+            updater::check_update_with_endpoint,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

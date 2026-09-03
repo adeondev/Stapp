@@ -617,7 +617,8 @@ export default function App() {
     <ProfileProvider profiles={state.profiles} avatarBase={avatarBase}>
     <UserMenuProvider members={state.socialMembers} selfUserId={state.selfUserId}
       onMessage={selectDirect} onCall={startCall} onAction={socialAction}
-      onEditSelf={() => setEditingProfile(true)}>
+      onEditSelf={() => setEditingProfile(true)}
+      updater={updater}>
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
       <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
         homeNotificationCount={homeNotificationCount}

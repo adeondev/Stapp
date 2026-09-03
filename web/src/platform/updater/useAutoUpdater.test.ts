@@ -12,6 +12,8 @@ vi.mock('./index', async (importOriginal) => {
     ...actual,
     updaterService: {
       isDesktop: true,
+      getChannel: vi.fn(() => 'beta'),
+      setChannel: vi.fn(),
       getCurrentVersion: vi.fn(async () => '0.1.0'),
       checkForUpdate: vi.fn(async () => null),
       downloadAndInstall: vi.fn(async () => {}),
@@ -31,13 +33,20 @@ describe('useAutoUpdater', () => {
     vi.clearAllMocks()
   })
 
-  it('inicializa com a versao do aplicativo', async () => {
+  it('inicializa com a versao do aplicativo e canal', async () => {
     const { result } = renderHook(() => useAutoUpdater())
     await act(async () => {})
 
     expect(result.current.currentVersion).toBe('0.1.0')
     expect(result.current.isDesktop).toBe(true)
+    expect(result.current.channel).toBe('beta')
     expect(result.current.mandatoryRequirement).toBeNull()
+
+    act(() => {
+      result.current.setChannel('stable')
+    })
+    expect(updaterService.setChannel).toHaveBeenCalledWith('stable')
+    expect(result.current.channel).toBe('stable')
   })
 
   it('ativa bloqueio obrigatorio quando enforceMandatoryVersion recebe versao superior', async () => {

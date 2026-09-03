@@ -1,3 +1,5 @@
+export type UpdateChannel = 'stable' | 'beta'
+
 export type UpdateState =
   | 'idle'
   | 'checking'
@@ -20,13 +22,16 @@ export interface AvailableUpdate {
   currentVersion: string
   date?: string
   body?: string
+  isPrerelease?: boolean
   rawUpdate?: unknown
 }
 
 export interface UpdaterService {
   readonly isDesktop: boolean
+  getChannel(): UpdateChannel
+  setChannel(channel: UpdateChannel): void
   getCurrentVersion(): Promise<string>
-  checkForUpdate(): Promise<AvailableUpdate | null>
+  checkForUpdate(channel?: UpdateChannel): Promise<AvailableUpdate | null>
   downloadAndInstall(
     update: AvailableUpdate,
     onProgress?: (progress: UpdateDownloadProgress) => void,

@@ -1,6 +1,7 @@
 import { createContext, useContext, useState } from 'react'
 import type { PeerId, SocialMember, UserId } from '../protocol'
 import type { VoiceTransport } from '../voice/VoiceTransport'
+import type { AvailableUpdate, UpdateChannel } from '../platform/updater/types'
 import type { SocialAction } from './FriendsHome'
 import {
   IconChat, IconEye, IconGrid, IconMicOff, IconPhone, IconScreen,
@@ -16,6 +17,13 @@ export interface CallMenuControls {
   onFocus(): void
   kind?: 'person' | 'screen'
   publicationId?: string
+}
+
+export interface UserMenuUpdater {
+  isDesktop: boolean
+  channel: UpdateChannel
+  setChannel(channel: UpdateChannel): void
+  checkForUpdates(interactive?: boolean): Promise<AvailableUpdate | null>
 }
 
 export interface UserMenuRequest {
@@ -38,13 +46,14 @@ interface Props {
   onCall(userId: UserId, username: string): void
   onAction(action: SocialAction, userId: UserId): void
   onEditSelf(): void
+  updater?: UserMenuUpdater
 }
 
 export function UserMenuProvider(props: Props) {
   return <MenuHost><UserMenuProviderInner {...props} /></MenuHost>
 }
 
-function UserMenuProviderInner({ children, members, selfUserId, onMessage, onCall, onAction, onEditSelf }: Props) {
+function UserMenuProviderInner({ children, members, selfUserId, onMessage, onCall, onAction, onEditSelf, updater }: Props) {
   const host = useMenuHost()
   const open = (event: React.MouseEvent | MenuPosition, request: UserMenuRequest) => {
     let position: MenuPosition
@@ -58,12 +67,13 @@ function UserMenuProviderInner({ children, members, selfUserId, onMessage, onCal
     host.open(position, `Opções de ${request.name}`, (close) => <UserMenuContent
       request={request} member={members.find((item) => item.user_id === request.userId)}
       self={Boolean(request.userId && request.userId === selfUserId)} close={close}
-      onMessage={onMessage} onCall={onCall} onAction={onAction} onEditSelf={onEditSelf} />)
+      onMessage={onMessage} onCall={onCall} onAction={onAction} onEditSelf={onEditSelf}
+      updater={updater} />)
   }
   return <UserMenuContext.Provider value={{ open }}>{children}</UserMenuContext.Provider>
 }
 
-function UserMenuContent({ request, member, self, close, onMessage, onCall, onAction, onEditSelf }: {
+function UserMenuContent({ request, member, self, close, onMessage, onCall, onAction, onEditSelf, updater }: {
   request: UserMenuRequest
   member?: SocialMember
   self: boolean
@@ -72,6 +82,7 @@ function UserMenuContent({ request, member, self, close, onMessage, onCall, onAc
   onCall(userId: UserId, username: string): void
   onAction(action: SocialAction, userId: UserId): void
   onEditSelf(): void
+  updater?: UserMenuUpdater
 }) {
   const call = request.call
   const [voiceVolume, setVoiceVolume] = useState(() => call
@@ -86,6 +97,20 @@ function UserMenuContent({ request, member, self, close, onMessage, onCall, onAc
   return <>
     <MenuLabel>{request.name}</MenuLabel>
     {!screen && self && <MenuItem icon={<IconSettings />} onClick={() => run(onEditSelf)}>Editar perfil</MenuItem>}
+    {!screen && self && updater?.isDesktop && <>
+      <MenuDivider />
+      <MenuItem
+        checked={updater.channel === 'beta'}
+        onClick={() => {
+          updater.setChannel(updater.channel === 'beta' ? 'stable' : 'beta')
+        }}
+      >
+        Receber versões beta
+      </MenuItem>
+      <MenuItem onClick={() => run(() => void updater.checkForUpdates(true))}>
+        Verificar atualizações
+      </MenuItem>
+    </>}
     {!screen && social && member?.can_start_dm && <MenuItem icon={<IconChat />} onClick={() => run(() => onMessage(id))}>Mensagem</MenuItem>}
     {!screen && social && member?.can_start_dm && <MenuItem icon={<IconPhone />} onClick={() => run(() => onCall(id, request.name))}>Ligar</MenuItem>}
 

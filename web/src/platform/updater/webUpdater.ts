@@ -10,7 +10,15 @@ export class WebUpdater implements UpdaterService {
     return WEB_APP_VERSION
   }
 
-  async checkForUpdate(): Promise<AvailableUpdate | null> {
+  getChannel(): 'stable' | 'beta' {
+    return 'stable'
+  }
+
+  setChannel(_channel: 'stable' | 'beta'): void {
+    // Na web nao ha canais de binario nativo.
+  }
+
+  async checkForUpdate(_channel?: 'stable' | 'beta'): Promise<AvailableUpdate | null> {
     // Na web, atualizacoes de cliente sao gerenciadas por recarregamento da pagina e service workers.
     return null
   }
