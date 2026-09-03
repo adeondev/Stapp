@@ -51,3 +51,21 @@ fn detector_encontra_o_probe_de_dezoito_khz() {
     }
     assert!(goertzel_level(&pcm, 48_000.0, 18_000.0, 2) > 0.01);
 }
+
+#[test]
+fn detector_encontra_o_probe_mesmo_com_silencio_em_volta() {
+    let mut pcm = VecDeque::new();
+    // 500ms de silencio inicial
+    pcm.resize(24_000 * 8, 0);
+    // 400ms de tom 18kHz a amplitude 0.02
+    for index in 0..19_200 {
+        let sample = (2.0 * std::f64::consts::PI * 18_000.0 * index as f64 / 48_000.0).sin()
+            as f32
+            * 0.02;
+        pcm.extend(sample.to_le_bytes());
+        pcm.extend(sample.to_le_bytes());
+    }
+    // 500ms de silencio final
+    pcm.resize(pcm.len() + 24_000 * 8, 0);
+    assert!(goertzel_level(&pcm, 48_000.0, 18_000.0, 2) > 0.01);
+}

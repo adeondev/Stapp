@@ -552,7 +552,7 @@ fn validate_process_tree_exclusion(
 
     let mut included_pcm = VecDeque::new();
     let mut excluded_pcm = VecDeque::new();
-    let deadline = Instant::now() + Duration::from_millis(1_200);
+    let deadline = Instant::now() + Duration::from_millis(1_800);
     while Instant::now() < deadline {
         read_available_pcm(&included_capture, &mut included_pcm)?;
         read_available_pcm(&excluded_capture, &mut excluded_pcm)?;
@@ -604,10 +604,34 @@ fn goertzel_level(pcm: &VecDeque<u8>, sample_rate: f64, frequency: f64, channels
     if samples.is_empty() {
         return 0.0;
     }
+
+    let window_size = 2048;
+    if samples.len() <= window_size {
+        return goertzel_window(&samples, sample_rate, frequency);
+    }
+
+    let hop = window_size / 2;
+    let mut peak = 0.0_f64;
+    let mut start = 0;
+    while start + window_size <= samples.len() {
+        let level = goertzel_window(&samples[start..start + window_size], sample_rate, frequency);
+        if level > peak {
+            peak = level;
+        }
+        start += hop;
+    }
+    peak
+}
+
+#[cfg(any(windows, test))]
+fn goertzel_window(samples: &[f64], sample_rate: f64, frequency: f64) -> f64 {
+    if samples.is_empty() {
+        return 0.0;
+    }
     let coefficient = 2.0 * (2.0 * std::f64::consts::PI * frequency / sample_rate).cos();
     let mut previous = 0.0;
     let mut before_previous = 0.0;
-    for sample in &samples {
+    for sample in samples {
         let current = sample + coefficient * previous - before_previous;
         before_previous = previous;
         previous = current;

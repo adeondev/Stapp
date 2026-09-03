@@ -521,6 +521,14 @@ export async function validateAudioExclusion(
   invoke: typeof import('@tauri-apps/api/core')['invoke'],
 ) {
   cachedAudioExclusionValidation ??= (async () => {
+    let probeContext: AudioContext | undefined
+    try {
+      probeContext = new AudioContext({ sampleRate: 48_000 })
+      await probeContext.resume().catch(() => {})
+    } catch {
+      // Ignora erro de pre-aquecimento; sera tratado no playExclusionProbe
+    }
+
     const channel = new Channel<AudioValidationEvent>()
     let resolveReady!: () => void
     let rejectReady!: (error: Error) => void
@@ -542,16 +550,21 @@ export async function validateAudioExclusion(
       }
       return new Promise<never>(() => {})
     })
-    await Promise.race([
-      ready,
-      earlyFailure,
-      new Promise<never>((_, reject) => window.setTimeout(
-        () => reject(new Error('a validacao nativa de audio nao ficou pronta')),
-        5_000,
-      )),
-    ])
-    await playExclusionProbe()
-    return validation
+    try {
+      await Promise.race([
+        ready,
+        earlyFailure,
+        new Promise<never>((_, reject) => window.setTimeout(
+          () => reject(new Error('a validacao nativa de audio nao ficou pronta')),
+          5_000,
+        )),
+      ])
+      await playExclusionProbe(probeContext)
+      probeContext = undefined
+      return await validation
+    } finally {
+      await probeContext?.close().catch(() => {})
+    }
   })().catch((error) => ({
     safe: false,
     processId: 0,
@@ -567,8 +580,8 @@ export async function validateAudioExclusion(
   return result
 }
 
-async function playExclusionProbe() {
-  const context = new AudioContext({ sampleRate: 48_000 })
+async function playExclusionProbe(existingContext?: AudioContext) {
+  const context = existingContext ?? new AudioContext({ sampleRate: 48_000 })
   try {
     await context.resume()
     if (context.state !== 'running') throw new Error(`AudioContext ${context.state}`)
@@ -576,10 +589,10 @@ async function playExclusionProbe() {
     const gain = context.createGain()
     oscillator.type = 'sine'
     oscillator.frequency.value = 18_000
-    gain.gain.value = 0.02
+    gain.gain.value = 0.04
     oscillator.connect(gain).connect(context.destination)
     oscillator.start()
-    oscillator.stop(context.currentTime + 0.45)
+    oscillator.stop(context.currentTime + 0.65)
     await new Promise<void>((resolve) => {
       oscillator.addEventListener('ended', () => resolve(), { once: true })
     })
