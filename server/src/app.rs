@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -37,7 +36,17 @@ pub async fn build_app(config: Config) -> Result<(Router, Arc<AppState>)> {
         .nest("/attachments", http::attachments::routes());
 
     if let Some(dir) = static_dir.as_deref() {
-        app = with_static_client(app, dir);
+        if dir.is_dir() {
+            tracing::info!(dir = %dir.display(), "servindo cliente web a partir do disco fisico");
+            let index = dir.join("index.html");
+            app = app.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)));
+        } else {
+            tracing::warn!(dir = %dir.display(), "static_dir nao encontrado, usando cliente web embutido");
+            app = app.fallback(http::assets::static_handler);
+        }
+    } else {
+        tracing::debug!("servindo cliente web embutido no binario");
+        app = app.fallback(http::assets::static_handler);
     }
 
     let router = app
@@ -283,17 +292,6 @@ fn extract_host_without_port(host_hdr: &str) -> &str {
     }
 }
 
-fn with_static_client(app: Router<Arc<AppState>>, dir: &Path) -> Router<Arc<AppState>> {
-    if dir.is_dir() {
-        // SPA: qualquer rota desconhecida cai no index.html.
-        let index = dir.join("index.html");
-        tracing::info!(dir = %dir.display(), "servindo o cliente");
-        app.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)))
-    } else {
-        tracing::warn!(dir = %dir.display(), "static_dir nao existe, ignorando");
-        app
-    }
-}
 
 async fn shutdown() {
     let _ = tokio::signal::ctrl_c().await;

@@ -20,6 +20,8 @@ argon2 = "0.5"
 axum = { version = "0.8", features = ["ws", "multipart"] }
 axum-server = { version = "0.8", features = ["tls-rustls"] }
 rustls-acme = { version = "0.15", features = ["axum", "tokio"] }
+rust-embed = "8.12"
+mime_guess = "2.0"
 tokio-stream = "0.1"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
