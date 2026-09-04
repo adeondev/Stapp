@@ -15,7 +15,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use stapp_server::config::{
-    AuthConfig, Channel, ChannelKind, Config, LimitsConfig, ServerConfig, StorageConfig,
+    AuthConfig, Channel, ChannelKind, Config, LimitsConfig, ServerConfig, StorageConfig, TlsConfig,
     VoiceSettings,
 };
 
@@ -102,6 +102,7 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
             max_text_chars: 4000,
             max_attachments_per_message: 10,
         },
+        tls: TlsConfig::default(),
     }
 }
 
