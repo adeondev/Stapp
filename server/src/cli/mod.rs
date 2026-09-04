@@ -34,6 +34,8 @@ pub struct Cli {
 enum Command {
     /// Inicia o servidor (comando padrao).
     Serve,
+    /// Gera a configuracao padrao e prepara as pastas de dados sem iniciar o servidor.
+    Init,
     /// Administra as contas locais deste servidor.
     User {
         #[command(subcommand)]
@@ -44,10 +46,17 @@ enum Command {
 impl Cli {
     pub async fn run(self) -> Result<()> {
         let path = self.legacy_config.as_deref().unwrap_or(&self.config);
-        let config = Config::load(path)?;
+        let config = Config::load_or_bootstrap(path)?;
 
         match self.command {
             None | Some(Command::Serve) => app::serve(config).await,
+            Some(Command::Init) => {
+                println!("Configuracao e pastas inicializadas com sucesso:");
+                println!("  Config:  {}", path.display());
+                println!("  Banco:   {}", config.storage.database.display());
+                println!("  Anexos:  {}", config.storage.attachments_dir.display());
+                Ok(())
+            }
             Some(Command::User { command }) => user::run(&config, command).await,
         }
     }
