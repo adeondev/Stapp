@@ -23,6 +23,7 @@ rustls-acme = { version = "0.15", features = ["axum", "tokio"] }
 rust-embed = "8.12"
 mime_guess = "2.0"
 tokio-stream = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 ipnet = { version = "2", features = ["serde"] }

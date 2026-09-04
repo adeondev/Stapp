@@ -21,8 +21,12 @@ use std::sync::Arc;
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, State};
 use axum::response::Response;
+use futures_util::{SinkExt, StreamExt};
 use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::mpsc;
 use uuid::Uuid;
+
+const WS_OUTGOING_CAPACITY: usize = 128;
 
 use crate::protocol::{AuthErrorCode, ClientMsg, PROTOCOL_VERSION, PeerId, ServerMsg};
 use crate::services::{call, voice};
@@ -45,7 +49,7 @@ pub async fn handler(
     ws.on_upgrade(move |socket| connection(socket, state, origin))
 }
 
-async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketAddr) {
+async fn connection(socket: WebSocket, state: Arc<AppState>, origin: SocketAddr) {
     let peer_id: PeerId = Uuid::new_v4().to_string();
     // Assinado antes de qualquer coisa ser publicada, senao a propria conexao
     // perde o welcome que ela mesma dispara.
@@ -53,6 +57,19 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
     let mut phase = Phase::Anonymous;
 
     tracing::debug!(peer = %peer_id, %origin, "conexao aberta");
+
+    let (mut ws_sink, mut ws_stream) = socket.split();
+    let (tx, mut rx_out) = mpsc::channel::<WsMessage>(WS_OUTGOING_CAPACITY);
+
+    let writer_peer = peer_id.clone();
+    let mut writer = tokio::spawn(async move {
+        while let Some(frame) = rx_out.recv().await {
+            if ws_sink.send(frame).await.is_err() {
+                tracing::debug!(peer = %writer_peer, "erro ao enviar frame websocket; encerrando writer");
+                break;
+            }
+        }
+    });
 
     let hello = ServerMsg::AuthRequired {
         server_id: state.db.server_id().unwrap_or_else(|_| "unknown".into()),
@@ -62,13 +79,24 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
         plaintext_auth_allowed: state.config.auth.allows_plaintext_from(origin.ip()),
         min_client_version: state.config.server.min_client_version.clone(),
     };
-    if send_direct(&mut socket, &hello).await.is_err() {
+    if let Ok(json) = serde_json::to_string(&hello) {
+        if tx.send(WsMessage::Text(json.into())).await.is_err() {
+            writer.abort();
+            return;
+        }
+    } else {
+        writer.abort();
         return;
     }
 
     loop {
         tokio::select! {
-            incoming = socket.recv() => {
+            writer_res = &mut writer => {
+                tracing::debug!(peer = %peer_id, ?writer_res, "writer websocket finalizado");
+                break;
+            }
+
+            incoming = ws_stream.next() => {
                 let t1 = crate::protocol::now_micros();
                 let Some(Ok(frame)) = incoming else { break };
                 match frame {
@@ -86,8 +114,10 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
                                 "telemetria_rtt_processada"
                             );
                             let pong = ServerMsg::TelemetryPong { nonce, t0, t1, t2 };
-                            if send_direct(&mut socket, &pong).await.is_err() {
-                                break;
+                            if let Ok(json) = serde_json::to_string(&pong) {
+                                if tx.try_send(WsMessage::Text(json.into())).is_err() {
+                                    break;
+                                }
                             }
                         }
                         Ok(msg) => {
@@ -113,7 +143,16 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
                         {
                             continue;
                         }
-                        if send_direct(&mut socket, &env.msg).await.is_err() { break }
+                        if let Ok(json) = serde_json::to_string(&env.msg) {
+                            match tx.try_send(WsMessage::Text(json.into())) {
+                                Ok(_) => {}
+                                Err(mpsc::error::TrySendError::Full(_)) => {
+                                    tracing::warn!(peer = %peer_id, "fila de saida websocket cheia (128), derrubando conexao lenta");
+                                    break;
+                                }
+                                Err(mpsc::error::TrySendError::Closed(_)) => break,
+                            }
+                        }
                     }
                     // Perder eventos e pior que derrubar: o cliente reconecta e
                     // recebe o estado inteiro de novo.
@@ -126,6 +165,8 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
             }
         }
     }
+
+    writer.abort();
 
     // Sair da call primeiro: enquanto a sessao existe, o `voice.left` sai limpo.
     voice::leave(&state, &peer_id).await;
@@ -173,14 +214,6 @@ fn reject_malformed(state: &AppState, peer_id: &PeerId, phase: Phase) {
             None,
         ),
     }
-}
-
-async fn send_direct(socket: &mut WebSocket, msg: &ServerMsg) -> Result<(), ()> {
-    let json = serde_json::to_string(msg).map_err(|_| ())?;
-    socket
-        .send(WsMessage::Text(json.into()))
-        .await
-        .map_err(|_| ())
 }
 
 #[cfg(test)]

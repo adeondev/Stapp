@@ -169,6 +169,7 @@ pub async fn serve(config: Config) -> Result<()> {
         if !is_tls {
             axum_server::bind(addr)
                 .handle(handle)
+                .acceptor(axum_server::accept::NoDelayAcceptor::new())
                 .serve(make_service.clone())
                 .await
                 .context("servidor HTTP caiu")
@@ -233,6 +234,7 @@ pub async fn serve(config: Config) -> Result<()> {
         let redirect_app = redirect_to_https_app(tls_port);
         let redirect_fut = axum_server::bind(raddr)
             .handle(rhandle)
+            .acceptor(axum_server::accept::NoDelayAcceptor::new())
             .serve(redirect_app.into_make_service_with_connect_info::<SocketAddr>());
 
         tokio::try_join!(
