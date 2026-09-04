@@ -126,5 +126,6 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
             max_text_chars: 4000,
             max_attachments_per_message: 10,
         },
+        tls: crate::config::TlsConfig::default(),
     }
 }
