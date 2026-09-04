@@ -42,9 +42,8 @@ name = "Sala de voz"
 kind = "voice"
 
 [voice]
-# "mesh" e contingencia. O script infra/livekit/Start-LiveKit.ps1 gera uma
-# copia local com "livekit" sem colocar segredos neste arquivo.
-backend     = "mesh"
+# LiveKit SFU e o backend definitivo para voz, video e compartilhamento de tela.
+backend     = "livekit"
 ice_servers = ["stun:stun.l.google.com:19302"]
 max_peers   = 6
 # Enderecos sem segredo. O script troca public_url pelo IP Radmin escolhido.

@@ -143,7 +143,10 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
             )
             .await
         }
-        ClientMsg::RtcSignal { to, payload } => voice::relay(state, peer_id, &to, payload).await,
+        ClientMsg::RtcSignal { to, payload } => {
+            tracing::debug!(peer = %peer_id, target = %to, "rtc.signal ignorado: relay mesh descontinuado em favor do LiveKit SFU");
+            voice::relay(state, peer_id, &to, payload).await;
+        }
         ClientMsg::TelemetryPing { .. } => {}
     }
 }
