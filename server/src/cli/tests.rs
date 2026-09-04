@@ -29,6 +29,34 @@ fn user_e_um_subcomando_com_subcomandos_proprios() {
 }
 
 #[test]
+fn init_e_um_subcomando_reconhecido() {
+    let cli = Cli::parse_from(["stapp-server", "init"]);
+    assert!(matches!(cli.command, Some(Command::Init)));
+
+    let cli_custom = Cli::parse_from(["stapp-server", "--config", "custom.toml", "init"]);
+    assert!(matches!(cli_custom.command, Some(Command::Init)));
+    assert_eq!(cli_custom.config, std::path::Path::new("custom.toml"));
+}
+
+#[tokio::test]
+async fn cli_run_init_gera_arquivos_sem_iniciar_servidor() {
+    let dir = crate::test_support::TestDir::new();
+    let config_path = dir.path().join("bootstrapped.toml");
+    assert!(!config_path.exists());
+
+    let cli = Cli::parse_from([
+        "stapp-server",
+        "--config",
+        config_path.to_str().unwrap(),
+        "init",
+    ]);
+
+    cli.run().await.expect("cli init executou com sucesso");
+    assert!(config_path.exists());
+    assert!(dir.path().join("data").join("attachments").exists());
+}
+
+#[test]
 fn a_definicao_da_cli_e_valida() {
     use clap::CommandFactory;
     Cli::command().debug_assert();

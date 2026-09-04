@@ -350,3 +350,62 @@ fn validates_min_client_version() {
     config.server.min_client_version = Some("invalido".into());
     assert!(config.validate().is_err());
 }
+
+#[test]
+fn bootstrap_cria_arquivo_e_diretorios_quando_ausente() {
+    let dir = TestDir::new();
+    let config_path = dir.path().join("subpasta").join("stapp.toml");
+    assert!(!config_path.exists());
+
+    let config = Config::load_or_bootstrap(&config_path).expect("bootstrapping bem-sucedido");
+    assert!(config_path.exists(), "stapp.toml deve ter sido gerado");
+
+    // Valida configuracao padrao
+    assert_eq!(config.server.port, 8787);
+    assert_eq!(config.server.max_users, 20);
+
+    // Valida criacao dos diretorios de persistencia
+    assert!(
+        config.storage.database.parent().unwrap().exists(),
+        "diretorio do banco deve existir"
+    );
+    assert!(
+        config.storage.attachments_dir.exists(),
+        "diretorio de anexos deve existir"
+    );
+}
+
+#[test]
+fn bootstrap_preserva_arquivo_existente_sem_sobrescrever() {
+    let dir = TestDir::new();
+    let config_path = dir.path().join("stapp.toml");
+
+    let custom_toml = r#"
+[server]
+name = "Servidor Customizado"
+bind = "127.0.0.1"
+port = 9999
+
+[storage]
+database = "custom_data/banco.db"
+attachments_dir = "custom_data/anexos"
+
+[[channels]]
+id = "chat"
+name = "Chat"
+kind = "text"
+"#;
+    std::fs::write(&config_path, custom_toml).unwrap();
+
+    let config = Config::load_or_bootstrap(&config_path).expect("carregar existente");
+    assert_eq!(config.server.name, "Servidor Customizado");
+    assert_eq!(config.server.port, 9999);
+
+    // Garante que as pastas customizadas foram criadas
+    assert!(config.storage.database.parent().unwrap().exists());
+    assert!(config.storage.attachments_dir.exists());
+
+    // Confirma que o conteudo original do arquivo nao foi substituido
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    assert!(content.contains("Servidor Customizado"));
+}
