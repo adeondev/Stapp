@@ -183,6 +183,44 @@ impl LimitsConfig {
 }
 
 impl Config {
+    /// Template de configuracao padrao do Stapp (stapp.toml) embutido no binario.
+    pub const DEFAULT_CONFIG_TEMPLATE: &'static str = include_str!("../../stapp.toml");
+
+    /// Le o stapp.toml ou gera a configuracao inicial padrao caso o arquivo nao exista.
+    ///
+    /// Garante que o arquivo de configuracao e as pastas de persistencia necessarias
+    /// (`data/` e `data/attachments/`) existam antes de devolver a configuracao pronta.
+    pub fn load_or_bootstrap(path: &Path) -> Result<Self> {
+        if !path.exists() {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("nao consegui criar o diretorio {}", parent.display()))?;
+                }
+            }
+            std::fs::write(path, Self::DEFAULT_CONFIG_TEMPLATE)
+                .with_context(|| format!("nao consegui gerar a configuracao padrao em {}", path.display()))?;
+            tracing::info!(path = %path.display(), "Arquivo de configuracao padrao gerado com sucesso");
+        }
+
+        let cfg = Self::load(path)?;
+        cfg.ensure_storage_dirs()?;
+        Ok(cfg)
+    }
+
+    /// Garante que os diretorios necessarios de persistencia (banco e anexos) existam.
+    pub fn ensure_storage_dirs(&self) -> Result<()> {
+        if let Some(parent) = self.storage.database.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("nao consegui criar o diretorio do banco {}", parent.display()))?;
+            }
+        }
+        std::fs::create_dir_all(&self.storage.attachments_dir)
+            .with_context(|| format!("nao consegui criar o diretorio de anexos {}", self.storage.attachments_dir.display()))?;
+        Ok(())
+    }
+
     /// Le o stapp.toml. Caminhos relativos dentro dele sao resolvidos a partir da
     /// pasta do proprio arquivo, entao `cargo run` de qualquer lugar se comporta igual.
     /// Variaveis de ambiente com prefixo `STAPP_` sobrescrevem as chaves do arquivo.
