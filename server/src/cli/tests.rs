@@ -61,3 +61,35 @@ fn a_definicao_da_cli_e_valida() {
     use clap::CommandFactory;
     Cli::command().debug_assert();
 }
+
+#[test]
+fn aceita_flags_non_interactive_port_e_bind() {
+    let cli = Cli::parse_from([
+        "stapp-server",
+        "--non-interactive",
+        "--port",
+        "9090",
+        "--bind",
+        "127.0.0.1",
+    ]);
+    assert!(cli.non_interactive);
+    assert_eq!(cli.port, Some(9090));
+    assert_eq!(cli.bind, Some("127.0.0.1".parse().unwrap()));
+
+    let cli_short = Cli::parse_from(["stapp-server", "-y"]);
+    assert!(cli_short.non_interactive);
+
+    let cli_default = Cli::parse_from(["stapp-server", "--default"]);
+    assert!(cli_default.non_interactive);
+}
+
+#[test]
+fn wizard_bootstrap_default_cria_diretorios_pais() {
+    let dir = crate::test_support::TestDir::new();
+    let deeply_nested = dir.path().join("sub").join("nested").join("stapp.toml");
+    assert!(!deeply_nested.exists());
+
+    let config = super::wizard::bootstrap_default(&deeply_nested).expect("bootstrap padrao gerou arquivo");
+    assert!(deeply_nested.exists());
+    assert_eq!(config.server.port, 8787);
+}

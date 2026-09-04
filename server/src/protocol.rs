@@ -559,6 +559,9 @@ pub enum ServerMsg {
         /// com versao inferior devem bloquear o acesso e exigir atualizacao.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         min_client_version: Option<String>,
+        /// Indica se o servico de voz esta ativado e configurado no servidor.
+        #[serde(default)]
+        voice_enabled: bool,
     },
 
     #[serde(rename = "auth.error")]
@@ -583,6 +586,9 @@ pub enum ServerMsg {
         /// `user_id` e resolve nome/cor/avatar a partir daqui.
         profiles: Vec<Profile>,
         voice: VoiceConfig,
+        /// Indica se o servico de voz esta ativado e configurado no servidor.
+        #[serde(default)]
+        voice_enabled: bool,
         voice_peers: Vec<VoicePeer>,
         limits: Limits,
     },

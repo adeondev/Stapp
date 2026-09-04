@@ -125,6 +125,7 @@ async fn open_session(state: &Arc<AppState>, peer_id: &PeerId, account: Account)
             directory: direct::directory(state, &account.id).await,
             profiles: profile::all(state).await,
             voice: voice::client_config(state),
+            voice_enabled: voice::is_enabled(&state.config.voice),
             voice_peers: voice::all_peers(state).await,
             limits: messages::client_limits(state),
         },

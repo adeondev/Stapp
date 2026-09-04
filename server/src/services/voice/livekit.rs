@@ -27,12 +27,48 @@ struct Credentials {
     secret: String,
 }
 
+pub fn is_configured(config: &VoiceSettings) -> bool {
+    if config.backend != "livekit" {
+        return false;
+    }
+    credentials(config).is_ok()
+}
+
 pub fn validate_backend(config: &VoiceSettings) -> Result<()> {
+    if config.backend == "disabled" || config.backend == "none" {
+        tracing::info!("Modulo de voz desativado por configuracao.");
+        return Ok(());
+    }
     if config.backend != "livekit" {
         return Ok(());
     }
-    let _ = credentials(config)?;
-    Ok(())
+
+    match credentials(config) {
+        Ok(creds) => {
+            // Auditoria de Seguranca: Alerta sobre credenciais padrao de dev
+            if creds.key == "devkey" || creds.secret == "secret" || creds.key == "stapp_dev_key" {
+                tracing::warn!(
+                    "\n================================================================================\n\
+                     [AVISO DE SEGURANCA] O servidor esta utilizando credenciais padrao de teste do LiveKit\n\
+                     (devkey/secret). Em ambientes de producao ou servidores publicos, troque estas chaves\n\
+                     no stapp.toml ou no arquivo .env!\n\
+                     ================================================================================"
+                );
+            }
+            tracing::info!(
+                public_url = ?config.public_url,
+                "Modulo de voz LiveKit SFU inicializado com sucesso"
+            );
+            Ok(())
+        }
+        Err(err) => {
+            tracing::warn!(
+                "Credenciais do LiveKit nao configuradas ({}). O modulo de voz operara em modo desativado/degradado — canais de texto, anexos e autenticacao continuam 100% operacionais.",
+                err
+            );
+            Ok(())
+        }
+    }
 }
 
 pub(super) fn room_name(server_id: &str, channel: &str) -> String {
@@ -150,14 +186,31 @@ pub(super) async fn participant_connected(
 }
 
 fn credentials(config: &VoiceSettings) -> Result<Credentials> {
-    let key = std::env::var(&config.api_key_env)
-        .with_context(|| format!("variavel {} nao definida", config.api_key_env))?;
-    let secret = std::env::var(&config.api_secret_env)
-        .with_context(|| format!("variavel {} nao definida", config.api_secret_env))?;
-    if key.trim().is_empty() || secret.trim().is_empty() {
-        bail!("credenciais LiveKit vazias");
+    // 1. Variaveis de ambiente (inclui as injetadas pelo .env ou shell)
+    let key_from_env = std::env::var("STAPP_VOICE_API_KEY")
+        .or_else(|_| std::env::var("STAPP_LIVEKIT_API_KEY"))
+        .or_else(|_| std::env::var("LIVEKIT_API_KEY"))
+        .or_else(|_| std::env::var(&config.api_key_env))
+        .ok()
+        .filter(|k| !k.trim().is_empty());
+
+    let secret_from_env = std::env::var("STAPP_VOICE_API_SECRET")
+        .or_else(|_| std::env::var("STAPP_LIVEKIT_API_SECRET"))
+        .or_else(|_| std::env::var("LIVEKIT_API_SECRET"))
+        .or_else(|_| std::env::var(&config.api_secret_env))
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+
+    // 2. Chaves declaradas diretamente no stapp.toml
+    let key = key_from_env
+        .or_else(|| config.api_key.clone().filter(|k| !k.trim().is_empty()));
+    let secret = secret_from_env
+        .or_else(|| config.api_secret.clone().filter(|s| !s.trim().is_empty()));
+
+    match (key, secret) {
+        (Some(key), Some(secret)) => Ok(Credentials { key, secret }),
+        _ => bail!("credenciais LiveKit ausentes ou vazias (defina no stapp.toml ou no .env)"),
     }
-    Ok(Credentials { key, secret })
 }
 
 #[cfg(test)]

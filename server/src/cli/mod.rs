@@ -5,6 +5,7 @@
 //! `stapp-server channel ...` amanha e criar `cli/channel.rs` e uma linha em
 //! [`Command`] — nada aqui cresce por causa disso.
 
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 use anyhow::Result;
@@ -14,6 +15,7 @@ use crate::app;
 use crate::config::Config;
 
 mod user;
+pub mod wizard;
 
 #[derive(Parser)]
 #[command(name = "stapp-server", version, about)]
@@ -21,6 +23,18 @@ pub struct Cli {
     /// Caminho do stapp.toml.
     #[arg(long, global = true, default_value = "stapp.toml")]
     config: PathBuf,
+
+    /// Executa em modo nao-interativo, aceitando a configuracao padrao caso stapp.toml nao exista.
+    #[arg(long, short = 'y', alias = "default", global = true)]
+    non_interactive: bool,
+
+    /// Porta HTTP/WebSocket para sobrescrever o arquivo de configuracao.
+    #[arg(long, global = true)]
+    port: Option<u16>,
+
+    /// Endereco de rede (bind) para sobrescrever o arquivo de configuracao.
+    #[arg(long, global = true)]
+    bind: Option<IpAddr>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -46,7 +60,21 @@ enum Command {
 impl Cli {
     pub async fn run(self) -> Result<()> {
         let path = self.legacy_config.as_deref().unwrap_or(&self.config);
-        let config = Config::load_or_bootstrap(path)?;
+        let mut config = if !path.exists() {
+            wizard::run_first_boot(path, self.non_interactive)?
+        } else {
+            Config::load(path)?
+        };
+
+        // Precedencia #1: Flags e argumentos de linha de comando
+        if let Some(port) = self.port {
+            config.server.port = port;
+        }
+        if let Some(bind) = self.bind {
+            config.server.bind = bind;
+        }
+
+        config.ensure_storage_dirs()?;
 
         match self.command {
             None | Some(Command::Serve) => app::serve(config).await,

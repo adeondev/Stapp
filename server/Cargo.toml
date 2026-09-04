@@ -26,6 +26,7 @@ tokio-stream = "0.1"
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
+dotenvy = "0.15"
 ipnet = { version = "2", features = ["serde"] }
 # So o avatar precisa disto: decodificar o que subiram (sem confiar na extensao),
 # redimensionar e gravar sempre no mesmo formato.

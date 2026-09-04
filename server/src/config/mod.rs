@@ -125,7 +125,13 @@ pub struct VoiceSettings {
     /// URL HTTP usada somente pelo servidor Stapp para moderar salas.
     #[serde(default = "default_livekit_api_url")]
     pub api_url: Option<String>,
-    /// Nomes das variaveis de ambiente; os segredos nunca ficam no TOML.
+    /// Chave de API do LiveKit declarada diretamente na configuracao (opcional).
+    #[serde(default = "default_livekit_api_key")]
+    pub api_key: Option<String>,
+    /// Chave secreta do LiveKit declarada diretamente na configuracao (opcional).
+    #[serde(default = "default_livekit_api_secret")]
+    pub api_secret: Option<String>,
+    /// Nomes das variaveis de ambiente de onde ler as credenciais caso nao declaradas diretamente.
     #[serde(default = "default_livekit_api_key_env")]
     pub api_key_env: String,
     #[serde(default = "default_livekit_api_secret_env")]
@@ -269,6 +275,15 @@ impl Config {
     /// pasta do proprio arquivo, entao `cargo run` de qualquer lugar se comporta igual.
     /// Variaveis de ambiente com prefixo `STAPP_` sobrescrevem as chaves do arquivo.
     pub fn load(path: &Path) -> Result<Self> {
+        // Carrega variaveis do .env do diretorio atual/ancestrais e do diretorio do arquivo stapp.toml
+        dotenvy::dotenv().ok();
+        if let Some(parent) = path.parent() {
+            let env_file = parent.join(".env");
+            if env_file.is_file() {
+                dotenvy::from_path(env_file).ok();
+            }
+        }
+
         let raw = std::fs::read_to_string(path)
             .with_context(|| format!("nao consegui ler {}", path.display()))?;
         let mut cfg: Config = toml::from_str(&raw)
@@ -331,14 +346,20 @@ impl Config {
         if let Some(val) = parse_env_usize(&["STAPP_VOICE_MAX_PEERS", "STAPP_MAX_PEERS"]) {
             self.voice.max_peers = val;
         }
-        if let Some(val) = env_var(&["STAPP_VOICE_PUBLIC_URL", "STAPP_PUBLIC_URL"]) {
+        if let Some(val) = env_var(&["STAPP_VOICE_PUBLIC_URL", "STAPP_PUBLIC_URL", "STAPP_LIVEKIT_PUBLIC_URL", "LIVEKIT_URL"]) {
             self.voice.public_url = Some(val);
         }
-        if let Some(val) = env_var(&["STAPP_VOICE_API_URL", "STAPP_API_URL"]) {
+        if let Some(val) = env_var(&["STAPP_VOICE_API_URL", "STAPP_API_URL", "STAPP_LIVEKIT_API_URL"]) {
             self.voice.api_url = Some(val);
         }
         if let Some(val) = parse_env_list(&["STAPP_VOICE_ICE_SERVERS", "STAPP_ICE_SERVERS"]) {
             self.voice.ice_servers = val;
+        }
+        if let Some(val) = env_var(&["STAPP_VOICE_API_KEY", "STAPP_LIVEKIT_API_KEY", "LIVEKIT_API_KEY"]) {
+            self.voice.api_key = Some(val);
+        }
+        if let Some(val) = env_var(&["STAPP_VOICE_API_SECRET", "STAPP_LIVEKIT_API_SECRET", "LIVEKIT_API_SECRET"]) {
+            self.voice.api_secret = Some(val);
         }
         if let Some(val) = env_var(&["STAPP_VOICE_API_KEY_ENV"]) {
             self.voice.api_key_env = val;
@@ -429,26 +450,27 @@ impl Config {
             "limits.max_attachments_per_message precisa ser > 0"
         );
         anyhow::ensure!(
-            matches!(self.voice.backend.as_str(), "livekit" | "mesh"),
-            "voice.backend \"{}\" nao e suportado — Stapp padronizou no LiveKit SFU",
+            matches!(self.voice.backend.as_str(), "livekit" | "mesh" | "disabled" | "none"),
+            "voice.backend \"{}\" nao e suportado — opcoes: livekit, disabled, mesh",
             self.voice.backend
         );
         if self.voice.backend == "livekit" {
-            let public_url = self.voice.public_url.as_deref().unwrap_or_default();
-            let api_url = self.voice.api_url.as_deref().unwrap_or_default();
-            anyhow::ensure!(
-                public_url.starts_with("ws://") || public_url.starts_with("wss://"),
-                "voice.public_url precisa comecar com ws:// ou wss://"
-            );
-            anyhow::ensure!(
-                api_url.starts_with("http://") || api_url.starts_with("https://"),
-                "voice.api_url precisa comecar com http:// ou https://"
-            );
-            anyhow::ensure!(
-                !self.voice.api_key_env.trim().is_empty()
-                    && !self.voice.api_secret_env.trim().is_empty(),
-                "os nomes das variaveis de ambiente do LiveKit nao podem estar vazios"
-            );
+            if let Some(public_url) = &self.voice.public_url {
+                if !public_url.trim().is_empty() {
+                    anyhow::ensure!(
+                        public_url.starts_with("ws://") || public_url.starts_with("wss://"),
+                        "voice.public_url precisa comecar com ws:// ou wss://"
+                    );
+                }
+            }
+            if let Some(api_url) = &self.voice.api_url {
+                if !api_url.trim().is_empty() {
+                    anyhow::ensure!(
+                        api_url.starts_with("http://") || api_url.starts_with("https://"),
+                        "voice.api_url precisa comecar com http:// ou https://"
+                    );
+                }
+            }
         }
         if let Some(min_ver) = &self.server.min_client_version {
             anyhow::ensure!(
@@ -539,6 +561,8 @@ impl Default for VoiceSettings {
             max_peers: default_max_peers(),
             public_url: default_livekit_public_url(),
             api_url: default_livekit_api_url(),
+            api_key: default_livekit_api_key(),
+            api_secret: default_livekit_api_secret(),
             api_key_env: default_livekit_api_key_env(),
             api_secret_env: default_livekit_api_secret_env(),
         }
@@ -589,6 +613,12 @@ fn default_livekit_public_url() -> Option<String> {
 }
 fn default_livekit_api_url() -> Option<String> {
     Some("http://127.0.0.1:7880".into())
+}
+fn default_livekit_api_key() -> Option<String> {
+    Some("devkey".into())
+}
+fn default_livekit_api_secret() -> Option<String> {
+    Some("secret".into())
 }
 fn default_ice() -> Vec<String> {
     vec!["stun:stun.l.google.com:19302".into()]

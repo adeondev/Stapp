@@ -42,13 +42,19 @@ name = "Sala de voz"
 kind = "voice"
 
 [voice]
-# LiveKit SFU e o backend definitivo para voz, video e compartilhamento de tela.
+# LiveKit SFU e o backend definitivo para chamadas de voz, video e compartilhamento de tela.
+# Opcoes de backend: "livekit" (padrao) ou "disabled" (desativa salas de voz).
 backend     = "livekit"
 ice_servers = ["stun:stun.l.google.com:19302"]
 max_peers   = 6
-# Enderecos sem segredo. O script troca public_url pelo IP Radmin escolhido.
+# Enderecos do servidor LiveKit SFU.
 public_url  = "ws://127.0.0.1:7880"
 api_url     = "http://127.0.0.1:7880"
+# Credenciais do LiveKit: chaves padrao do modo desenvolvedor ("devkey" / "secret").
+# ATENCAO: Em producao, troque estas credenciais ou defina no arquivo .env!
+api_key     = "devkey"
+api_secret  = "secret"
+# Nomes das variaveis de ambiente caso prefira injetar pelo .env ou shell:
 api_key_env = "STAPP_LIVEKIT_API_KEY"
 api_secret_env = "STAPP_LIVEKIT_API_SECRET"
 
