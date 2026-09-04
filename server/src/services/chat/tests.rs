@@ -4,8 +4,8 @@ use crate::test_support::TestServer;
 
 #[tokio::test]
 async fn sanitizes_persists_and_broadcasts_a_message() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &account)
@@ -35,15 +35,15 @@ async fn sanitizes_persists_and_broadcasts_a_message() {
         other => panic!("evento inesperado: {other:?}"),
     }
 
-    let history = server.state.db.history("geral", 10).unwrap();
+    let history = server.state.db.history("geral", 10).await.unwrap();
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].text, "oi\nmundo");
 }
 
 #[tokio::test]
 async fn rejects_non_text_channels() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &account)
@@ -64,13 +64,13 @@ async fn rejects_non_text_channels() {
     let event = events.try_recv().unwrap();
     assert!(matches!(event.target, Target::Peer(ref id) if id == "peer"));
     assert!(matches!(event.msg, ServerMsg::Error { .. }));
-    assert!(server.state.db.history("voz-a", 10).unwrap().is_empty());
+    assert!(server.state.db.history("voz-a", 10).await.unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn sends_history_only_to_the_requested_peer() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &account)
@@ -87,7 +87,7 @@ async fn sends_history_only_to_the_requested_peer() {
     .await;
     let mut events = server.state.subscribe();
 
-    send_history(&server.state, "peer");
+    send_history(&server.state, "peer").await;
 
     let event = events.try_recv().unwrap();
     assert!(matches!(event.target, Target::Peer(ref id) if id == "peer"));
@@ -106,8 +106,8 @@ async fn sends_history_only_to_the_requested_peer() {
 /// config e passar dele e recusa com motivo, so para quem mandou.
 #[tokio::test]
 async fn texto_acima_do_teto_e_recusado_em_vez_de_cortado() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &account)
@@ -133,14 +133,14 @@ async fn texto_acima_do_teto_e_recusado_em_vez_de_cortado() {
         ServerMsg::Error { message } => assert!(message.contains(&teto.to_string())),
         other => panic!("evento inesperado: {other:?}"),
     }
-    assert!(server.state.db.history("geral", 10).unwrap().is_empty());
+    assert!(server.state.db.history("geral", 10).await.unwrap().is_empty());
 }
 
 /// Exatamente no teto ainda passa — o limite e inclusivo.
 #[tokio::test]
 async fn texto_no_teto_exato_ainda_passa() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &account)
@@ -158,13 +158,13 @@ async fn texto_no_teto_exato_ainda_passa() {
     )
     .await;
 
-    assert_eq!(server.state.db.history("geral", 10).unwrap().len(), 1);
+    assert_eq!(server.state.db.history("geral", 10).await.unwrap().len(), 1);
 }
 
 #[tokio::test]
 async fn envia_mensagem_sem_texto_se_houver_anexos() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &account)
@@ -184,6 +184,7 @@ async fn envia_mensagem_sem_texto_se_houver_anexos() {
             "uploads/att-1.png",
             crate::protocol::now_ms(),
         )
+        .await
         .unwrap();
 
     let mut events = server.state.subscribe();

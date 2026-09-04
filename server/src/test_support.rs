@@ -41,25 +41,25 @@ pub struct TestServer {
 }
 
 impl TestServer {
-    pub fn new(max_users: usize, max_peers: usize) -> Self {
+    pub async fn new(max_users: usize, max_peers: usize) -> Self {
         let dir = TestDir::new();
         let config = config(dir.database(), max_users, max_peers);
-        let db = Db::open(&config.storage.database).expect("abrir banco temporario");
+        let db = Db::open(&config.storage.database).await.expect("abrir banco temporario");
         let state = AppState::new(config, db).unwrap();
         Self { state, _dir: dir }
     }
 
-    pub fn with_config(config: Config) -> Self {
+    pub async fn with_config(config: Config) -> Self {
         let dir = TestDir::new();
         let mut cfg = config;
         cfg.storage.database = dir.database();
         cfg.storage.attachments_dir = dir.database().parent().unwrap().join("attachments");
-        let db = Db::open(&cfg.storage.database).expect("abrir banco temporario");
+        let db = Db::open(&cfg.storage.database).await.expect("abrir banco temporario");
         let state = AppState::new(cfg, db).unwrap();
         Self { state, _dir: dir }
     }
 
-    pub fn account(&self, username: &str) -> Account {
+    pub async fn account(&self, username: &str) -> Account {
         self.state
             .db
             .create_account(
@@ -67,6 +67,7 @@ impl TestServer {
                 username.to_ascii_lowercase(),
                 hash_password_sync("senha de teste segura").unwrap(),
             )
+            .await
             .unwrap()
     }
 }

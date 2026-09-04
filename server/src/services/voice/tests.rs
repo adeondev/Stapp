@@ -6,11 +6,11 @@ use crate::test_support::TestServer;
 
 #[tokio::test]
 async fn sends_roster_before_announcing_a_voice_join() {
-    let server = TestServer::new(10, 4);
+    let server = TestServer::new(10, 4).await;
     let first = "first".to_string();
     let second = "second".to_string();
-    let first_account = server.account("First");
-    let second_account = server.account("Second");
+    let first_account = server.account("First").await;
+    let second_account = server.account("Second").await;
     server
         .state
         .register_session(&first, &first_account)
@@ -54,11 +54,11 @@ async fn sends_roster_before_announcing_a_voice_join() {
 
 #[tokio::test]
 async fn relays_signaling_only_inside_the_same_voice_channel() {
-    let server = TestServer::new(10, 4);
+    let server = TestServer::new(10, 4).await;
     let first = "first".to_string();
     let second = "second".to_string();
-    let first_account = server.account("First");
-    let second_account = server.account("Second");
+    let first_account = server.account("First").await;
+    let second_account = server.account("Second").await;
     server
         .state
         .register_session(&first, &first_account)
@@ -113,10 +113,10 @@ fn o_canal_de_uma_conversa_e_o_mesmo_dos_dois_lados() {
 
 #[tokio::test]
 async fn a_call_de_uma_conversa_nao_vaza_para_terceiros() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
-    let bob = server.account("Bob");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
+    let bob = server.account("Bob").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     server.state.register_session("a1", &alice).await.unwrap();
     server.state.register_session("b1", &bob).await.unwrap();
@@ -162,10 +162,10 @@ async fn a_call_de_uma_conversa_nao_vaza_para_terceiros() {
 
 #[tokio::test]
 async fn ninguem_entra_na_conversa_de_voz_dos_outros() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
-    let bob = server.account("Bob");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
+    let bob = server.account("Bob").await;
     server.state.register_session("b1", &bob).await.unwrap();
 
     let canal = direct_channel(&daniel.id, &alice.id);

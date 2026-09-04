@@ -3,9 +3,9 @@ use crate::test_support::TestServer;
 
 #[tokio::test]
 async fn aggregates_presence_and_enforces_limits() {
-    let server = TestServer::new(1, 4);
-    let first = server.account("Daniel");
-    let second = server.account("Alice");
+    let server = TestServer::new(1, 4).await;
+    let first = server.account("Daniel").await;
+    let second = server.account("Alice").await;
 
     assert!(
         server
@@ -32,13 +32,13 @@ async fn aggregates_presence_and_enforces_limits() {
 
 #[tokio::test]
 async fn limits_sessions_per_account() {
-    let mut server = TestServer::new(10, 4);
+    let mut server = TestServer::new(10, 4).await;
     Arc::get_mut(&mut server.state)
         .unwrap()
         .config
         .auth
         .max_sessions_per_user = 2;
-    let account = server.account("Daniel");
+    let account = server.account("Daniel").await;
 
     server
         .state
@@ -58,8 +58,8 @@ async fn limits_sessions_per_account() {
 
 #[tokio::test]
 async fn keeps_one_voice_session_per_account() {
-    let server = TestServer::new(10, 2);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 2).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("one", &account)
@@ -84,8 +84,8 @@ async fn keeps_one_voice_session_per_account() {
 
 #[tokio::test]
 async fn removes_presence_only_with_the_last_session() {
-    let server = TestServer::new(10, 2);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 2).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("one", &account)
@@ -119,9 +119,9 @@ async fn removes_presence_only_with_the_last_session() {
 async fn a_call_lotada_recusa_mais_um() {
     // O limite agora vem por chamada, entao ele e o proprio caso de teste.
     const CABE_UM: usize = 1;
-    let server = TestServer::new(10, 1);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 1).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("one", &daniel).await.unwrap();
     server.state.register_session("two", &alice).await.unwrap();
 
@@ -141,9 +141,9 @@ async fn a_call_lotada_recusa_mais_um() {
 
 #[tokio::test]
 async fn o_roster_nao_inclui_quem_esta_chegando() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("one", &daniel).await.unwrap();
     server.state.register_session("two", &alice).await.unwrap();
 
@@ -168,9 +168,9 @@ async fn o_roster_nao_inclui_quem_esta_chegando() {
 async fn reservas_concorrentes_contam_no_limite_e_so_confirmacao_publica() {
     use std::time::Duration;
 
-    let server = TestServer::new(10, 1);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 1).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("one", &daniel).await.unwrap();
     server.state.register_session("two", &alice).await.unwrap();
 
@@ -201,8 +201,8 @@ async fn reservas_concorrentes_contam_no_limite_e_so_confirmacao_publica() {
 async fn reserva_expirada_nao_vira_participante() {
     use std::time::Duration;
 
-    let server = TestServer::new(10, 2);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 2).await;
+    let account = server.account("Daniel").await;
     server
         .state
         .register_session("one", &account)

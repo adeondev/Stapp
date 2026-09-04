@@ -107,7 +107,7 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
 
 /// Sobe o servidor numa porta efemera e devolve o endereco.
 pub async fn start(config: Config) -> SocketAddr {
-    let app = stapp_server::build(config).expect("montar a aplicacao");
+    let app = stapp_server::build(config).await.expect("montar a aplicacao");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("porta efemera");
