@@ -19,8 +19,8 @@ use crate::session::AppState;
 use crate::storage::Db;
 use crate::ws;
 
-/// Monta a aplicacao sem abrir uma porta, para permitir testes do Router em memoria.
-pub async fn build(config: Config) -> Result<Router> {
+/// Monta a aplicacao e o estado compartilhado sem abrir porta de rede.
+pub async fn build_app(config: Config) -> Result<(Router, Arc<AppState>)> {
     voice::validate_backend(&config.voice)?;
     let static_dir = config.server.static_dir.clone();
     let db = Db::open(&config.storage.database).await?;
@@ -37,9 +37,17 @@ pub async fn build(config: Config) -> Result<Router> {
         app = with_static_client(app, dir);
     }
 
-    Ok(app
+    let router = app
         .layer(middleware::from_fn(security_headers))
-        .with_state(state))
+        .with_state(state.clone());
+
+    Ok((router, state))
+}
+
+/// Monta a aplicacao sem abrir uma porta, para permitir testes do Router em memoria.
+pub async fn build(config: Config) -> Result<Router> {
+    let (router, _) = build_app(config).await?;
+    Ok(router)
 }
 
 async fn security_headers(request: Request, next: Next) -> Response {
@@ -102,7 +110,7 @@ pub async fn serve(config: Config) -> Result<()> {
     let database = config.storage.database.clone();
     let channels = config.channels.clone();
     let max_peers = config.voice.max_peers;
-    let app = build(config).await?;
+    let (app, state) = build_app(config).await?;
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
@@ -124,6 +132,9 @@ pub async fn serve(config: Config) -> Result<()> {
     .with_graceful_shutdown(shutdown())
     .await
     .context("servidor caiu")?;
+
+    tracing::info!("desligando servicos em background...");
+    state.shutdown().await;
 
     tracing::info!("ate mais");
     Ok(())
