@@ -9,9 +9,52 @@ Stapp global nem um serviço central recebendo credenciais.
 
 ---
 
-## Início Rápido com Docker (Recomendado)
+## Executando como Servidor Portátil (Estilo Minecraft)
 
-O projeto possui orquestração completa com Docker Compose, subindo o servidor Stapp (API + SPA Web integrado) e o servidor de voz LiveKit com um único comando:
+O Stapp é distribuído como um **executável único e autossuficiente** para Windows e Linux. Não requer Node.js, bancos de dados externos nem ferramentas de compilação:
+
+1. Baixe o pacote pré-compilado da sua plataforma na aba [Releases](https://github.com/adeondev/Stapp/releases) (`.zip` para Windows ou `.tar.gz` para Linux).
+2. Extraia o conteúdo e execute o binário:
+   ```bash
+   # Linux / macOS
+   ./stapp-server
+
+   # Windows (PowerShell)
+   .\stapp-server.exe
+   ```
+3. **Bootstrapping Automático:** na primeira inicialização, o Stapp gera sozinho o arquivo de configuração comentado [`stapp.toml`](server/stapp.toml), a pasta de dados `data/`, inicializa o banco SQLite via SQLx e serve o cliente web moderno já embutido no executável em **`http://localhost:8787`**.
+
+### TLS e HTTPS Automático (Sem Proxy Reverso)
+O executável possui suporte nativo a certificados TLS via Let's Encrypt (ACME TLS-ALPN-01) e certificados manuais (`.pem`), dispensando proxies externos como Nginx ou Caddy:
+- Edite o bloco `[tls]` no `stapp.toml` gerado:
+  ```toml
+  [tls]
+  enabled = true
+  port = 443
+  domains = ["chat.meudominio.com"]
+  email = "admin@meudominio.com"
+  production = true
+  http_redirect_port = 80 # Redireciona http:// automaticamente para https://
+  ```
+- Ou defina as variáveis de ambiente: `STAPP_TLS_ENABLED=true`, `STAPP_TLS_DOMAINS=chat.meudominio.com`, `STAPP_TLS_HTTP_REDIRECT_PORT=80`.
+
+---
+
+## Executando com Docker
+
+### Imagem de Contêiner Pronta (GHCR)
+Você pode executar o contêiner oficial do Stapp publicado no GitHub Container Registry:
+
+```bash
+docker run -d \
+  --name stapp-server \
+  -p 8787:8787 \
+  -v ./data:/app/data \
+  ghcr.io/adeondev/stapp:latest
+```
+
+### Orquestração Completa com LiveKit (Docker Compose)
+Para ambientes com suporte a chamadas de voz e vídeo em larga escala via SFU LiveKit:
 
 ```bash
 # 1. Clone o repositório
@@ -27,17 +70,11 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Acesse **`http://localhost:8787`** (ou no IP configurado). O frontend web já vem compilado e servido diretamente pelo backend!
+Acesse **`http://localhost:8787`** (ou no IP configurado). O frontend web já vem compilado e servido diretamente pelo binário!
 
-### HTTPS Automático com Caddy (Microfone liberado em qualquer navegador)
-
-Navegadores bloqueiam microfone e câmera em conexões HTTP remotas. Para liberar o microfone automaticamente com certificado TLS válido:
-
+#### HTTPS Automático com Caddy (Opcional)
+Caso queira utilizar o Caddy como proxy reverso com LiveKit:
 ```bash
-# No .env, defina seu domínio e ative o perfil Caddy:
-# STAPP_DOMAIN=stapp.meudominio.com
-# STAPP_VOICE_PUBLIC_URL=wss://stapp.meudominio.com
-
 docker compose --profile caddy up -d
 ```
 
@@ -45,10 +82,17 @@ docker compose --profile caddy up -d
 
 ## Criando Contas e Administração (CLI)
 
-Por padrão, o registro público pode ser liberado no `.env` (`STAPP_ALLOW_REGISTRATION=true`) ou administrado manualmente pelo host:
+O executável do Stapp conta com comandos integrados para gestão de usuários:
 
 ```bash
-# Via Docker:
+# Executável Standalone:
+./stapp-server user add daniel
+./stapp-server user list
+./stapp-server user passwd daniel
+./stapp-server user disable daniel
+./stapp-server user enable daniel
+
+# Via Docker Compose:
 docker compose exec stapp-server /usr/local/bin/stapp-server user add daniel
 docker compose exec stapp-server /usr/local/bin/stapp-server user list
 docker compose exec stapp-server /usr/local/bin/stapp-server user passwd daniel
@@ -58,8 +102,6 @@ cd server
 cargo run -- user add daniel
 cargo run -- user list
 cargo run -- user passwd daniel
-cargo run -- user disable daniel
-cargo run -- user enable daniel
 ```
 
 ---
