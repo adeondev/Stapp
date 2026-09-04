@@ -92,6 +92,7 @@ pub async fn typing(
             if state
                 .db
                 .can_direct(&identity.user_id, &scope_id)
+                .await
                 .unwrap_or(false) =>
         {
             let mine = ServerMsg::Typing {
@@ -132,7 +133,7 @@ async fn localizar(
     message_id: &str,
 ) -> Option<(UserId, MessageLocation)> {
     let me = state.identity_of(peer_id).await?;
-    let local = state.db.locate_message(message_id).ok().flatten()?;
+    let local = state.db.locate_message(message_id).await.ok().flatten()?;
     Some((me.user_id, local))
 }
 
@@ -155,7 +156,7 @@ fn recusar(state: &AppState, peer_id: &str, motivo: &str) {
 async fn publicar_atualizacao(state: &AppState, local: &MessageLocation, message_id: &str) {
     match local {
         MessageLocation::Channel { channel, .. } => {
-            let Ok(Some(msg)) = state.db.message_by_id(message_id) else {
+            let Ok(Some(msg)) = state.db.message_by_id(message_id).await else {
                 return;
             };
             state.broadcast(ServerMsg::ChatUpdated {
@@ -166,7 +167,7 @@ async fn publicar_atualizacao(state: &AppState, local: &MessageLocation, message
         MessageLocation::Direct {
             conversation_id, ..
         } => {
-            let Ok(Some(msg)) = state.db.direct_by_id(message_id) else {
+            let Ok(Some(msg)) = state.db.direct_by_id(message_id).await else {
                 return;
             };
             let Some((a, b)) = conversation_pair(conversation_id) else {
@@ -208,6 +209,7 @@ async fn publicar_remocao(state: &AppState, local: &MessageLocation, message_id:
                 let unread = state
                     .db
                     .direct_unread(dono, conversation_id)
+                    .await
                     .unwrap_or_default();
                 for peer in state.sessions_of(dono).await {
                     state.send_to(
@@ -258,24 +260,34 @@ pub async fn edit(state: &Arc<AppState>, peer_id: &str, message_id: String, raw_
 
     let agora = now_ms();
     // Mencao segue o texto novo: tirar o `@` na edicao tira a citacao junto.
-    let citadas = mentions::resolve(state, &texto);
+    let citadas = mentions::resolve(state, &texto).await;
     let alterou = match &local {
-        MessageLocation::Channel { .. } => state.db.update_message_text(
-            &message_id,
-            &me,
-            &texto,
-            &citadas.user_ids,
-            citadas.everyone,
-            agora,
-        ),
-        MessageLocation::Direct { .. } => state.db.update_direct_text(
-            &message_id,
-            &me,
-            &texto,
-            &citadas.user_ids,
-            citadas.everyone,
-            agora,
-        ),
+        MessageLocation::Channel { .. } => {
+            state
+                .db
+                .update_message_text(
+                    &message_id,
+                    &me,
+                    &texto,
+                    &citadas.user_ids,
+                    citadas.everyone,
+                    agora,
+                )
+                .await
+        }
+        MessageLocation::Direct { .. } => {
+            state
+                .db
+                .update_direct_text(
+                    &message_id,
+                    &me,
+                    &texto,
+                    &citadas.user_ids,
+                    citadas.everyone,
+                    agora,
+                )
+                .await
+        }
     };
 
     match alterou {
@@ -297,7 +309,7 @@ pub async fn delete(state: &Arc<AppState>, peer_id: &str, message_id: String) {
 
     // O escopo foi lido ANTES do delete: depois do commit nao daria mais para
     // descobrir para quem anunciar.
-    let chaves = match state.db.delete_message_cascade(&message_id, &me) {
+    let chaves = match state.db.delete_message_cascade(&message_id, &me).await {
         Ok(Some(chaves)) => chaves,
         Ok(None) => return recusar(state, peer_id, "so da para apagar a propria mensagem"),
         Err(err) => {
@@ -360,7 +372,7 @@ pub async fn react(state: &Arc<AppState>, peer_id: &str, message_id: String, emo
         }
     }
 
-    match state.db.toggle_reaction(&message_id, &emoji, &me, now_ms()) {
+    match state.db.toggle_reaction(&message_id, &emoji, &me, now_ms()).await {
         Ok(_) => publicar_atualizacao(state, &local, &message_id).await,
         Err(err) => {
             tracing::error!(%err, "falha reagindo a mensagem");

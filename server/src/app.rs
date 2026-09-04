@@ -20,10 +20,10 @@ use crate::storage::Db;
 use crate::ws;
 
 /// Monta a aplicacao sem abrir uma porta, para permitir testes do Router em memoria.
-pub fn build(config: Config) -> Result<Router> {
+pub async fn build(config: Config) -> Result<Router> {
     voice::validate_backend(&config.voice)?;
     let static_dir = config.server.static_dir.clone();
-    let db = Db::open(&config.storage.database)?;
+    let db = Db::open(&config.storage.database).await?;
     let state = AppState::new(config, db)?;
 
     let mut app = Router::new()
@@ -102,7 +102,7 @@ pub async fn serve(config: Config) -> Result<()> {
     let database = config.storage.database.clone();
     let channels = config.channels.clone();
     let max_peers = config.voice.max_peers;
-    let app = build(config)?;
+    let app = build(config).await?;
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await

@@ -38,14 +38,14 @@ async fn upload(State(state): State<Arc<AppState>>, headers: HeaderMap, bytes: B
     let Some(contexto) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let Some(conta) = autenticar(&state, &headers) else {
+    let Some(conta) = autenticar(&state, &headers).await else {
         return responder(StatusCode::UNAUTHORIZED, "sessao invalida", &contexto);
     };
     if bytes.is_empty() {
         return responder(StatusCode::BAD_REQUEST, "arquivo vazio", &contexto);
     }
 
-    match profile::set_avatar(&state, &conta.id, &bytes) {
+    match profile::set_avatar(&state, &conta.id, &bytes).await {
         Ok(tamanho) => {
             tracing::info!(user_id = %conta.id, bytes = tamanho, "avatar atualizado");
             responder(StatusCode::NO_CONTENT, "", &contexto)
@@ -59,10 +59,10 @@ async fn remove(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Respo
     let Some(contexto) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let Some(conta) = autenticar(&state, &headers) else {
+    let Some(conta) = autenticar(&state, &headers).await else {
         return responder(StatusCode::UNAUTHORIZED, "sessao invalida", &contexto);
     };
-    profile::clear_avatar(&state, &conta.id);
+    profile::clear_avatar(&state, &conta.id).await;
     responder(StatusCode::NO_CONTENT, "", &contexto)
 }
 
@@ -125,8 +125,8 @@ async fn serve(State(state): State<Arc<AppState>>, Path(user_id): Path<UserId>) 
     }
 }
 
-fn autenticar(state: &AppState, headers: &HeaderMap) -> Option<Account> {
+async fn autenticar(state: &AppState, headers: &HeaderMap) -> Option<Account> {
     let bruto = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let token = bruto.strip_prefix("Bearer ")?;
-    state.auth.tokens.verify_access(&state.db, token)
+    state.auth.tokens.verify_access(&state.db, token).await
 }

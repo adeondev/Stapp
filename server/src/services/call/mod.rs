@@ -29,10 +29,10 @@ pub async fn start(state: &Arc<AppState>, peer_id: &str, to: UserId) {
     if to == me.user_id {
         return ended_to_caller(state, &me.user_id, &to, CallEndReason::Unavailable).await;
     }
-    if !direct::account_exists(state, &to) {
+    if !direct::account_exists(state, &to).await {
         return ended_to_caller(state, &me.user_id, &to, CallEndReason::Unavailable).await;
     }
-    if !state.db.can_direct(&me.user_id, &to).unwrap_or(false) {
+    if !state.db.can_direct(&me.user_id, &to).await.unwrap_or(false) {
         return ended_to_caller(state, &me.user_id, &to, CallEndReason::Unavailable).await;
     }
 
@@ -195,7 +195,7 @@ async fn record(state: &Arc<AppState>, call: &PendingCall, reason: CallEndReason
         CallEndReason::Busy | CallEndReason::Offline | CallEndReason::Unavailable => return,
     };
 
-    let Some(quem_ligou) = state.db.account_by_id(&call.from).ok().flatten() else {
+    let Some(quem_ligou) = state.db.account_by_id(&call.from).await.ok().flatten() else {
         return;
     };
     let msg = DirectMessage {
@@ -215,7 +215,7 @@ async fn record(state: &Arc<AppState>, call: &PendingCall, reason: CallEndReason
     };
 
     let conversation = conversation_id(&call.from, &call.to);
-    if let Err(err) = state.db.insert_direct(&conversation, &msg) {
+    if let Err(err) = state.db.insert_direct(&conversation, &msg).await {
         tracing::error!(%err, "falha gravando o rastro da chamada");
         return;
     }

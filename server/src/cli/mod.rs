@@ -48,7 +48,7 @@ impl Cli {
 
         match self.command {
             None | Some(Command::Serve) => app::serve(config).await,
-            Some(Command::User { command }) => user::run(&config, command),
+            Some(Command::User { command }) => user::run(&config, command).await,
         }
     }
 }

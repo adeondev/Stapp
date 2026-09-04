@@ -1,8 +1,4 @@
 //! Subcomando `user`: administra as contas locais do servidor.
-//!
-//! Aqui so mora o que e da linha de comando — ler a senha sem eco e formatar a
-//! saida. As regras de conta ficam em [`crate::admin`], que nao imprime nada e
-//! por isso serve tambem para um painel web no futuro.
 
 use anyhow::{Result, bail};
 use clap::Subcommand;
@@ -25,16 +21,16 @@ pub enum UserCommand {
     Enable { username: String },
 }
 
-pub fn run(config: &Config, command: UserCommand) -> Result<()> {
-    let db = Db::open(&config.storage.database)?;
+pub async fn run(config: &Config, command: UserCommand) -> Result<()> {
+    let db = Db::open(&config.storage.database).await?;
 
     match command {
         UserCommand::Add { username } => {
-            let name = admin::add_user(&db, &username, &prompt_new_password()?)?;
+            let name = admin::add_user(&db, &username, &prompt_new_password()?).await?;
             println!("conta \"{name}\" criada");
         }
         UserCommand::List => {
-            let accounts = admin::list_users(&db)?;
+            let accounts = admin::list_users(&db).await?;
             if accounts.is_empty() {
                 println!("nenhuma conta criada");
             }
@@ -48,15 +44,15 @@ pub fn run(config: &Config, command: UserCommand) -> Result<()> {
             }
         }
         UserCommand::Passwd { username } => {
-            let name = admin::change_password(&db, &username, &prompt_new_password()?)?;
+            let name = admin::change_password(&db, &username, &prompt_new_password()?).await?;
             println!("senha de \"{name}\" atualizada");
         }
         UserCommand::Disable { username } => {
-            let name = admin::set_user_disabled(&db, &username, true)?;
+            let name = admin::set_user_disabled(&db, &username, true).await?;
             println!("conta \"{name}\" desativada — sessoes atuais permanecem ate desconectar");
         }
         UserCommand::Enable { username } => {
-            let name = admin::set_user_disabled(&db, &username, false)?;
+            let name = admin::set_user_disabled(&db, &username, false).await?;
             println!("conta \"{name}\" reativada");
         }
     }

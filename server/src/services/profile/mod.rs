@@ -19,8 +19,8 @@ const MAX_DISPLAY_NAME: usize = 32;
 const MAX_BIO: usize = 190;
 
 /// Todos os perfis, para o `welcome`.
-pub fn all(state: &AppState) -> Vec<Profile> {
-    state.db.all_profiles().unwrap_or_else(|err| {
+pub async fn all(state: &AppState) -> Vec<Profile> {
+    state.db.all_profiles().await.unwrap_or_else(|err| {
         tracing::error!(%err, "falha lendo os perfis");
         Vec::new()
     })
@@ -64,22 +64,23 @@ pub async fn update(
         accent.as_deref(),
         bio.as_deref(),
         now_ms(),
-    ) {
+    ).await {
         tracing::error!(%err, "falha gravando o perfil");
         return refuse(state, peer_id, "nao consegui salvar o perfil");
     }
 
-    announce(state, &me.user_id);
+    announce(state, &me.user_id).await;
 }
 
 /// Guarda a imagem e avisa todo mundo. Devolve o tamanho gravado.
-pub fn set_avatar(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Result<usize, String> {
+pub async fn set_avatar(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Result<usize, String> {
     let dir = avatar_dir(state);
     let tamanho = avatar::store(&dir, user_id, bytes).map_err(|erro| erro.to_string())?;
 
     if let Err(err) = state
         .db
         .set_avatar(user_id, Some(avatar::extensao()), now_ms())
+        .await
     {
         tracing::error!(%err, "falha marcando o avatar no banco");
         // O arquivo sem a linha no banco seria lixo invisivel.
@@ -87,18 +88,18 @@ pub fn set_avatar(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Result<us
         return Err("nao consegui salvar o avatar".into());
     }
 
-    announce(state, user_id);
+    announce(state, user_id).await;
     Ok(tamanho)
 }
 
 /// Volta ao avatar gerado.
-pub fn clear_avatar(state: &AppState, user_id: &UserId) {
-    if let Err(err) = state.db.set_avatar(user_id, None, now_ms()) {
+pub async fn clear_avatar(state: &AppState, user_id: &UserId) {
+    if let Err(err) = state.db.set_avatar(user_id, None, now_ms()).await {
         tracing::error!(%err, "falha limpando o avatar");
         return;
     }
     avatar::remove(&avatar_dir(state), user_id);
-    announce(state, user_id);
+    announce(state, user_id).await;
 }
 
 pub fn read_avatar(state: &AppState, user_id: &UserId) -> Option<Vec<u8>> {
@@ -110,8 +111,8 @@ fn avatar_dir(state: &AppState) -> PathBuf {
 }
 
 /// Manda o perfil atual para todo mundo. Publico, entao broadcast mesmo.
-pub fn announce(state: &AppState, user_id: &UserId) {
-    match state.db.profile_of(user_id) {
+pub async fn announce(state: &AppState, user_id: &UserId) {
+    match state.db.profile_of(user_id).await {
         Ok(Some(profile)) => state.broadcast(ServerMsg::UserProfile { profile }),
         Ok(None) => {}
         Err(err) => tracing::error!(%err, "falha lendo o perfil para anunciar"),
