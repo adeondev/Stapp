@@ -223,10 +223,10 @@ export class LiveKitTransport implements VoiceTransport {
             stream: streamName,
             videoCodec: 'vp9',
             backupCodec: { codec: 'vp8' },
-            simulcast: true,
+            simulcast: false,
             screenShareEncoding: {
               maxBitrate: quality.maxBitrate,
-              maxFramerate: Math.min(quality.frameRate, 30),
+              maxFramerate: quality.frameRate,
             },
           })
         } catch (error) {
@@ -286,7 +286,7 @@ export class LiveKitTransport implements VoiceTransport {
           stream: streamName,
           videoCodec: 'vp9',
           backupCodec: { codec: 'vp8' },
-          simulcast: true,
+          simulcast: false,
           screenShareEncoding: {
             maxBitrate: quality.maxBitrate,
             maxFramerate: quality.frameRate,

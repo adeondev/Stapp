@@ -36,11 +36,11 @@ const SPEAKING_LEVEL = 8
 const SPEAKING_HOLD_MS = 250
 
 /**
- * Voz P2P: cada um manda o proprio audio direto para cada outro. O servidor so
- * repassa offer/answer/ICE.
+ * @deprecated Legado: A topologia Mesh P2P foi descontinuada em favor do LiveKit SFU.
+ * Mantido exclusivamente para testes e compatibilidade transitoria com servidores legados.
  *
  * Limite conhecido: ~6 pessoas. Cada participante sobe uma copia do audio para
- * todos os outros, entao o upload cresce junto com a sala.
+ * todos os outros, entao o upload cresce junto com a sala. Sem suporte a video ou tela.
  */
 export class MeshTransport implements VoiceTransport {
   private local: MediaStream | null = null

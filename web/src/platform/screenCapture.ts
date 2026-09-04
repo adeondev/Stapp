@@ -341,7 +341,8 @@ export async function startNativeScreenCapture(options: {
         latestFrame = null
         const bytes = decodeBase64(frame.jpeg_base64)
         const bitmap = await createImageBitmap(
-          new Blob([bytes.buffer as ArrayBuffer], { type: 'image/jpeg' }),
+          new Blob([bytes], { type: 'image/jpeg' }),
+          { imageOrientation: 'none', premultiplyAlpha: 'none' },
         )
         if (canvas.width !== frame.width || canvas.height !== frame.height) {
           canvas.width = frame.width
@@ -424,7 +425,7 @@ export async function startNativeScreenCapture(options: {
     window.clearTimeout(timeout)
   }
 
-  const stream = canvas.captureStream(Math.min(options.fps, 30))
+  const stream = canvas.captureStream(Math.min(options.fps, 60))
   const track = stream.getVideoTracks()[0]
   if (!track) {
     await invoke('stop_screen_capture', { captureId }).catch(() => {})
