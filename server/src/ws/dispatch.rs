@@ -144,5 +144,6 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
             .await
         }
         ClientMsg::RtcSignal { to, payload } => voice::relay(state, peer_id, &to, payload).await,
+        ClientMsg::TelemetryPing { .. } => {}
     }
 }

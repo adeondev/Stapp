@@ -343,6 +343,7 @@ export type ClientMsg =
       screen_sharing: boolean
     }
   | { t: 'rtc.signal'; to: PeerId; payload: RtcPayload }
+  | { t: 'telemetry.ping'; nonce: string; t0: number }
 
 export type ServerMsg =
   | {
@@ -435,3 +436,8 @@ export type ServerMsg =
     }
   | { t: 'rtc.signal'; from: PeerId; payload: RtcPayload }
   | { t: 'error'; message: string }
+  | { t: 'telemetry.pong'; nonce: string; t0: number; t1: number; t2: number }
+
+export function nowMicros(): number {
+  return Math.round((performance.timeOrigin + performance.now()) * 1000)
+}
