@@ -18,6 +18,11 @@ s3 = [
 anyhow = "1"
 argon2 = "0.5"
 axum = { version = "0.8", features = ["ws", "multipart"] }
+axum-server = { version = "0.8", features = ["tls-rustls"] }
+rustls-acme = { version = "0.15", features = ["axum", "tokio"] }
+rust-embed = "8.12"
+mime_guess = "2.0"
+tokio-stream = "0.1"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 ipnet = { version = "2", features = ["serde"] }
@@ -27,7 +32,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 livekit-api = { version = "0.6.4", default-features = false, features = ["access-token", "services-tokio", "rustls-tls-native-roots"] }
 rpassword = "7"
 rand_core = { version = "0.6", features = ["getrandom"] }
-rusqlite = { version = "0.40", features = ["bundled"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -53,6 +58,7 @@ aws-smithy-async = { version = "1", features = ["rt-tokio"], optional = true }
 [dev-dependencies]
 futures-util = "0.3"
 tokio-tungstenite = "0.29"
+tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
 lto = true

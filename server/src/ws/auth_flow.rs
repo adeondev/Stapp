@@ -77,7 +77,7 @@ pub(super) async fn handle(
     }
 
     let _ = origin;
-    match state.auth.tokens.verify_access(&state.db, &access_token) {
+    match state.auth.tokens.verify_access(&state.db, &access_token).await {
         Some(account) => open_session(state, peer_id, account).await,
         None => refuse(
             state,
@@ -122,14 +122,14 @@ async fn open_session(state: &Arc<AppState>, peer_id: &PeerId, account: Account)
             server_name: state.config.server.name.clone(),
             channels: state.config.channels.clone(),
             users: state.snapshot().await,
-            directory: direct::directory(state, &account.id),
-            profiles: profile::all(state),
+            directory: direct::directory(state, &account.id).await,
+            profiles: profile::all(state).await,
             voice: voice::client_config(state),
             voice_peers: voice::all_peers(state).await,
             limits: messages::client_limits(state),
         },
     );
-    chat::send_history(state, peer_id);
+    chat::send_history(state, peer_id).await;
     direct::send_list(state, peer_id).await;
     social::send_snapshot(state, &account.id).await;
 

@@ -22,6 +22,8 @@ pub struct Config {
     pub storage: StorageConfig,
     #[serde(default)]
     pub limits: LimitsConfig,
+    #[serde(default)]
+    pub tls: TlsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -182,7 +184,87 @@ impl LimitsConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct TlsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_tls_port")]
+    pub port: u16,
+    #[serde(default)]
+    pub domains: Vec<String>,
+    #[serde(default)]
+    pub email: String,
+    #[serde(default = "default_tls_cache_dir")]
+    pub cache_dir: PathBuf,
+    #[serde(default)]
+    pub production: bool,
+    #[serde(default)]
+    pub cert_file: Option<PathBuf>,
+    #[serde(default)]
+    pub key_file: Option<PathBuf>,
+    #[serde(default)]
+    pub http_redirect_port: Option<u16>,
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            port: default_tls_port(),
+            domains: Vec::new(),
+            email: String::new(),
+            cache_dir: default_tls_cache_dir(),
+            production: false,
+            cert_file: None,
+            key_file: None,
+            http_redirect_port: None,
+        }
+    }
+}
+
 impl Config {
+    /// Template de configuracao padrao do Stapp (stapp.toml) embutido no binario.
+    pub const DEFAULT_CONFIG_TEMPLATE: &'static str = include_str!("../../stapp.toml");
+
+    /// Le o stapp.toml ou gera a configuracao inicial padrao caso o arquivo nao exista.
+    ///
+    /// Garante que o arquivo de configuracao e as pastas de persistencia necessarias
+    /// (`data/` e `data/attachments/`) existam antes de devolver a configuracao pronta.
+    pub fn load_or_bootstrap(path: &Path) -> Result<Self> {
+        if !path.exists() {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    std::fs::create_dir_all(parent)
+                        .with_context(|| format!("nao consegui criar o diretorio {}", parent.display()))?;
+                }
+            }
+            std::fs::write(path, Self::DEFAULT_CONFIG_TEMPLATE)
+                .with_context(|| format!("nao consegui gerar a configuracao padrao em {}", path.display()))?;
+            tracing::info!(path = %path.display(), "Arquivo de configuracao padrao gerado com sucesso");
+        }
+
+        let cfg = Self::load(path)?;
+        cfg.ensure_storage_dirs()?;
+        Ok(cfg)
+    }
+
+    /// Garante que os diretorios necessarios de persistencia (banco e anexos) existam.
+    pub fn ensure_storage_dirs(&self) -> Result<()> {
+        if let Some(parent) = self.storage.database.parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)
+                    .with_context(|| format!("nao consegui criar o diretorio do banco {}", parent.display()))?;
+            }
+        }
+        std::fs::create_dir_all(&self.storage.attachments_dir)
+            .with_context(|| format!("nao consegui criar o diretorio de anexos {}", self.storage.attachments_dir.display()))?;
+        if self.tls.enabled && self.tls.cert_file.is_none() {
+            std::fs::create_dir_all(&self.tls.cache_dir)
+                .with_context(|| format!("nao consegui criar o diretorio de cache ACME {}", self.tls.cache_dir.display()))?;
+        }
+        Ok(())
+    }
+
     /// Le o stapp.toml. Caminhos relativos dentro dele sao resolvidos a partir da
     /// pasta do proprio arquivo, entao `cargo run` de qualquer lugar se comporta igual.
     /// Variaveis de ambiente com prefixo `STAPP_` sobrescrevem as chaves do arquivo.
@@ -196,6 +278,9 @@ impl Config {
         cfg.storage.database = base.join(&cfg.storage.database);
         cfg.storage.attachments_dir = base.join(&cfg.storage.attachments_dir);
         cfg.server.static_dir = cfg.server.static_dir.map(|d| base.join(d));
+        cfg.tls.cache_dir = base.join(&cfg.tls.cache_dir);
+        cfg.tls.cert_file = cfg.tls.cert_file.map(|f| base.join(f));
+        cfg.tls.key_file = cfg.tls.key_file.map(|f| base.join(f));
 
         cfg.apply_env_overrides();
 
@@ -281,6 +366,34 @@ impl Config {
         if let Some(val) = parse_env_usize(&["STAPP_LIMITS_MAX_ATTACHMENTS_PER_MESSAGE", "STAPP_MAX_ATTACHMENTS_PER_MESSAGE"]) {
             self.limits.max_attachments_per_message = val;
         }
+
+        if let Some(val) = parse_env_bool(&["STAPP_TLS_ENABLED"]) {
+            self.tls.enabled = val;
+        }
+        if let Some(val) = parse_env_u16(&["STAPP_TLS_PORT"]) {
+            self.tls.port = val;
+        }
+        if let Some(val) = parse_env_list(&["STAPP_TLS_DOMAINS"]) {
+            self.tls.domains = val;
+        }
+        if let Some(val) = env_var(&["STAPP_TLS_EMAIL"]) {
+            self.tls.email = val;
+        }
+        if let Some(val) = env_var(&["STAPP_TLS_CACHE_DIR"]) {
+            self.tls.cache_dir = PathBuf::from(val);
+        }
+        if let Some(val) = parse_env_bool(&["STAPP_TLS_PRODUCTION"]) {
+            self.tls.production = val;
+        }
+        if let Some(val) = env_var(&["STAPP_TLS_CERT_FILE"]) {
+            self.tls.cert_file = Some(PathBuf::from(val));
+        }
+        if let Some(val) = env_var(&["STAPP_TLS_KEY_FILE"]) {
+            self.tls.key_file = Some(PathBuf::from(val));
+        }
+        if let Some(val) = parse_env_u16(&["STAPP_TLS_HTTP_REDIRECT_PORT"]) {
+            self.tls.http_redirect_port = Some(val);
+        }
     }
 
     fn validate(&self) -> Result<()> {
@@ -344,11 +457,47 @@ impl Config {
                 min_ver
             );
         }
+        if self.tls.enabled {
+            anyhow::ensure!(self.tls.port > 0, "tls.port precisa ser > 0");
+            if self.tls.cert_file.is_some() || self.tls.key_file.is_some() {
+                anyhow::ensure!(
+                    self.tls.cert_file.is_some() && self.tls.key_file.is_some(),
+                    "para TLS manual, cert_file e key_file devem ser informados juntos"
+                );
+            } else {
+                anyhow::ensure!(
+                    !self.tls.domains.is_empty(),
+                    "TLS automatico via ACME exige ao menos um dominio em tls.domains"
+                );
+                anyhow::ensure!(
+                    self.tls.domains.iter().all(|d| !d.trim().is_empty()),
+                    "dominios em tls.domains nao podem ser vazios"
+                );
+            }
+            if let Some(redirect_port) = self.tls.http_redirect_port {
+                anyhow::ensure!(redirect_port > 0, "tls.http_redirect_port precisa ser > 0");
+                anyhow::ensure!(
+                    redirect_port != self.tls.port,
+                    "tls.http_redirect_port ({}) nao pode ser igual a tls.port",
+                    redirect_port
+                );
+            }
+        }
         Ok(())
     }
 
     pub fn addr(&self) -> SocketAddr {
         SocketAddr::new(self.server.bind, self.server.port)
+    }
+
+    pub fn tls_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.server.bind, self.tls.port)
+    }
+
+    pub fn http_redirect_addr(&self) -> Option<SocketAddr> {
+        self.tls
+            .http_redirect_port
+            .map(|port| SocketAddr::new(self.server.bind, port))
     }
 
     /// Onde ficam os avatares: ao lado do banco, dentro de `data/`. Assim o
@@ -482,6 +631,12 @@ fn default_max_attachments_per_message() -> usize {
 }
 fn default_max_text_chars() -> usize {
     4000
+}
+fn default_tls_port() -> u16 {
+    443
+}
+fn default_tls_cache_dir() -> PathBuf {
+    PathBuf::from("data/acme")
 }
 
 fn env_var(keys: &[&str]) -> Option<String> {

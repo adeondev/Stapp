@@ -23,11 +23,12 @@ async fn grant_fica_restrito_a_sala_fontes_e_sessao() {
     config.voice.api_url = Some("http://127.0.0.1:7880".into());
     config.voice.api_key_env = "STAPP_TEST_LK_KEY".into();
     config.voice.api_secret_env = "STAPP_TEST_LK_SECRET".into();
-    let db = Db::open(&config.storage.database).unwrap();
+    let db = Db::open(&config.storage.database).await.unwrap();
     let state = AppState::new(config, db).unwrap();
     let account = state
         .db
         .create_account("Daniel".into(), "daniel".into(), "hash".into())
+        .await
         .unwrap();
     state
         .register_session("peer-random", &account)

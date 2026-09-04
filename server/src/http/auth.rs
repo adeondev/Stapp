@@ -50,7 +50,7 @@ async fn login(
         .login(&state.db, &request.username, request.password)
         .await
     {
-        Ok(account) => authenticated(&state, account, request.remember, &context),
+        Ok(account) => authenticated(&state, account, request.remember, &context).await,
         Err(LoginError::RateLimited(wait)) => api_error(
             StatusCode::TOO_MANY_REQUESTS,
             AuthErrorCode::RateLimited,
@@ -115,7 +115,7 @@ async fn register(
         .register(&state.db, origin.ip(), &request.username, request.password)
         .await
     {
-        Ok(account) => authenticated(&state, account, request.remember, &context),
+        Ok(account) => authenticated(&state, account, request.remember, &context).await,
         Err(RegisterError::InvalidUsername) => api_error(
             StatusCode::BAD_REQUEST,
             AuthErrorCode::InvalidUsername,
@@ -179,7 +179,7 @@ async fn refresh(
         );
     };
 
-    match state.auth.tokens.rotate_refresh(&state.db, &raw) {
+    match state.auth.tokens.rotate_refresh(&state.db, &raw).await {
         Ok(Some((account, refresh))) => {
             let access = state.auth.tokens.issue_access(&account);
             let cookie = set_cookie(
@@ -225,7 +225,7 @@ async fn logout(
     }
     if let Some(raw) = refresh_cookie(&state, &headers) {
         if let Some(id) = refresh_id(&raw) {
-            if let Err(error) = state.db.revoke_refresh_session(id) {
+            if let Err(error) = state.db.revoke_refresh_session(id).await {
                 tracing::error!(%error, "falha revogando sessao");
             }
         }
@@ -256,7 +256,7 @@ async fn preflight(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Re
     response
 }
 
-fn authenticated(
+async fn authenticated(
     state: &AppState,
     account: crate::storage::Account,
     remember: bool,
@@ -267,6 +267,7 @@ fn authenticated(
         .auth
         .tokens
         .create_refresh(&state.db, &account, remember)
+        .await
     {
         Ok(refresh) => success(
             access.token,

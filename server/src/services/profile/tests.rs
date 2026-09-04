@@ -16,10 +16,10 @@ fn perfis_anunciados(
 
 #[tokio::test]
 async fn conta_sem_perfil_ja_nasce_com_um() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
 
-    let perfil = server.state.db.profile_of(&daniel.id).unwrap().unwrap();
+    let perfil = server.state.db.profile_of(&daniel.id).await.unwrap().unwrap();
     // Sem escolher nada, o nome de exibicao e o proprio username.
     assert_eq!(perfil.display_name, "Daniel");
     assert_eq!(perfil.username, "Daniel");
@@ -30,8 +30,8 @@ async fn conta_sem_perfil_ja_nasce_com_um() {
 
 #[tokio::test]
 async fn editar_grava_e_conta_para_todo_mundo() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     let mut events = server.state.subscribe();
 
@@ -59,8 +59,8 @@ async fn editar_grava_e_conta_para_todo_mundo() {
 
 #[tokio::test]
 async fn campo_ausente_nao_mexe_no_que_ja_estava() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server.state.register_session("d1", &daniel).await.unwrap();
 
     update(
@@ -81,7 +81,7 @@ async fn campo_ausente_nao_mexe_no_que_ja_estava() {
     )
     .await;
 
-    let perfil = server.state.db.profile_of(&daniel.id).unwrap().unwrap();
+    let perfil = server.state.db.profile_of(&daniel.id).await.unwrap().unwrap();
     assert_eq!(perfil.display_name, "Deon", "o nome tinha que continuar");
     assert_eq!(perfil.accent, "red", "a cor tinha que continuar");
     assert_eq!(perfil.bio, "mudei so a bio");
@@ -89,8 +89,8 @@ async fn campo_ausente_nao_mexe_no_que_ja_estava() {
 
 #[tokio::test]
 async fn nome_vazio_volta_para_o_username() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server.state.register_session("d1", &daniel).await.unwrap();
 
     update(&server.state, "d1", Some("Deon".into()), None, None).await;
@@ -99,6 +99,7 @@ async fn nome_vazio_volta_para_o_username() {
             .state
             .db
             .profile_of(&daniel.id)
+            .await
             .unwrap()
             .unwrap()
             .display_name,
@@ -112,6 +113,7 @@ async fn nome_vazio_volta_para_o_username() {
             .state
             .db
             .profile_of(&daniel.id)
+            .await
             .unwrap()
             .unwrap()
             .display_name,
@@ -121,8 +123,8 @@ async fn nome_vazio_volta_para_o_username() {
 
 #[tokio::test]
 async fn cor_fora_da_paleta_e_recusada_sem_gravar_nada() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     let mut events = server.state.subscribe();
 
@@ -141,15 +143,15 @@ async fn cor_fora_da_paleta_e_recusada_sem_gravar_nada() {
         .unwrap_or(false);
     assert!(recusou);
     // E nada foi gravado, nem o nome que vinha junto.
-    let perfil = server.state.db.profile_of(&daniel.id).unwrap().unwrap();
+    let perfil = server.state.db.profile_of(&daniel.id).await.unwrap().unwrap();
     assert_eq!(perfil.display_name, "Daniel");
     assert_eq!(perfil.accent, "blue");
 }
 
 #[tokio::test]
 async fn texto_longo_demais_e_cortado_no_limite() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server.state.register_session("d1", &daniel).await.unwrap();
 
     update(
@@ -161,20 +163,21 @@ async fn texto_longo_demais_e_cortado_no_limite() {
     )
     .await;
 
-    let perfil = server.state.db.profile_of(&daniel.id).unwrap().unwrap();
+    let perfil = server.state.db.profile_of(&daniel.id).await.unwrap().unwrap();
     assert_eq!(perfil.display_name.chars().count(), MAX_DISPLAY_NAME);
     assert_eq!(perfil.bio.chars().count(), MAX_BIO);
 }
 
 #[tokio::test]
 async fn a_lista_do_welcome_traz_todo_mundo_menos_conta_desativada() {
-    let server = TestServer::new(10, 4);
-    server.account("Daniel");
-    server.account("Alice");
-    server.account("Bob");
-    server.state.db.set_disabled("bob", true).unwrap();
+    let server = TestServer::new(10, 4).await;
+    server.account("Daniel").await;
+    server.account("Alice").await;
+    server.account("Bob").await;
+    server.state.db.set_disabled("bob", true).await.unwrap();
 
     let nomes: Vec<String> = all(&server.state)
+        .await
         .into_iter()
         .map(|perfil| perfil.username)
         .collect();

@@ -17,10 +17,10 @@ fn coletar(
 
 #[tokio::test]
 async fn a_mensagem_chega_so_nas_duas_pontas() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
-    let bob = server.account("Bob");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
+    let bob = server.account("Bob").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     server.state.register_session("a1", &alice).await.unwrap();
     server.state.register_session("b1", &bob).await.unwrap();
@@ -51,9 +51,9 @@ async fn a_mensagem_chega_so_nas_duas_pontas() {
 
 #[tokio::test]
 async fn cada_lado_recebe_o_outro_como_dono_da_conversa() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     server.state.register_session("a1", &alice).await.unwrap();
 
@@ -93,9 +93,9 @@ async fn cada_lado_recebe_o_outro_como_dono_da_conversa() {
 
 #[tokio::test]
 async fn nao_lidas_acumulam_e_zeram_so_ao_marcar_como_lidas() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     server.state.register_session("a1", &alice).await.unwrap();
 
@@ -120,7 +120,12 @@ async fn nao_lidas_acumulam_e_zeram_so_ao_marcar_como_lidas() {
 
     let conversa = conversation_id(&daniel.id, &alice.id);
     assert_eq!(
-        server.state.db.direct_unread(&alice.id, &conversa).unwrap(),
+        server
+            .state
+            .db
+            .direct_unread(&alice.id, &conversa)
+            .await
+            .unwrap(),
         2
     );
     // O que voce mesmo escreveu nunca conta.
@@ -129,28 +134,39 @@ async fn nao_lidas_acumulam_e_zeram_so_ao_marcar_como_lidas() {
             .state
             .db
             .direct_unread(&daniel.id, &conversa)
+            .await
             .unwrap(),
         0
     );
 
     open(&server.state, "a1", daniel.id.clone()).await;
     assert_eq!(
-        server.state.db.direct_unread(&alice.id, &conversa).unwrap(),
+        server
+            .state
+            .db
+            .direct_unread(&alice.id, &conversa)
+            .await
+            .unwrap(),
         2,
         "abrir nao prova que a mensagem ficou visivel numa janela ativa"
     );
     mark_read(&server.state, "a1", daniel.id.clone()).await;
     assert_eq!(
-        server.state.db.direct_unread(&alice.id, &conversa).unwrap(),
+        server
+            .state
+            .db
+            .direct_unread(&alice.id, &conversa)
+            .await
+            .unwrap(),
         0
     );
 }
 
 #[tokio::test]
 async fn conversa_offline_espera_no_historico() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     // A alice nem conectou.
 
@@ -181,9 +197,9 @@ async fn conversa_offline_espera_no_historico() {
 
 #[tokio::test]
 async fn a_lista_traz_com_quem_voce_falou_e_quantas_faltam_ler() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     server.state.register_session("a1", &alice).await.unwrap();
 
@@ -215,8 +231,8 @@ async fn a_lista_traz_com_quem_voce_falou_e_quantas_faltam_ler() {
 
 #[tokio::test]
 async fn recusa_conversa_consigo_mesmo_e_conta_inexistente() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server.state.register_session("d1", &daniel).await.unwrap();
 
     let mut events = server.state.subscribe();
@@ -248,13 +264,13 @@ async fn recusa_conversa_consigo_mesmo_e_conta_inexistente() {
 
 #[tokio::test]
 async fn o_diretorio_nao_inclui_voce_nem_conta_desativada() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
-    server.account("Bob");
-    server.state.db.set_disabled("alice", true).unwrap();
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
+    server.account("Bob").await;
+    server.state.db.set_disabled("alice", true).await.unwrap();
 
-    let lista = directory(&server.state, &daniel.id);
+    let lista = directory(&server.state, &daniel.id).await;
     let nomes: Vec<&str> = lista.iter().map(|e| e.username.as_str()).collect();
     assert_eq!(nomes, ["Bob"]);
     assert!(!lista.iter().any(|e| e.user_id == alice.id));
@@ -268,9 +284,9 @@ fn o_id_da_conversa_independe_da_ordem() {
 
 #[tokio::test]
 async fn ler_numa_sessao_limpa_o_badge_das_outras() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     // A alice esta com o app aberto em dois lugares.
     server.state.register_session("a1", &alice).await.unwrap();
     server.state.register_session("a2", &alice).await.unwrap();

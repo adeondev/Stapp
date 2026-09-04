@@ -61,15 +61,19 @@ pub async fn create(
     let msg_id = Uuid::new_v4().to_string();
     let ts = now_ms();
 
-    let poll = match state.db.insert_poll(
-        &msg_id,
-        Some(&channel),
-        &author.user_id,
-        q,
-        allow_mult,
-        &cleaned_options,
-        ts,
-    ) {
+    let poll = match state
+        .db
+        .insert_poll(
+            &msg_id,
+            Some(&channel),
+            &author.user_id,
+            q,
+            allow_mult,
+            &cleaned_options,
+            ts,
+        )
+        .await
+    {
         Ok(p) => p,
         Err(err) => {
             state.send_to(
@@ -98,7 +102,7 @@ pub async fn create(
         mentions_everyone: false,
     };
 
-    if let Err(err) = state.db.insert(&msg) {
+    if let Err(err) = state.db.insert(&msg).await {
         tracing::error!(%err, "falha gravando mensagem da enquete");
     }
 
@@ -113,9 +117,10 @@ pub async fn vote(state: &Arc<AppState>, peer_id: &str, poll_id: String, option_
     match state
         .db
         .vote_poll(&poll_id, &option_id, &user.user_id, now_ms())
+        .await
     {
         Ok(updated_poll) => {
-            let Some(channel) = canal_da_enquete(state, &updated_poll.message_id) else {
+            let Some(channel) = canal_da_enquete(state, &updated_poll.message_id).await else {
                 return;
             };
             state.broadcast(ServerMsg::ChatPollUpdate {
@@ -139,9 +144,9 @@ pub async fn close(state: &Arc<AppState>, peer_id: &str, poll_id: String) {
         return;
     };
 
-    match state.db.close_poll(&poll_id, &user.user_id) {
+    match state.db.close_poll(&poll_id, &user.user_id).await {
         Ok(closed_poll) => {
-            let Some(channel) = canal_da_enquete(state, &closed_poll.message_id) else {
+            let Some(channel) = canal_da_enquete(state, &closed_poll.message_id).await else {
                 return;
             };
             state.broadcast(ServerMsg::ChatPollUpdate {
@@ -166,8 +171,8 @@ pub async fn close(state: &Arc<AppState>, peer_id: &str, poll_id: String) {
 /// qualquer outro canal atualizava no canal errado na tela de todo mundo. A
 /// consulta que faltava e a mesma que os comandos de mensagem usam para
 /// descobrir o escopo pelo id.
-fn canal_da_enquete(state: &AppState, message_id: &str) -> Option<String> {
-    match state.db.locate_message(message_id) {
+async fn canal_da_enquete(state: &AppState, message_id: &str) -> Option<String> {
+    match state.db.locate_message(message_id).await {
         Ok(Some(MessageLocation::Channel { channel, .. })) => Some(channel),
         // Enquete em conversa direta nao existe hoje: `poll.create` so aceita
         // canal. Se um dia existir, o anuncio tem que sair por `sessions_of`,

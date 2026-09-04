@@ -35,7 +35,7 @@ fn password_policy_counts_unicode_characters() {
 #[tokio::test]
 async fn registers_and_authenticates_case_insensitively() {
     let dir = TestDir::new();
-    let db = Db::open(&dir.database()).unwrap();
+    let db = Db::open(&dir.database()).await.unwrap();
     let auth = AuthService::new().unwrap();
     let account = auth
         .register(
@@ -52,7 +52,7 @@ async fn registers_and_authenticates_case_insensitively() {
         .unwrap();
     assert_eq!(logged.id, account.id);
 
-    db.set_disabled("daniel", true).unwrap();
+    db.set_disabled("daniel", true).await.unwrap();
     assert!(matches!(
         auth.login(&db, "daniel", "uma senha realmente segura".into())
             .await,
@@ -63,7 +63,7 @@ async fn registers_and_authenticates_case_insensitively() {
 #[tokio::test]
 async fn throttles_login_and_registration_attempts() {
     let dir = TestDir::new();
-    let db = Db::open(&dir.database()).unwrap();
+    let db = Db::open(&dir.database()).await.unwrap();
     let auth = AuthService::new().unwrap();
     assert!(matches!(
         auth.login(&db, "ninguém", "senha errada comprida".into())

@@ -60,7 +60,7 @@ impl TokenService {
         IssuedAccess { token, expires_at }
     }
 
-    pub fn verify_access(&self, db: &Db, raw: &str) -> Option<Account> {
+    pub async fn verify_access(&self, db: &Db, raw: &str) -> Option<Account> {
         let key = digest(raw);
         let grant = {
             let mut access = self.access.lock().unwrap();
@@ -68,12 +68,13 @@ impl TokenService {
             access.get(&key).cloned()
         }?;
         db.account_by_id(&grant.user_id)
+            .await
             .ok()
             .flatten()
             .filter(|account| account.disabled_at.is_none())
     }
 
-    pub fn create_refresh(
+    pub async fn create_refresh(
         &self,
         db: &Db,
         account: &Account,
@@ -82,7 +83,7 @@ impl TokenService {
         let id = Uuid::new_v4().to_string();
         let secret = random_secret();
         let expires_at = now_ms() + REFRESH_TTL_MS;
-        db.create_refresh_session(&id, &account.id, &digest(&secret), remember, expires_at)?;
+        db.create_refresh_session(&id, &account.id, &digest(&secret), remember, expires_at).await?;
         Ok(IssuedRefresh {
             token: format!("{id}.{secret}"),
             remember,
@@ -90,7 +91,7 @@ impl TokenService {
         })
     }
 
-    pub fn rotate_refresh(
+    pub async fn rotate_refresh(
         &self,
         db: &Db,
         raw: &str,
@@ -98,7 +99,7 @@ impl TokenService {
         let Some((id, secret)) = raw.split_once('.') else {
             return Ok(None);
         };
-        let Some(stored) = db.refresh_session(id)? else {
+        let Some(stored) = db.refresh_session(id).await? else {
             return Ok(None);
         };
         let candidate = digest(secret);
@@ -122,15 +123,15 @@ impl TokenService {
             &candidate,
             &digest(&next_secret),
             now_ms() + REFRESH_GRACE_MS,
-        )?;
+        ).await?;
         let Some(rotated) = rotated else {
             return Ok(None);
         };
-        let Some(account) = db.account_by_id(&rotated.user_id)? else {
+        let Some(account) = db.account_by_id(&rotated.user_id).await? else {
             return Ok(None);
         };
         if account.disabled_at.is_some() {
-            db.revoke_refresh_session(id)?;
+            db.revoke_refresh_session(id).await?;
             return Ok(None);
         }
         Ok(Some((

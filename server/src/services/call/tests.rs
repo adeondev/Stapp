@@ -16,9 +16,9 @@ fn coletar(
 
 /// Daniel em "d1", Alice em "a1", os dois conectados.
 async fn dupla() -> (TestServer, crate::storage::Account, crate::storage::Account) {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     server.state.register_session("a1", &alice).await.unwrap();
     (server, daniel, alice)
@@ -91,7 +91,7 @@ async fn recusar_avisa_os_dois_e_deixa_rastro_na_conversa() {
     );
 
     let conversa = conversation_id(&daniel.id, &alice.id);
-    let historico = server.state.db.direct_history(&conversa, 10).unwrap();
+    let historico = server.state.db.direct_history(&conversa, 10).await.unwrap();
     assert_eq!(historico.len(), 1);
     assert_eq!(historico[0].kind, DirectMessageKind::Call);
     assert_eq!(historico[0].text, "chamada recusada");
@@ -99,9 +99,9 @@ async fn recusar_avisa_os_dois_e_deixa_rastro_na_conversa() {
 
 #[tokio::test]
 async fn ligar_para_quem_esta_offline_nem_toca() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server.state.register_session("d1", &daniel).await.unwrap();
     // A alice tem conta, mas nao esta conectada.
 
@@ -124,6 +124,7 @@ async fn ligar_para_quem_esta_offline_nem_toca() {
             .state
             .db
             .direct_history(&conversa, 10)
+            .await
             .unwrap()
             .is_empty()
     );
@@ -132,7 +133,7 @@ async fn ligar_para_quem_esta_offline_nem_toca() {
 #[tokio::test]
 async fn quem_ja_esta_tocando_aparece_ocupado() {
     let (server, daniel, alice) = dupla().await;
-    let bob = server.account("Bob");
+    let bob = server.account("Bob").await;
     server.state.register_session("b1", &bob).await.unwrap();
 
     start(&server.state, "d1", alice.id.clone()).await;

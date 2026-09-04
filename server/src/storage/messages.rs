@@ -1,7 +1,9 @@
 //! Consultas de mensagem.
 
+use std::collections::HashMap;
+
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension, Row, params_from_iter};
+use sqlx::{SqliteConnection, SqlitePool};
 
 use super::Db;
 use crate::protocol::{Message, REPLY_EXCERPT_CHARS, ReplyRef, UserId};
@@ -9,122 +11,175 @@ use crate::protocol::{Message, REPLY_EXCERPT_CHARS, ReplyRef, UserId};
 const COLUNAS: &str = "id, channel, author_id, author_username, text, ts, reply_to, edited_at, mentions, \
      mentions_everyone";
 
+#[derive(sqlx::FromRow)]
+struct RawMessage {
+    id: String,
+    channel: String,
+    author_id: String,
+    author_username: String,
+    text: String,
+    ts: i64,
+    reply_to: Option<String>,
+    edited_at: Option<i64>,
+    mentions: String,
+    mentions_everyone: bool,
+}
+
+impl From<RawMessage> for Message {
+    fn from(r: RawMessage) -> Self {
+        Self {
+            id: r.id,
+            channel: r.channel,
+            author_id: r.author_id,
+            author_username: r.author_username,
+            text: r.text,
+            ts: r.ts,
+            attachments: Vec::new(),
+            poll: None,
+            reactions: Vec::new(),
+            reply_to: r.reply_to.map(|id| ReplyRef {
+                message_id: id,
+                author_id: None,
+                author_username: None,
+                excerpt: None,
+            }),
+            edited_at: r.edited_at,
+            mentions: super::mentions_de_json(r.mentions),
+            mentions_everyone: r.mentions_everyone,
+        }
+    }
+}
+
 impl Db {
-    pub fn insert(&self, msg: &Message) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        insert_on(&conn, msg, None)
+    pub async fn insert(&self, msg: &Message) -> Result<()> {
+        let mut conn = self.pool.acquire().await?;
+        insert_on(&mut conn, msg, None).await
     }
 
-    pub fn message_id_for_nonce(
+    pub async fn message_id_for_nonce(
         &self,
         author_id: &UserId,
         channel: &str,
         nonce: &str,
     ) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
-        Ok(conn.query_row(
-            "SELECT id FROM messages WHERE author_id = ?1 AND channel = ?2 AND client_nonce = ?3",
-            (author_id, channel, nonce),
-            |row| row.get(0),
-        ).optional()?)
+        let row: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM messages WHERE author_id = $1 AND channel = $2 AND client_nonce = $3",
+        )
+        .bind(author_id)
+        .bind(channel)
+        .bind(nonce)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|r| r.0))
     }
 
-    pub fn mark_channel_read(
+    pub async fn mark_channel_read(
         &self,
         reader: &UserId,
         channel: &str,
         message_id: &str,
         ts: i64,
     ) -> Result<Vec<UserId>> {
-        let conn = self.conn.lock().unwrap();
-        let message_ts: Option<i64> = conn
-            .query_row(
-                "SELECT ts FROM messages WHERE id = ?1 AND channel = ?2",
-                (message_id, channel),
-                |row| row.get(0),
-            )
-            .optional()?;
-        let Some(message_ts) = message_ts else {
+        let message_ts: Option<(i64,)> = sqlx::query_as(
+            "SELECT ts FROM messages WHERE id = $1 AND channel = $2",
+        )
+        .bind(message_id)
+        .bind(channel)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        let Some((message_ts,)) = message_ts else {
             return Ok(Vec::new());
         };
-        conn.execute(
+
+        sqlx::query(
             "INSERT INTO channel_reads (user_id, channel_id, last_message_id, last_read_ts)
-             VALUES (?1, ?2, ?3, ?4)
+             VALUES ($1, $2, $3, $4)
              ON CONFLICT (user_id, channel_id) DO UPDATE SET
                 last_message_id = CASE WHEN excluded.last_read_ts >= last_read_ts THEN excluded.last_message_id ELSE last_message_id END,
                 last_read_ts = MAX(last_read_ts, excluded.last_read_ts)",
-            (reader, channel, message_id, ts.max(message_ts)),
-        )?;
-        let mut stmt = conn.prepare(
-            "SELECT user_id FROM channel_reads WHERE channel_id = ?1 AND last_read_ts >= ?2 ORDER BY last_read_ts DESC"
-        )?;
-        let rows = stmt.query_map((channel, message_ts), |row| row.get::<_, String>(0))?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+        )
+        .bind(reader)
+        .bind(channel)
+        .bind(message_id)
+        .bind(ts.max(message_ts))
+        .execute(&self.pool)
+        .await?;
+
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT user_id FROM channel_reads WHERE channel_id = $1 AND last_read_ts >= $2 ORDER BY last_read_ts DESC",
+        )
+        .bind(channel)
+        .bind(message_ts)
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().map(|r| r.0).collect())
     }
 }
 
-pub(super) fn insert_on(
-    conn: &Connection,
+pub(super) async fn insert_on(
+    conn: &mut SqliteConnection,
     msg: &Message,
     client_nonce: Option<&str>,
 ) -> Result<()> {
-    conn.execute(
+    sqlx::query(
         "INSERT INTO messages
                 (id, channel, author_id, author_username, text, ts,
                  reply_to, mentions, mentions_everyone, client_nonce)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        (
-            &msg.id,
-            &msg.channel,
-            &msg.author_id,
-            &msg.author_username,
-            &msg.text,
-            msg.ts,
-            msg.reply_to.as_ref().map(|r| r.message_id.clone()),
-            super::mentions_para_json(&msg.mentions),
-            msg.mentions_everyone,
-            client_nonce,
-        ),
-    )?;
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)",
+    )
+    .bind(&msg.id)
+    .bind(&msg.channel)
+    .bind(&msg.author_id)
+    .bind(&msg.author_username)
+    .bind(&msg.text)
+    .bind(msg.ts)
+    .bind(msg.reply_to.as_ref().map(|r| r.message_id.clone()))
+    .bind(super::mentions_para_json(&msg.mentions))
+    .bind(msg.mentions_everyone)
+    .bind(client_nonce)
+    .execute(&mut *conn)
+    .await?;
     Ok(())
 }
 
 impl Db {
-    /// As `limit` mensagens mais recentes do canal, ja em ordem cronologica.
-    pub fn history(&self, channel: &str, limit: usize) -> Result<Vec<Message>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!(
+    pub async fn history(&self, channel: &str, limit: usize) -> Result<Vec<Message>> {
+        let query = format!(
             "SELECT {COLUNAS} FROM messages
-              WHERE channel = ?1
+              WHERE channel = $1
               ORDER BY ts DESC, rowid DESC
-              LIMIT ?2"
-        ))?;
+              LIMIT $2"
+        );
+        let rows: Vec<RawMessage> = sqlx::query_as(&query)
+            .bind(channel)
+            .bind(limit as i64)
+            .fetch_all(&self.pool)
+            .await?;
 
-        let rows = stmt.query_map((channel, limit as i64), ler_mensagem)?;
-        let mut msgs = rows.collect::<rusqlite::Result<Vec<_>>>()?;
-        hidratar(&conn, &mut msgs)?;
+        let mut msgs: Vec<Message> = rows.into_iter().map(Into::into).collect();
+        hidratar(&self.pool, &mut msgs).await?;
         msgs.reverse();
         Ok(msgs)
     }
 
-    /// Uma mensagem de canal, ja com anexo, enquete, reacao e resposta.
-    /// E o que os eventos de atualizacao reenviam.
-    pub fn message_by_id(&self, id: &str) -> Result<Option<Message>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!("SELECT {COLUNAS} FROM messages WHERE id = ?1"))?;
-        let Some(msg) = stmt.query_row([id], ler_mensagem).optional()? else {
+    pub async fn message_by_id(&self, id: &str) -> Result<Option<Message>> {
+        let query = format!("SELECT {COLUNAS} FROM messages WHERE id = $1");
+        let raw: Option<RawMessage> = sqlx::query_as(&query)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        let Some(raw) = raw else {
             return Ok(None);
         };
-        let mut msgs = vec![msg];
-        hidratar(&conn, &mut msgs)?;
+        let mut msgs = vec![Message::from(raw)];
+        hidratar(&self.pool, &mut msgs).await?;
         Ok(msgs.pop())
     }
 
-    /// `Ok(false)` = a mensagem nao existe **ou** nao e sua.
-    ///
-    /// A autoria e clausula do SQL, nunca um `if` no servico: entre o `if` e o
-    /// `UPDATE` cabe outra operacao mexendo na mesma linha.
-    pub fn update_message_text(
+    pub async fn update_message_text(
         &self,
         id: &str,
         author_id: &UserId,
@@ -133,43 +188,37 @@ impl Db {
         mentions_everyone: bool,
         edited_at: i64,
     ) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
-        let alteradas = conn.execute(
+        let alteradas = sqlx::query(
             "UPDATE messages
-                SET text = ?3, mentions = ?4, mentions_everyone = ?5, edited_at = ?6
-              WHERE id = ?1 AND author_id = ?2",
-            (
-                id,
-                author_id,
-                text,
-                super::mentions_para_json(mentions),
-                mentions_everyone,
-                edited_at,
-            ),
-        )?;
+                SET text = $3, mentions = $4, mentions_everyone = $5, edited_at = $6
+              WHERE id = $1 AND author_id = $2",
+        )
+        .bind(id)
+        .bind(author_id)
+        .bind(text)
+        .bind(super::mentions_para_json(mentions))
+        .bind(mentions_everyone)
+        .bind(edited_at)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
         Ok(alteradas > 0)
     }
 }
 
-/// Anexo, enquete, reacao e previa da resposta de um lote inteiro.
-///
-/// Reacao e resposta saem em **uma** consulta cada, independente do tamanho do
-/// lote. Anexo e enquete continuam um por mensagem — divida antiga da V5 e da
-/// V6, nao piorada aqui.
-/// FUTURE: os dois cabem no mesmo padrao `IN (...)` quando incomodar.
-pub(super) fn hidratar(conn: &Connection, msgs: &mut [Message]) -> Result<()> {
+pub(super) async fn hidratar(pool: &SqlitePool, msgs: &mut [Message]) -> Result<()> {
     for msg in msgs.iter_mut() {
-        if let Ok(atts) = super::attachments::list_for_message(conn, &msg.id, None) {
+        if let Ok(atts) = super::attachments::list_for_message(pool, &msg.id, None).await {
             msg.attachments = atts;
         }
-        if let Ok(poll) = super::polls::get_poll_by_message(conn, &msg.id, None) {
+        if let Ok(poll) = super::polls::get_poll_by_message(pool, &msg.id, None).await {
             msg.poll = poll;
         }
     }
 
     let ids: Vec<String> = msgs.iter().map(|m| m.id.clone()).collect();
-    let mut reacoes = super::reactions::list_for_messages(conn, &ids)?;
-    let mut respostas = previas_de_resposta(conn, &ids)?;
+    let mut reacoes = super::reactions::list_for_messages(pool, &ids).await?;
+    let mut respostas = previas_de_resposta(pool, &ids).await?;
     for msg in msgs.iter_mut() {
         if let Some(lista) = reacoes.remove(&msg.id) {
             msg.reactions = lista;
@@ -181,71 +230,37 @@ pub(super) fn hidratar(conn: &Connection, msgs: &mut [Message]) -> Result<()> {
     Ok(())
 }
 
-/// A previa de cada resposta do lote, resolvida contra o alvo atual.
-///
-/// O LEFT JOIN e o que faz "alvo apagado" cair sozinho: sem linha do lado do
-/// alvo, o `ReplyRef` sai so com o id e o cliente desenha "mensagem apagada".
-fn previas_de_resposta(
-    conn: &Connection,
+async fn previas_de_resposta(
+    pool: &SqlitePool,
     ids: &[String],
-) -> Result<std::collections::HashMap<String, ReplyRef>> {
-    let mut mapa = std::collections::HashMap::new();
+) -> Result<HashMap<String, ReplyRef>> {
+    let mut mapa = HashMap::new();
     if ids.is_empty() {
         return Ok(mapa);
     }
 
-    let marcadores = vec!["?"; ids.len()].join(",");
-    let mut stmt = conn.prepare(&format!(
+    let mut builder = sqlx::QueryBuilder::new(
         "SELECT origem.id, origem.reply_to, alvo.author_id, alvo.author_username, alvo.text
            FROM messages origem
            LEFT JOIN messages alvo ON alvo.id = origem.reply_to
-          WHERE origem.id IN ({marcadores}) AND origem.reply_to IS NOT NULL"
-    ))?;
+          WHERE origem.reply_to IS NOT NULL AND origem.id IN (",
+    );
+    let mut separated = builder.separated(", ");
+    for id in ids {
+        separated.push_bind(id);
+    }
+    separated.push_unseparated(")");
 
-    let linhas = stmt.query_map(params_from_iter(ids), |row| {
-        Ok((
-            row.get::<_, String>(0)?,
-            super::montar_reply_ref(
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, Option<String>>(3)?,
-                row.get::<_, Option<String>>(4)?,
-            ),
-        ))
-    })?;
+    let linhas: Vec<(String, String, Option<String>, Option<String>, Option<String>)> =
+        builder.build_query_as().fetch_all(pool).await?;
 
-    for linha in linhas {
-        let (origem, previa) = linha?;
+    for (origem, reply_to, author_id, author_username, texto) in linhas {
+        let previa = super::montar_reply_ref(reply_to, author_id, author_username, texto);
         mapa.insert(origem, previa);
     }
     Ok(mapa)
 }
 
-fn ler_mensagem(row: &Row) -> rusqlite::Result<Message> {
-    Ok(Message {
-        id: row.get(0)?,
-        channel: row.get(1)?,
-        author_id: row.get(2)?,
-        author_username: row.get(3)?,
-        text: row.get(4)?,
-        ts: row.get(5)?,
-        attachments: Vec::new(),
-        poll: None,
-        reactions: Vec::new(),
-        // A previa vem do lote em `hidratar`; aqui so sabemos que existe.
-        reply_to: row.get::<_, Option<String>>(6)?.map(|id| ReplyRef {
-            message_id: id,
-            author_id: None,
-            author_username: None,
-            excerpt: None,
-        }),
-        edited_at: row.get(7)?,
-        mentions: super::mentions_de_json(row.get::<_, String>(8)?),
-        mentions_everyone: row.get(9)?,
-    })
-}
-
-/// Corta o texto do alvo no tamanho da previa, sem partir um emoji ao meio.
 pub(super) fn recortar(texto: &str) -> String {
     let mut recorte: String = texto.chars().take(REPLY_EXCERPT_CHARS).collect();
     if recorte.chars().count() < texto.chars().count() {

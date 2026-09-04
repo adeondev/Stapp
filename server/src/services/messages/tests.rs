@@ -28,9 +28,9 @@ fn o_teto_conta_caracteres_e_nao_bytes() {
     assert!(!fits(texto, 3));
 }
 
-#[test]
-fn os_limites_do_cliente_saem_da_config() {
-    let server = TestServer::new(10, 4);
+#[tokio::test]
+async fn os_limites_do_cliente_saem_da_config() {
+    let server = TestServer::new(10, 4).await;
     let limites = client_limits(&server.state);
 
     assert_eq!(
@@ -55,13 +55,13 @@ fn drenar(events: &mut tokio::sync::broadcast::Receiver<Envelope>) -> Vec<Envelo
 /// Manda uma mensagem no canal e devolve o id dela.
 async fn mandar_no_canal(server: &TestServer, peer: &str, texto: &str) -> String {
     chat::send(&server.state, peer, "geral".into(), texto, Vec::new(), None).await;
-    server.state.db.history("geral", 1).unwrap()[0].id.clone()
+    server.state.db.history("geral", 1).await.unwrap()[0].id.clone()
 }
 
 #[tokio::test]
 async fn editar_marca_a_hora_e_reemite_a_mensagem_inteira() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &daniel)
@@ -93,9 +93,9 @@ async fn editar_marca_a_hora_e_reemite_a_mensagem_inteira() {
 /// um dia aparecer, ele muda de proposito, nao por acidente.
 #[tokio::test]
 async fn ninguem_edita_nem_apaga_mensagem_dos_outros() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server
         .state
         .register_session("peer-daniel", &daniel)
@@ -125,15 +125,15 @@ async fn ninguem_edita_nem_apaga_mensagem_dos_outros() {
             .all(|e| matches!(&e.target, Target::Peer(p) if p == "peer-alice"))
     );
     assert_eq!(
-        server.state.db.history("geral", 10).unwrap()[0].text,
+        server.state.db.history("geral", 10).await.unwrap()[0].text,
         "texto do daniel"
     );
 }
 
 #[tokio::test]
 async fn apagar_no_canal_avisa_todo_mundo_e_some_do_historico() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &daniel)
@@ -156,14 +156,14 @@ async fn apagar_no_canal_avisa_todo_mundo_e_some_do_historico() {
         outro => panic!("evento inesperado: {outro:?}"),
     }
     assert!(matches!(eventos[0].target, Target::All));
-    assert!(server.state.db.history("geral", 10).unwrap().is_empty());
+    assert!(server.state.db.history("geral", 10).await.unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn reagir_alterna_e_o_payload_e_igual_para_todo_mundo() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server
         .state
         .register_session("peer-daniel", &daniel)
@@ -199,6 +199,7 @@ async fn reagir_alterna_e_o_payload_e_igual_para_todo_mundo() {
             .state
             .db
             .reactions_of_message(&id)
+            .await
             .unwrap()
             .is_empty()
     );
@@ -206,8 +207,8 @@ async fn reagir_alterna_e_o_payload_e_igual_para_todo_mundo() {
 
 #[tokio::test]
 async fn reacao_vazia_ou_gigante_e_recusada() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &daniel)
@@ -223,6 +224,7 @@ async fn reacao_vazia_ou_gigante_e_recusada() {
             .state
             .db
             .reactions_of_message(&id)
+            .await
             .unwrap()
             .is_empty()
     );
@@ -230,10 +232,10 @@ async fn reacao_vazia_ou_gigante_e_recusada() {
 
 #[tokio::test]
 async fn editar_e_apagar_em_conversa_nunca_vao_por_broadcast() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
-    let bob = server.account("Bob");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
+    let bob = server.account("Bob").await;
     for (peer, conta) in [
         ("peer-daniel", &daniel),
         ("peer-alice", &alice),
@@ -252,7 +254,12 @@ async fn editar_e_apagar_em_conversa_nunca_vao_por_broadcast() {
     )
     .await;
     let conversa = crate::storage::conversation_id(&daniel.id, &alice.id);
-    let id = server.state.db.direct_history(&conversa, 1).unwrap()[0]
+    let id = server
+        .state
+        .db
+        .direct_history(&conversa, 1)
+        .await
+        .unwrap()[0]
         .id
         .clone();
 
@@ -296,6 +303,7 @@ async fn editar_e_apagar_em_conversa_nunca_vao_por_broadcast() {
             .state
             .db
             .direct_history(&conversa, 10)
+            .await
             .unwrap()
             .is_empty()
     );
@@ -305,10 +313,10 @@ async fn editar_e_apagar_em_conversa_nunca_vao_por_broadcast() {
 /// outros — e, de quebra, passar a receber os eventos dela.
 #[tokio::test]
 async fn estranho_nao_reage_em_conversa_alheia() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
-    let bob = server.account("Bob");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
+    let bob = server.account("Bob").await;
     for (peer, conta) in [
         ("peer-daniel", &daniel),
         ("peer-alice", &alice),
@@ -327,7 +335,12 @@ async fn estranho_nao_reage_em_conversa_alheia() {
     )
     .await;
     let conversa = crate::storage::conversation_id(&daniel.id, &alice.id);
-    let id = server.state.db.direct_history(&conversa, 1).unwrap()[0]
+    let id = server
+        .state
+        .db
+        .direct_history(&conversa, 1)
+        .await
+        .unwrap()[0]
         .id
         .clone();
 
@@ -340,6 +353,7 @@ async fn estranho_nao_reage_em_conversa_alheia() {
             .state
             .db
             .reactions_of_message(&id)
+            .await
             .unwrap()
             .is_empty()
     );
@@ -353,8 +367,8 @@ async fn estranho_nao_reage_em_conversa_alheia() {
 
 #[tokio::test]
 async fn editar_para_vazio_e_recusado_em_vez_de_apagar() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
     server
         .state
         .register_session("peer", &daniel)
@@ -366,16 +380,16 @@ async fn editar_para_vazio_e_recusado_em_vez_de_apagar() {
 
     // Apagar e uma decisao explicita; esvaziar o texto nao e atalho para ela.
     assert_eq!(
-        server.state.db.history("geral", 10).unwrap()[0].text,
+        server.state.db.history("geral", 10).await.unwrap()[0].text,
         "conteudo"
     );
 }
 
 #[tokio::test]
 async fn responder_id_de_outro_escopo_e_ignorado() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server
         .state
         .register_session("peer-daniel", &daniel)
@@ -397,7 +411,12 @@ async fn responder_id_de_outro_escopo_e_ignorado() {
     )
     .await;
     let conversa = crate::storage::conversation_id(&daniel.id, &alice.id);
-    let id_da_dm = server.state.db.direct_history(&conversa, 1).unwrap()[0]
+    let id_da_dm = server
+        .state
+        .db
+        .direct_history(&conversa, 1)
+        .await
+        .unwrap()[0]
         .id
         .clone();
 
@@ -413,17 +432,18 @@ async fn responder_id_de_outro_escopo_e_ignorado() {
     )
     .await;
 
-    let publicada = &server.state.db.history("geral", 1).unwrap()[0];
+    let history = server.state.db.history("geral", 1).await.unwrap();
+    let publicada = &history[0];
     assert!(publicada.reply_to.is_none());
 }
 
 #[tokio::test]
 async fn mencao_resolve_username_e_ignora_quem_nao_existe() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
 
-    let citadas = mentions::resolve(&server.state, "oi @alice e @ninguem, tudo bem @Daniel?");
+    let citadas = mentions::resolve(&server.state, "oi @alice e @ninguem, tudo bem @Daniel?").await;
 
     // Case-insensitive, na ordem em que aparecem, sem repetir.
     assert_eq!(citadas.user_ids, vec![alice.id.clone(), daniel.id.clone()]);
@@ -432,10 +452,10 @@ async fn mencao_resolve_username_e_ignora_quem_nao_existe() {
 
 #[tokio::test]
 async fn everyone_e_reservado_mesmo_com_conta_de_mesmo_nome() {
-    let server = TestServer::new(10, 4);
-    server.account("everyone");
+    let server = TestServer::new(10, 4).await;
+    server.account("everyone").await;
 
-    let citadas = mentions::resolve(&server.state, "atencao @everyone");
+    let citadas = mentions::resolve(&server.state, "atencao @everyone").await;
 
     assert!(citadas.everyone);
     assert!(
@@ -446,9 +466,9 @@ async fn everyone_e_reservado_mesmo_com_conta_de_mesmo_nome() {
 
 #[tokio::test]
 async fn mencao_nao_reescreve_o_texto_e_a_edicao_recalcula() {
-    let server = TestServer::new(10, 4);
-    let daniel = server.account("Daniel");
-    let alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
     server
         .state
         .register_session("peer", &daniel)
@@ -456,13 +476,15 @@ async fn mencao_nao_reescreve_o_texto_e_a_edicao_recalcula() {
         .unwrap();
 
     let id = mandar_no_canal(&server, "peer", "fala @alice").await;
-    let msg = &server.state.db.history("geral", 1).unwrap()[0];
+    let history1 = server.state.db.history("geral", 1).await.unwrap();
+    let msg = &history1[0];
     // O texto guardado continua exatamente o que foi digitado: nao existe
     // formato de marcacao para o cliente decodificar.
     assert_eq!(msg.text, "fala @alice");
     assert_eq!(msg.mentions, vec![alice.id.clone()]);
 
     edit(&server.state, "peer", id, "deixa pra la").await;
-    let msg = &server.state.db.history("geral", 1).unwrap()[0];
+    let history2 = server.state.db.history("geral", 1).await.unwrap();
+    let msg = &history2[0];
     assert!(msg.mentions.is_empty(), "tirar o @ tira a citacao junto");
 }

@@ -10,11 +10,11 @@ use crate::storage::MessageLocation;
 
 /// Envia de uma vez o historico de todos os canais de texto.
 /// Assim, trocar de canal na UI nao exige outra ida ao servidor.
-pub fn send_history(state: &AppState, peer_id: &str) {
+pub async fn send_history(state: &AppState, peer_id: &str) {
     let limit = state.config.storage.history_limit;
 
     for channel in state.config.text_channels() {
-        match state.db.history(&channel.id, limit) {
+        match state.db.history(&channel.id, limit).await {
             Ok(msgs) => state.send_to(
                 peer_id,
                 ServerMsg::ChatHistory {
@@ -90,10 +90,10 @@ pub async fn send_with_nonce(
                 },
             );
         }
-        if let Ok(Some(message_id)) =
-            state
-                .db
-                .message_id_for_nonce(&author.user_id, &channel, nonce)
+        if let Ok(Some(message_id)) = state
+            .db
+            .message_id_for_nonce(&author.user_id, &channel, nonce)
+            .await
         {
             return state.send_to(
                 peer_id,
@@ -108,18 +108,22 @@ pub async fn send_with_nonce(
     // Responder algo de outro escopo nao e so cosmetico: sem esta guarda,
     // apontar um id de conversa dentro de um canal publico faria a previa vazar
     // o texto da DM dos outros para o servidor inteiro.
-    let resposta = reply_to.and_then(|alvo| {
-        let mesmo_escopo = matches!(
-            state.db.locate_message(&alvo),
-            Ok(Some(MessageLocation::Channel { channel: ref c, .. })) if *c == channel
-        );
-        // mesmo_canal: fora do escopo, a resposta simplesmente nao existe.
-        mesmo_escopo
-            .then(|| state.db.reply_ref(&alvo).ok().flatten())
-            .flatten()
-    });
+    let resposta = match reply_to {
+        Some(alvo) => {
+            let mesmo_escopo = matches!(
+                state.db.locate_message(&alvo).await,
+                Ok(Some(MessageLocation::Channel { channel: ref c, .. })) if *c == channel
+            );
+            if mesmo_escopo {
+                state.db.reply_ref(&alvo).await.ok().flatten()
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
 
-    let citadas = messages::mentions::resolve(state, &text);
+    let citadas = messages::mentions::resolve(state, &text).await;
     let msg_id = Uuid::new_v4().to_string();
     let mut msg = Message {
         id: msg_id.clone(),
@@ -138,12 +142,16 @@ pub async fn send_with_nonce(
     };
 
     // Se o disco falhar, a conversa continua — so o historico fica torto.
-    if let Err(err) = state.db.insert_channel_message_with_attachments(
-        &msg,
-        client_nonce.as_deref(),
-        &attachment_ids,
-        state.config.limits.max_attachments_per_message,
-    ) {
+    if let Err(err) = state
+        .db
+        .insert_channel_message_with_attachments(
+            &msg,
+            client_nonce.as_deref(),
+            &attachment_ids,
+            state.config.limits.max_attachments_per_message,
+        )
+        .await
+    {
         tracing::error!(%err, "falha gravando mensagem");
         if let Some(client_nonce) = client_nonce {
             state.send_to(
@@ -163,7 +171,11 @@ pub async fn send_with_nonce(
         }
         return;
     }
-    msg.attachments = state.db.list_attachments(&msg_id, None).unwrap_or_default();
+    msg.attachments = state
+        .db
+        .list_attachments(&msg_id, None)
+        .await
+        .unwrap_or_default();
     let text_for_preview = msg.text.clone();
     state.broadcast(ServerMsg::ChatNew { channel, msg });
     if let Some(client_nonce) = client_nonce {
@@ -176,17 +188,13 @@ pub async fn send_with_nonce(
         );
     }
 
-    // Dispara scraping assíncrono para links seguros em background
+    // Enfileira scraping assincrono para links seguros na fila do crawler
     if let Some(target_url) = crate::services::preview::extract_first_url(&text_for_preview) {
-        let app_state = state.clone();
-        tokio::spawn(async move {
-            if let Some(preview) = crate::services::preview::scrape_metadata(&target_url).await {
-                app_state.broadcast(ServerMsg::LinkPreviewEnriched {
-                    message_id: msg_id,
-                    preview,
-                });
-            }
-        });
+        state.enqueue_preview(
+            msg_id,
+            target_url,
+            crate::services::preview::CrawlTarget::Channel,
+        );
     }
 }
 
@@ -200,6 +208,7 @@ pub async fn mark_read(state: &AppState, peer_id: &str, channel: String, message
     match state
         .db
         .mark_channel_read(&identity.user_id, &channel, &message_id, now_ms())
+        .await
     {
         Ok(readers) => state.broadcast(ServerMsg::ChatReads {
             channel,

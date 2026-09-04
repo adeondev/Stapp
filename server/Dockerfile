@@ -13,12 +13,12 @@ COPY web/ ./
 RUN pnpm build
 
 # =======================================================================
-# Stage 2: Build Rust Backend (axum + tokio + rusqlite bundled)
+# Stage 2: Build Rust Backend (axum + tokio + sqlx bundled)
 # =======================================================================
 FROM rust:1.85-slim-bookworm AS server-builder
 WORKDIR /build/server
 
-# Install build dependencies for C-bundled rusqlite
+# Install build dependencies for C-bundled sqlite
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     build-essential \
@@ -26,6 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Cache dependency compilation
 COPY server/Cargo.toml server/Cargo.lock ./
+COPY server/build.rs ./
 RUN mkdir src tests && \
     echo 'pub fn dummy() {}' > src/lib.rs && \
     echo 'fn main() {}' > src/main.rs && \
@@ -33,13 +34,17 @@ RUN mkdir src tests && \
     cargo build --release && \
     rm -rf src tests
 
+# Copy compiled frontend from web-builder so rust-embed bundles it into the binary
+COPY --from=web-builder /build/web/dist /build/web/dist
+
+COPY server/migrations ./migrations
 COPY server/src ./src
 COPY server/tests ./tests
 RUN touch src/main.rs src/lib.rs && cargo build --release --bin stapp-server
 
 # =======================================================================
-# Stage 3: Minimal Runtime Image
-# ======================================================================
+# Stage 3: Minimal Single-Binary Runtime Image
+# =======================================================================
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -53,20 +58,18 @@ RUN groupadd -g 10001 stapp && \
 
 WORKDIR /app
 
-# Create application and storage directories
-RUN mkdir -p /app/data/attachments /app/web/dist && \
-   chown -R stapp:stapp /app
+# Create application storage directories
+RUN mkdir -p /app/data/attachments /app/data/acme && \
+    chown -R stapp:stapp /app
 
-# Copy artifacts from builder stages
+# Copy single self-contained binary and default config
 COPY --from=server-builder --chown=stapp:stapp /build/server/target/release/stapp-server /usr/local/bin/stapp-server
-COPY --from=web-builder --chown=stapp:stapp /build/web/dist /app/web/dist
 COPY --chown=stapp:stapp server/stapp.toml /app/stapp.toml
 
 USER stapp
 
 ENV STAPP_SERVER_BIND=0.0.0.0 \
     STAPP_SERVER_PORT=8787 \
-    STAPP_SERVER_STATIC_DIR=/app/web/dist \
     STAPP_STORAGE_DATABASE=/app/data/stapp.db \
     STAPP_STORAGE_ATTACHMENTS_DIR=/app/data/attachments
 

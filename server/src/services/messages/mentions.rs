@@ -68,7 +68,7 @@ fn eh_de_username(ch: char) -> bool {
 /// sem id dentro do texto nao da para desambiguar. FUTURE: o cliente mandar
 /// `mentions` junto do `chat.send` e o servidor so conferir; ai o autocomplete
 /// decide o alvo e a ambiguidade some.
-pub fn resolve(state: &AppState, text: &str) -> Mentions {
+pub async fn resolve(state: &AppState, text: &str) -> Mentions {
     let mut saida = Mentions::default();
 
     for bruto in candidatos(text) {
@@ -82,7 +82,7 @@ pub fn resolve(state: &AppState, text: &str) -> Mentions {
         }
         // Uma consulta por candidato do texto (tipicamente zero ou um), nao por
         // conta do servidor: `username_key` e UNIQUE e indexado.
-        if let Ok(Some(conta)) = state.db.account_by_key(&chave) {
+        if let Ok(Some(conta)) = state.db.account_by_key(&chave).await {
             if !saida.user_ids.contains(&conta.id) {
                 saida.user_ids.push(conta.id);
             }

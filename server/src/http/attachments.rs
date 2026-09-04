@@ -50,7 +50,7 @@ async fn upload(
     let Some(context) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let Some(account) = authenticate(&state, &headers) else {
+    let Some(account) = authenticate(&state, &headers).await else {
         return respond(StatusCode::UNAUTHORIZED, "sessao expirada", &context);
     };
     cleanup_expired_orphans(&state).await;
@@ -102,14 +102,10 @@ async fn upload(
     }
 
     let Some((filename, declared_type, temporary, size, checksum, head)) = uploaded else {
-        return respond(
-            StatusCode::BAD_REQUEST,
-            "nenhum arquivo foi enviado",
-            &context,
-        );
+        return respond(StatusCode::BAD_REQUEST, "campo file ausente", &context);
     };
     let (scope_kind, scope_id) =
-        match normalize_scope(&state, &account, scope_kind.as_deref(), scope_id.as_deref()) {
+        match normalize_scope(&state, &account, scope_kind.as_deref(), scope_id.as_deref()).await {
             Ok(scope) => scope,
             Err(message) => {
                 let _ = tokio::fs::remove_file(&temporary).await;
@@ -120,7 +116,7 @@ async fn upload(
         Ok(value) => value,
         Err(message) => {
             let _ = tokio::fs::remove_file(&temporary).await;
-            return respond(StatusCode::UNSUPPORTED_MEDIA_TYPE, message, &context);
+            return respond(StatusCode::BAD_REQUEST, message, &context);
         }
     };
 
@@ -155,7 +151,7 @@ async fn upload(
         scope_kind: &scope_kind,
         scope_id: &scope_id,
     };
-    if let Err(error) = state.db.insert_ready_attachment(&record) {
+    if let Err(error) = state.db.insert_ready_attachment(&record).await {
         let _ = state.media.delete_object(&storage_key).await;
         tracing::error!(%error, "falha registrando anexo");
         return respond(
@@ -182,7 +178,7 @@ async fn upload(
 
 async fn cleanup_expired_orphans(state: &AppState) {
     let now = now_ms();
-    let expired = match state.db.expired_orphan_attachments(now) {
+    let expired = match state.db.expired_orphan_attachments(now).await {
         Ok(value) => value,
         Err(error) => {
             tracing::warn!(%error, "falha listando anexos orfaos");
@@ -192,7 +188,7 @@ async fn cleanup_expired_orphans(state: &AppState) {
     for (id, key) in expired {
         match state.media.delete_object(&key).await {
             Ok(()) => {
-                if let Err(error) = state.db.delete_expired_orphan_attachment(&id, now) {
+                if let Err(error) = state.db.delete_expired_orphan_attachment(&id, now).await {
                     tracing::warn!(%error, %id, "falha removendo registro de anexo orfao");
                 }
             }
@@ -292,7 +288,7 @@ fn validated_content_type(
     Ok(detected.unwrap_or("application/octet-stream").to_string())
 }
 
-fn normalize_scope(
+async fn normalize_scope(
     state: &AppState,
     account: &Account,
     kind: Option<&str>,
@@ -306,10 +302,11 @@ fn normalize_scope(
             Ok((kind.into(), id.into()))
         }
         "direct"
-            if state.db.account_by_id(id).ok().flatten().is_some()
+            if state.db.account_by_id(id).await.ok().flatten().is_some()
                 && state
                     .db
                     .can_direct(&account.id, &id.to_string())
+                    .await
                     .unwrap_or(false) =>
         {
             Ok((kind.into(), conversation_id(&account.id, id)))
@@ -337,7 +334,7 @@ async fn update(
     let Some(context) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let Some(account) = authenticate(&state, &headers) else {
+    let Some(account) = authenticate(&state, &headers).await else {
         return respond(StatusCode::UNAUTHORIZED, "sessao expirada", &context);
     };
     let filename = match payload.filename.as_deref().map(safe_filename).transpose() {
@@ -375,17 +372,21 @@ async fn update(
             &context,
         );
     }
-    match state.db.update_attachment_metadata(
-        &id,
-        &account.id,
-        filename.as_deref(),
-        description_set,
-        description,
-        payload.duration_ms,
-        payload.waveform.as_deref(),
-        payload.width,
-        payload.height,
-    ) {
+    match state
+        .db
+        .update_attachment_metadata(
+            &id,
+            &account.id,
+            filename.as_deref(),
+            description_set,
+            description,
+            payload.duration_ms,
+            payload.waveform.as_deref(),
+            payload.width,
+            payload.height,
+        )
+        .await
+    {
         Ok(true) => respond(StatusCode::NO_CONTENT, "", &context),
         Ok(false) => respond(StatusCode::NOT_FOUND, "anexo nao encontrado", &context),
         Err(error) => {
@@ -407,10 +408,10 @@ async fn remove(
     let Some(context) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let Some(account) = authenticate(&state, &headers) else {
+    let Some(account) = authenticate(&state, &headers).await else {
         return respond(StatusCode::UNAUTHORIZED, "sessao expirada", &context);
     };
-    match state.db.delete_orphan_attachment(&id, &account.id) {
+    match state.db.delete_orphan_attachment(&id, &account.id).await {
         Ok(Some(key)) => {
             if let Err(error) = state.media.delete_object(&key).await {
                 tracing::warn!(%error, %key, "objeto orfao nao foi removido")
@@ -443,7 +444,7 @@ async fn ticket(
     let Some(context) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let Some(account) = authenticate(&state, &headers) else {
+    let Some(account) = authenticate(&state, &headers).await else {
         return respond(StatusCode::UNAUTHORIZED, "sessao expirada", &context);
     };
     let token = Uuid::new_v4().to_string();
@@ -451,6 +452,7 @@ async fn ticket(
     match state
         .db
         .create_attachment_ticket(&id, &account.id, &token, expires_at)
+        .await
     {
         Ok(true) => {
             let mut response = (
@@ -487,7 +489,7 @@ async fn content(
     Query(query): Query<ContentQuery>,
     headers: HeaderMap,
 ) -> Response {
-    let record = match state.db.attachment_by_ticket(&query.ticket, now_ms()) {
+    let record = match state.db.attachment_by_ticket(&query.ticket, now_ms()).await {
         Ok(Some(record)) if record.id == id => record,
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
@@ -604,7 +606,7 @@ async fn presign(
     let Some(context) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let Some(account) = authenticate(&state, &headers) else {
+    let Some(account) = authenticate(&state, &headers).await else {
         return respond(StatusCode::UNAUTHORIZED, "sessao expirada", &context);
     };
     if payload.size_bytes > state.config.limits.max_upload_bytes() {
@@ -654,7 +656,7 @@ async fn confirm(
     let Some(context) = origin_context(&state, &headers) else {
         return StatusCode::FORBIDDEN.into_response();
     };
-    let Some(account) = authenticate(&state, &headers) else {
+    let Some(account) = authenticate(&state, &headers).await else {
         return respond(StatusCode::UNAUTHORIZED, "sessao expirada", &context);
     };
     if !state.media.object_exists(&payload.s3_key).await {
@@ -664,15 +666,19 @@ async fn confirm(
             &context,
         );
     }
-    match state.db.insert_attachment(
-        &payload.attachment_id,
-        &account.id,
-        &payload.filename,
-        &payload.content_type,
-        payload.size_bytes,
-        &payload.s3_key,
-        now_ms(),
-    ) {
+    match state
+        .db
+        .insert_attachment(
+            &payload.attachment_id,
+            &account.id,
+            &payload.filename,
+            &payload.content_type,
+            payload.size_bytes,
+            &payload.s3_key,
+            now_ms(),
+        )
+        .await
+    {
         Ok(()) => respond(StatusCode::NO_CONTENT, "", &context),
         Err(error) => {
             tracing::error!(%error, "confirmacao antiga falhou");
@@ -734,12 +740,13 @@ fn respond(status: StatusCode, body: &str, context: &OriginContext) -> Response 
     response
 }
 
-fn authenticate(state: &AppState, headers: &HeaderMap) -> Option<Account> {
+async fn authenticate(state: &AppState, headers: &HeaderMap) -> Option<Account> {
     let raw = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     state
         .auth
         .tokens
         .verify_access(&state.db, raw.strip_prefix("Bearer ")?)
+        .await
 }
 
 #[cfg(test)]

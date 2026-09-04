@@ -15,7 +15,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 use stapp_server::config::{
-    AuthConfig, Channel, ChannelKind, Config, LimitsConfig, ServerConfig, StorageConfig,
+    AuthConfig, Channel, ChannelKind, Config, LimitsConfig, ServerConfig, StorageConfig, TlsConfig,
     VoiceSettings,
 };
 
@@ -102,12 +102,13 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
             max_text_chars: 4000,
             max_attachments_per_message: 10,
         },
+        tls: TlsConfig::default(),
     }
 }
 
 /// Sobe o servidor numa porta efemera e devolve o endereco.
 pub async fn start(config: Config) -> SocketAddr {
-    let app = stapp_server::build(config).expect("montar a aplicacao");
+    let app = stapp_server::build(config).await.expect("montar a aplicacao");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await
         .expect("porta efemera");

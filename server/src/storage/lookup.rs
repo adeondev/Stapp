@@ -1,23 +1,11 @@
 //! Onde uma mensagem mora.
-//!
-//! O id de mensagem e um UUID e nao se repete entre `messages` e `dm_messages`,
-//! entao da para descobrir o escopo a partir dele sozinho. E o que permite os
-//! comandos `message.edit` / `message.delete` / `message.react` serem um so para
-//! canal e conversa: quem sabe onde a mensagem esta e o servidor, nao o cliente.
-//!
-//! Tambem e o que substitui o `channel: "geral"` que `services/polls` chutava
-//! por nao existir essa consulta.
 
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension};
+use sqlx::SqlitePool;
 
 use super::Db;
 use crate::protocol::{DirectMessageKind, UserId};
 
-/// Onde a mensagem esta e quem a escreveu.
-///
-/// Carrega o autor junto porque quem localiza quase sempre precisa decidir
-/// permissao logo depois — evita uma segunda ida ao banco.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MessageLocation {
     Channel {
@@ -40,72 +28,48 @@ impl MessageLocation {
     }
 }
 
-pub fn locate_message(conn: &Connection, message_id: &str) -> Result<Option<MessageLocation>> {
-    let canal = conn
-        .query_row(
-            "SELECT channel, author_id FROM messages WHERE id = ?1",
-            [message_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?;
+pub async fn locate_message(pool: &SqlitePool, message_id: &str) -> Result<Option<MessageLocation>> {
+    let canal: Option<(String, String)> = sqlx::query_as(
+        "SELECT channel, author_id FROM messages WHERE id = $1",
+    )
+    .bind(message_id)
+    .fetch_optional(pool)
+    .await?;
 
     if let Some((channel, author_id)) = canal {
         return Ok(Some(MessageLocation::Channel { channel, author_id }));
     }
 
-    let conversa = conn
-        .query_row(
-            "SELECT conversation_id, author_id, kind FROM dm_messages WHERE id = ?1",
-            [message_id],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            },
-        )
-        .optional()?;
+    let conversa: Option<(String, String, String)> = sqlx::query_as(
+        "SELECT conversation_id, author_id, kind FROM dm_messages WHERE id = $1",
+    )
+    .bind(message_id)
+    .fetch_optional(pool)
+    .await?;
 
-    Ok(conversa.map(
-        |(conversation_id, author_id, kind)| MessageLocation::Direct {
-            conversation_id,
-            author_id,
-            kind: match kind.as_str() {
-                "call" => DirectMessageKind::Call,
-                _ => DirectMessageKind::Text,
-            },
+    Ok(conversa.map(|(conversation_id, author_id, kind)| MessageLocation::Direct {
+        conversation_id,
+        author_id,
+        kind: match kind.as_str() {
+            "call" => DirectMessageKind::Call,
+            _ => DirectMessageKind::Text,
         },
-    ))
+    }))
 }
 
 impl Db {
-    pub fn locate_message(&self, message_id: &str) -> Result<Option<MessageLocation>> {
-        let conn = self.conn.lock().unwrap();
-        locate_message(&conn, message_id)
+    pub async fn locate_message(&self, message_id: &str) -> Result<Option<MessageLocation>> {
+        locate_message(&self.pool, message_id).await
     }
 }
 
-/// A previa de uma resposta, montada a partir do alvo atual.
-///
-/// O historico monta isso por um LEFT JOIN em lote, mas o evento de envio
-/// precisa de **uma** mensagem so — e sem isto o `chat.new` sairia com a
-/// citacao vazia e a previa so apareceria depois de recarregar o historico.
-pub fn reply_ref(conn: &Connection, message_id: &str) -> Result<Option<crate::protocol::ReplyRef>> {
+pub async fn reply_ref(pool: &SqlitePool, message_id: &str) -> Result<Option<crate::protocol::ReplyRef>> {
     for tabela in ["messages", "dm_messages"] {
-        let achado = conn
-            .query_row(
-                &format!("SELECT author_id, author_username, text FROM {tabela} WHERE id = ?1"),
-                [message_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
-            )
-            .optional()?;
+        let query = format!("SELECT author_id, author_username, text FROM {tabela} WHERE id = $1");
+        let achado: Option<(String, String, String)> = sqlx::query_as(&query)
+            .bind(message_id)
+            .fetch_optional(pool)
+            .await?;
 
         if let Some((author_id, author_username, texto)) = achado {
             return Ok(Some(super::montar_reply_ref(
@@ -120,8 +84,7 @@ pub fn reply_ref(conn: &Connection, message_id: &str) -> Result<Option<crate::pr
 }
 
 impl Db {
-    pub fn reply_ref(&self, message_id: &str) -> Result<Option<crate::protocol::ReplyRef>> {
-        let conn = self.conn.lock().unwrap();
-        reply_ref(&conn, message_id)
+    pub async fn reply_ref(&self, message_id: &str) -> Result<Option<crate::protocol::ReplyRef>> {
+        reply_ref(&self.pool, message_id).await
     }
 }

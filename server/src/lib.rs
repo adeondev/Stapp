@@ -31,6 +31,6 @@ mod ws;
 #[cfg(test)]
 mod test_support;
 
-pub use app::{build, serve};
+pub use app::{build, redirect_to_https_app, serve};
 pub use config::Config;
 pub use storage::Db;

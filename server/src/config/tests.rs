@@ -350,3 +350,156 @@ fn validates_min_client_version() {
     config.server.min_client_version = Some("invalido".into());
     assert!(config.validate().is_err());
 }
+
+#[test]
+fn bootstrap_cria_arquivo_e_diretorios_quando_ausente() {
+    let dir = TestDir::new();
+    let config_path = dir.path().join("subpasta").join("stapp.toml");
+    assert!(!config_path.exists());
+
+    let config = Config::load_or_bootstrap(&config_path).expect("bootstrapping bem-sucedido");
+    assert!(config_path.exists(), "stapp.toml deve ter sido gerado");
+
+    // Valida configuracao padrao
+    assert_eq!(config.server.port, 8787);
+    assert_eq!(config.server.max_users, 20);
+
+    // Valida criacao dos diretorios de persistencia
+    assert!(
+        config.storage.database.parent().unwrap().exists(),
+        "diretorio do banco deve existir"
+    );
+    assert!(
+        config.storage.attachments_dir.exists(),
+        "diretorio de anexos deve existir"
+    );
+}
+
+#[test]
+fn bootstrap_preserva_arquivo_existente_sem_sobrescrever() {
+    let dir = TestDir::new();
+    let config_path = dir.path().join("stapp.toml");
+
+    let custom_toml = r#"
+[server]
+name = "Servidor Customizado"
+bind = "127.0.0.1"
+port = 9999
+
+[storage]
+database = "custom_data/banco.db"
+attachments_dir = "custom_data/anexos"
+
+[[channels]]
+id = "chat"
+name = "Chat"
+kind = "text"
+"#;
+    std::fs::write(&config_path, custom_toml).unwrap();
+
+    let config = Config::load_or_bootstrap(&config_path).expect("carregar existente");
+    assert_eq!(config.server.name, "Servidor Customizado");
+    assert_eq!(config.server.port, 9999);
+
+    // Garante que as pastas customizadas foram criadas
+    assert!(config.storage.database.parent().unwrap().exists());
+    assert!(config.storage.attachments_dir.exists());
+
+    // Confirma que o conteudo original do arquivo nao foi substituido
+    let content = std::fs::read_to_string(&config_path).unwrap();
+    assert!(content.contains("Servidor Customizado"));
+}
+
+#[test]
+fn tls_desativado_por_padrao() {
+    let config = test_config(PathBuf::from("test.db"), 20, 6);
+    assert!(!config.tls.enabled);
+    assert_eq!(config.tls.port, 443);
+    assert!(config.tls.domains.is_empty());
+    assert_eq!(config.tls_addr().port(), 443);
+    assert_eq!(config.http_redirect_addr(), None);
+}
+
+#[test]
+fn rejeita_tls_sem_dominios_nem_certificados() {
+    let mut config = test_config(PathBuf::from("test.db"), 20, 6);
+    config.tls.enabled = true;
+    let err = config.validate().unwrap_err().to_string();
+    assert!(err.contains("ao menos um dominio"), "{err}");
+
+    config.tls.domains = vec!["   ".into()];
+    let err = config.validate().unwrap_err().to_string();
+    assert!(err.contains("nao podem ser vazios"), "{err}");
+}
+
+#[test]
+fn rejeita_tls_manual_incompleto() {
+    let mut config = test_config(PathBuf::from("test.db"), 20, 6);
+    config.tls.enabled = true;
+    config.tls.cert_file = Some(PathBuf::from("cert.pem"));
+    config.tls.key_file = None;
+    let err = config.validate().unwrap_err().to_string();
+    assert!(err.contains("informados juntos"), "{err}");
+}
+
+#[test]
+fn rejeita_porta_de_redirecionamento_conflitante() {
+    let mut config = test_config(PathBuf::from("test.db"), 20, 6);
+    config.tls.enabled = true;
+    config.tls.domains = vec!["stapp.exemplo.com".into()];
+    config.tls.port = 443;
+    config.tls.http_redirect_port = Some(443);
+    let err = config.validate().unwrap_err().to_string();
+    assert!(err.contains("nao pode ser igual a tls.port"), "{err}");
+}
+
+#[test]
+fn aceita_tls_acme_e_manual_validos() {
+    let mut acme = test_config(PathBuf::from("test.db"), 20, 6);
+    acme.tls.enabled = true;
+    acme.tls.domains = vec!["chat.exemplo.com".into()];
+    acme.tls.email = "admin@exemplo.com".into();
+    acme.tls.http_redirect_port = Some(80);
+    assert!(acme.validate().is_ok());
+    assert_eq!(acme.http_redirect_addr().unwrap().port(), 80);
+
+    let mut manual = test_config(PathBuf::from("test.db"), 20, 6);
+    manual.tls.enabled = true;
+    manual.tls.cert_file = Some(PathBuf::from("cert.pem"));
+    manual.tls.key_file = Some(PathBuf::from("key.pem"));
+    assert!(manual.validate().is_ok());
+}
+
+#[test]
+fn tls_env_overrides() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let mut config = test_config(PathBuf::from("test.db"), 20, 6);
+
+    unsafe {
+        std::env::set_var("STAPP_TLS_ENABLED", "true");
+        std::env::set_var("STAPP_TLS_PORT", "8443");
+        std::env::set_var("STAPP_TLS_DOMAINS", "app.local, chat.local");
+        std::env::set_var("STAPP_TLS_EMAIL", "ops@exemplo.com");
+        std::env::set_var("STAPP_TLS_HTTP_REDIRECT_PORT", "8080");
+        std::env::set_var("STAPP_TLS_PRODUCTION", "true");
+    }
+
+    config.apply_env_overrides();
+
+    unsafe {
+        std::env::remove_var("STAPP_TLS_ENABLED");
+        std::env::remove_var("STAPP_TLS_PORT");
+        std::env::remove_var("STAPP_TLS_DOMAINS");
+        std::env::remove_var("STAPP_TLS_EMAIL");
+        std::env::remove_var("STAPP_TLS_HTTP_REDIRECT_PORT");
+        std::env::remove_var("STAPP_TLS_PRODUCTION");
+    }
+
+    assert!(config.tls.enabled);
+    assert_eq!(config.tls.port, 8443);
+    assert_eq!(config.tls.domains, vec!["app.local", "chat.local"]);
+    assert_eq!(config.tls.email, "ops@exemplo.com");
+    assert_eq!(config.tls.http_redirect_port, Some(8080));
+    assert!(config.tls.production);
+    assert!(config.validate().is_ok());
+}

@@ -35,8 +35,8 @@ fn auth_error_codes_use_snake_case() {
 
 #[tokio::test]
 async fn access_token_valido_abre_a_sessao() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
     let access = server.state.auth.tokens.issue_access(&account);
     let mut events = server.state.subscribe();
     let phase = route(
@@ -58,7 +58,7 @@ async fn access_token_valido_abre_a_sessao() {
 
 #[tokio::test]
 async fn access_token_invalido_permanece_anonimo() {
-    let server = TestServer::new(10, 4);
+    let server = TestServer::new(10, 4).await;
     let mut events = server.state.subscribe();
     let phase = route(
         &server.state,
@@ -83,7 +83,7 @@ async fn access_token_invalido_permanece_anonimo() {
 
 #[tokio::test]
 async fn conexao_anonima_nao_alcanca_o_resto_do_protocolo() {
-    let server = TestServer::new(10, 4);
+    let server = TestServer::new(10, 4).await;
     let mut events = server.state.subscribe();
     let phase = route(
         &server.state,
@@ -108,8 +108,8 @@ async fn conexao_anonima_nao_alcanca_o_resto_do_protocolo() {
 
 #[tokio::test]
 async fn sessao_autenticada_ignora_nova_tentativa_de_auth() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
     let first = server.state.auth.tokens.issue_access(&account);
     let phase = route(
         &server.state,
@@ -139,9 +139,9 @@ async fn sessao_autenticada_ignora_nova_tentativa_de_auth() {
 
 #[tokio::test]
 async fn welcome_dispara_snapshot_social_personalizado() {
-    let server = TestServer::new(10, 4);
-    let account = server.account("Daniel");
-    let _alice = server.account("Alice");
+    let server = TestServer::new(10, 4).await;
+    let account = server.account("Daniel").await;
+    let _alice = server.account("Alice").await;
     let access = server.state.auth.tokens.issue_access(&account);
     let mut events = server.state.subscribe();
     route(
@@ -168,9 +168,9 @@ async fn welcome_dispara_snapshot_social_personalizado() {
 async fn cliente_desatualizado_e_rejeitado_com_client_outdated() {
     let mut cfg = crate::test_support::config(std::path::PathBuf::from("temp.db"), 10, 4);
     cfg.server.min_client_version = Some("0.2.0".into());
-    let server = TestServer::with_config(cfg);
+    let server = TestServer::with_config(cfg).await;
 
-    let account = server.account("Daniel");
+    let account = server.account("Daniel").await;
     let access = server.state.auth.tokens.issue_access(&account);
     let mut events = server.state.subscribe();
 

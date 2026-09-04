@@ -76,7 +76,7 @@ impl AuthService {
             return Err(LoginError::RateLimited(wait));
         }
 
-        let account = db.account_by_key(&key).map_err(LoginError::Internal)?;
+        let account = db.account_by_key(&key).await.map_err(LoginError::Internal)?;
         let stored = account
             .as_ref()
             .map(|account| account.password_hash.clone())
@@ -113,7 +113,7 @@ impl AuthService {
             .await
             .map_err(RegisterError::Internal)?;
 
-        match db.create_account(username.display, username.key, hash) {
+        match db.create_account(username.display, username.key, hash).await {
             Ok(account) => Ok(account),
             Err(CreateAccountError::UsernameTaken) => Err(RegisterError::UsernameUnavailable),
             Err(CreateAccountError::Other(error)) => Err(RegisterError::Internal(error)),

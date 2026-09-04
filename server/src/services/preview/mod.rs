@@ -1,6 +1,9 @@
+pub mod crawler;
 pub mod ssrf;
 #[cfg(test)]
 mod tests;
+
+pub use crawler::{CrawlJob, CrawlTarget, LinkPreviewCrawler};
 
 use crate::protocol::UrlPreview;
 use reqwest::Client;
@@ -17,17 +20,22 @@ pub fn extract_first_url(text: &str) -> Option<String> {
     None
 }
 
-/// Executa o scraping da URL informada respeitando limites e timeouts.
+/// Executa o scraping da URL informada instanciando um cliente efemero (para testes).
+#[allow(dead_code)]
 pub async fn scrape_metadata(target_url: &str) -> Option<UrlPreview> {
-    if !ssrf::is_safe_url(target_url) {
-        return None;
-    }
-
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
         .user_agent("StappBot/1.0 (+https://stapp.chat)")
         .build()
         .ok()?;
+    scrape_metadata_with_client(&client, target_url).await
+}
+
+/// Executa o scraping da URL informada reutilizando o cliente HTTP configurado.
+pub async fn scrape_metadata_with_client(client: &Client, target_url: &str) -> Option<UrlPreview> {
+    if !ssrf::is_safe_url(target_url) {
+        return None;
+    }
 
     let response = client.get(target_url).send().await.ok()?;
     if !response.status().is_success() {

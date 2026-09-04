@@ -2,12 +2,12 @@
 //! existe no cliente e durante a resposta HTTP que o criou.
 
 use anyhow::Result;
-use rusqlite::OptionalExtension;
+use sqlx::FromRow;
 
 use super::Db;
 use crate::protocol::now_ms;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct RefreshSession {
     pub id: String,
     pub user_id: String,
@@ -27,7 +27,7 @@ pub struct RotatedRefresh {
 }
 
 impl Db {
-    pub fn create_refresh_session(
+    pub async fn create_refresh_session(
         &self,
         id: &str,
         user_id: &str,
@@ -36,42 +36,36 @@ impl Db {
         expires_at: i64,
     ) -> Result<()> {
         let now = now_ms();
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        sqlx::query(
             "INSERT INTO auth_sessions
                 (id, user_id, token_hash, previous_token_hash, previous_valid_until,
                  remember, created_at, last_used_at, expires_at, revoked_at)
-             VALUES (?1, ?2, ?3, NULL, NULL, ?4, ?5, ?5, ?6, NULL)",
-            (id, user_id, token_hash, remember, now, expires_at),
-        )?;
+             VALUES ($1, $2, $3, NULL, NULL, $4, $5, $5, $6, NULL)",
+        )
+        .bind(id)
+        .bind(user_id)
+        .bind(token_hash)
+        .bind(remember)
+        .bind(now)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    pub fn refresh_session(&self, id: &str) -> Result<Option<RefreshSession>> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
+    pub async fn refresh_session(&self, id: &str) -> Result<Option<RefreshSession>> {
+        let session = sqlx::query_as::<_, RefreshSession>(
             "SELECT id, user_id, token_hash, previous_token_hash,
                     previous_valid_until, remember, expires_at, revoked_at
-               FROM auth_sessions WHERE id = ?1",
-            [id],
-            |row| {
-                Ok(RefreshSession {
-                    id: row.get(0)?,
-                    user_id: row.get(1)?,
-                    token_hash: row.get(2)?,
-                    previous_token_hash: row.get(3)?,
-                    previous_valid_until: row.get(4)?,
-                    remember: row.get(5)?,
-                    expires_at: row.get(6)?,
-                    revoked_at: row.get(7)?,
-                })
-            },
+               FROM auth_sessions WHERE id = $1",
         )
-        .optional()
-        .map_err(Into::into)
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(session)
     }
 
-    pub fn rotate_refresh_session(
+    pub async fn rotate_refresh_session(
         &self,
         id: &str,
         expected_hash: &str,
@@ -79,33 +73,24 @@ impl Db {
         grace_until: i64,
     ) -> Result<Option<RotatedRefresh>> {
         let now = now_ms();
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
-        let session = tx
-            .query_row(
+        let mut tx = self.pool.begin().await?;
+
+        let session: Option<(String, String, Option<String>, Option<i64>, bool, i64, Option<i64>)> =
+            sqlx::query_as(
                 "SELECT user_id, token_hash, previous_token_hash,
                         previous_valid_until, remember, expires_at, revoked_at
-                   FROM auth_sessions WHERE id = ?1",
-                [id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<String>>(2)?,
-                        row.get::<_, Option<i64>>(3)?,
-                        row.get::<_, bool>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, Option<i64>>(6)?,
-                    ))
-                },
+                   FROM auth_sessions WHERE id = $1",
             )
-            .optional()?;
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
         let Some((user_id, current, previous, previous_until, remember, expires_at, revoked)) =
             session
         else {
             return Ok(None);
         };
+
         let valid_current = current == expected_hash;
         let valid_previous = previous.as_deref() == Some(expected_hash)
             && previous_until.is_some_and(|until| until >= now);
@@ -113,16 +98,23 @@ impl Db {
             return Ok(None);
         }
 
-        tx.execute(
+        sqlx::query(
             "UPDATE auth_sessions
                 SET previous_token_hash = token_hash,
-                    previous_valid_until = ?2,
-                    token_hash = ?3,
-                    last_used_at = ?4
-              WHERE id = ?1",
-            (id, grace_until, new_hash, now),
-        )?;
-        tx.commit()?;
+                    previous_valid_until = $2,
+                    token_hash = $3,
+                    last_used_at = $4
+              WHERE id = $1",
+        )
+        .bind(id)
+        .bind(grace_until)
+        .bind(new_hash)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
         Ok(Some(RotatedRefresh {
             user_id,
             remember,
@@ -130,21 +122,21 @@ impl Db {
         }))
     }
 
-    pub fn revoke_refresh_session(&self, id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?2) WHERE id = ?1",
-            (id, now_ms()),
-        )?;
+    pub async fn revoke_refresh_session(&self, id: &str) -> Result<()> {
+        sqlx::query("UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, $2) WHERE id = $1")
+            .bind(id)
+            .bind(now_ms())
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 
-    pub fn revoke_user_sessions(&self, user_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, ?2) WHERE user_id = ?1",
-            (user_id, now_ms()),
-        )?;
+    pub async fn revoke_user_sessions(&self, user_id: &str) -> Result<()> {
+        sqlx::query("UPDATE auth_sessions SET revoked_at = COALESCE(revoked_at, $2) WHERE user_id = $1")
+            .bind(user_id)
+            .bind(now_ms())
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 }

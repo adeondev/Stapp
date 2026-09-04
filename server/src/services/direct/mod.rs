@@ -18,8 +18,8 @@ use crate::storage::{MessageLocation, conversation_id};
 
 /// Todo mundo com conta neste servidor, menos voce. E a lista de quem da para
 /// chamar numa conversa nova.
-pub fn directory(state: &AppState, me: &UserId) -> Vec<DirectoryEntry> {
-    match state.db.list_accounts() {
+pub async fn directory(state: &AppState, me: &UserId) -> Vec<DirectoryEntry> {
+    match state.db.list_accounts().await {
         Ok(accounts) => accounts
             .into_iter()
             .filter(|account| &account.id != me && account.disabled_at.is_none())
@@ -41,7 +41,7 @@ pub async fn send_list(state: &AppState, peer_id: &str) {
         return;
     };
 
-    let partners = match state.db.direct_partners(&me.user_id) {
+    let partners = match state.db.direct_partners(&me.user_id).await {
         Ok(partners) => partners,
         Err(err) => {
             tracing::error!(%err, "falha listando conversas");
@@ -51,7 +51,7 @@ pub async fn send_list(state: &AppState, peer_id: &str) {
 
     let mut conversations = Vec::with_capacity(partners.len());
     for other in partners {
-        if let Some(summary) = summary(state, &me.user_id, &other) {
+        if let Some(summary) = summary(state, &me.user_id, &other).await {
             conversations.push(summary);
         }
     }
@@ -63,21 +63,22 @@ pub async fn open(state: &AppState, peer_id: &str, other: UserId) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
     };
-    if !account_exists(state, &other) {
+    if !account_exists(state, &other).await {
         return refuse(state, peer_id, "essa conta nao existe");
     }
     let exists = state
         .db
         .direct_conversation_exists(&me.user_id, &other)
+        .await
         .unwrap_or(false);
-    if !exists && !state.db.can_direct(&me.user_id, &other).unwrap_or(false) {
+    if !exists && !state.db.can_direct(&me.user_id, &other).await.unwrap_or(false) {
         return denied(state, peer_id, other);
     }
 
     let conversation = conversation_id(&me.user_id, &other);
     let limit = state.config.storage.history_limit;
 
-    let msgs = match state.db.direct_history(&conversation, limit) {
+    let msgs = match state.db.direct_history(&conversation, limit).await {
         Ok(msgs) => msgs,
         Err(err) => {
             tracing::error!(%err, "falha lendo conversa");
@@ -148,10 +149,10 @@ pub async fn send_with_nonce(
     if other == me.user_id {
         return refuse(state, peer_id, "nao da para conversar consigo mesmo");
     }
-    if !account_exists(state, &other) {
+    if !account_exists(state, &other).await {
         return refuse(state, peer_id, "essa conta nao existe");
     }
-    if !state.db.can_direct(&me.user_id, &other).unwrap_or(false) {
+    if !state.db.can_direct(&me.user_id, &other).await.unwrap_or(false) {
         return denied(state, peer_id, other);
     }
     let text = messages::clean_text(raw_text).unwrap_or_default();
@@ -165,6 +166,7 @@ pub async fn send_with_nonce(
     let first_message = !state
         .db
         .direct_conversation_exists(&me.user_id, &other)
+        .await
         .unwrap_or(false);
     let conversation = conversation_id(&me.user_id, &other);
     if let Some(nonce) = client_nonce.as_deref() {
@@ -177,10 +179,10 @@ pub async fn send_with_nonce(
                 },
             );
         }
-        if let Ok(Some(message_id)) =
-            state
-                .db
-                .direct_id_for_nonce(&me.user_id, &conversation, nonce)
+        if let Ok(Some(message_id)) = state
+            .db
+            .direct_id_for_nonce(&me.user_id, &conversation, nonce)
+            .await
         {
             return state.send_to(
                 peer_id,
@@ -194,18 +196,22 @@ pub async fn send_with_nonce(
 
     // Mesma guarda do canal, na outra direcao: responder um id de canal dentro
     // da conversa colaria um trecho publico onde ele nao foi escrito.
-    let resposta = reply_to.and_then(|alvo| {
-        let mesmo_escopo = matches!(
-            state.db.locate_message(&alvo),
-            Ok(Some(MessageLocation::Direct { conversation_id: ref c, .. })) if *c == conversation
-        );
-        // mesma_conversa: fora do escopo, a resposta simplesmente nao existe.
-        mesmo_escopo
-            .then(|| state.db.reply_ref(&alvo).ok().flatten())
-            .flatten()
-    });
+    let resposta = match reply_to {
+        Some(alvo) => {
+            let mesmo_escopo = matches!(
+                state.db.locate_message(&alvo).await,
+                Ok(Some(MessageLocation::Direct { conversation_id: ref c, .. })) if *c == conversation
+            );
+            if mesmo_escopo {
+                state.db.reply_ref(&alvo).await.ok().flatten()
+            } else {
+                None
+            }
+        }
+        None => None,
+    };
 
-    let citadas = messages::mentions::resolve(state, &text);
+    let citadas = messages::mentions::resolve(state, &text).await;
     let msg_id = Uuid::new_v4().to_string();
     let mut msg = DirectMessage {
         id: msg_id.clone(),
@@ -223,13 +229,17 @@ pub async fn send_with_nonce(
         mentions_everyone: citadas.everyone,
     };
 
-    if let Err(err) = state.db.insert_direct_message_with_attachments(
-        &conversation,
-        &msg,
-        client_nonce.as_deref(),
-        &attachment_ids,
-        state.config.limits.max_attachments_per_message,
-    ) {
+    if let Err(err) = state
+        .db
+        .insert_direct_message_with_attachments(
+            &conversation,
+            &msg,
+            client_nonce.as_deref(),
+            &attachment_ids,
+            state.config.limits.max_attachments_per_message,
+        )
+        .await
+    {
         tracing::error!(%err, "falha gravando mensagem direta");
         if let Some(client_nonce) = client_nonce {
             state.send_to(
@@ -244,10 +254,14 @@ pub async fn send_with_nonce(
         }
         return;
     }
-    msg.attachments = state.db.list_attachments(&msg_id, None).unwrap_or_default();
+    msg.attachments = state
+        .db
+        .list_attachments(&msg_id, None)
+        .await
+        .unwrap_or_default();
 
     // Quem escreveu ja leu o que escreveu.
-    mark(state, &me.user_id, &conversation, Some(&msg_id));
+    mark(state, &me.user_id, &conversation, Some(&msg_id)).await;
 
     let msg_id = msg.id.clone();
     let text_for_preview = msg.text.clone();
@@ -266,23 +280,14 @@ pub async fn send_with_nonce(
     }
 
     if let Some(target_url) = crate::services::preview::extract_first_url(&text_for_preview) {
-        let app_state = state.clone();
-        let author_id = me.user_id.clone();
-        let other_id = other.clone();
-        tokio::spawn(async move {
-            if let Some(preview) = crate::services::preview::scrape_metadata(&target_url).await {
-                let enriched_msg = ServerMsg::LinkPreviewEnriched {
-                    message_id: msg_id,
-                    preview,
-                };
-                for session_peer in app_state.sessions_of(&author_id).await {
-                    app_state.send_to(&session_peer, enriched_msg.clone());
-                }
-                for session_peer in app_state.sessions_of(&other_id).await {
-                    app_state.send_to(&session_peer, enriched_msg.clone());
-                }
-            }
-        });
+        state.enqueue_preview(
+            msg_id,
+            target_url,
+            crate::services::preview::CrawlTarget::Direct {
+                author_id: me.user_id.clone(),
+                other_id: other.clone(),
+            },
+        );
     }
 }
 
@@ -298,6 +303,7 @@ pub async fn deliver(state: &AppState, author: &UserId, other: &UserId, msg: Dir
         let unread = state
             .db
             .direct_unread(dono, &conversation)
+            .await
             .unwrap_or_default();
         for peer in state.sessions_of(dono).await {
             state.send_to(
@@ -312,28 +318,30 @@ pub async fn deliver(state: &AppState, author: &UserId, other: &UserId, msg: Dir
     }
 }
 
-fn summary(state: &AppState, me: &UserId, other: &UserId) -> Option<DirectSummary> {
-    let account = state.db.account_by_id(other).ok()??;
+async fn summary(state: &AppState, me: &UserId, other: &UserId) -> Option<DirectSummary> {
+    let account = state.db.account_by_id(other).await.ok()??;
     let conversation = conversation_id(me, other);
     Some(DirectSummary {
         user_id: account.id,
         username: account.username,
-        last: state.db.direct_last(&conversation).ok().flatten(),
+        last: state.db.direct_last(&conversation).await.ok().flatten(),
         unread: state
             .db
             .direct_unread(me, &conversation)
+            .await
             .unwrap_or_default(),
     })
 }
 
-pub fn account_exists(state: &AppState, user_id: &UserId) -> bool {
-    matches!(state.db.account_by_id(user_id), Ok(Some(_)))
+pub async fn account_exists(state: &AppState, user_id: &UserId) -> bool {
+    matches!(state.db.account_by_id(user_id).await, Ok(Some(_)))
 }
 
-fn mark(state: &AppState, reader: &UserId, conversation: &str, message_id: Option<&str>) -> bool {
+async fn mark(state: &AppState, reader: &UserId, conversation: &str, message_id: Option<&str>) -> bool {
     match state
         .db
         .mark_direct_read_message(reader, conversation, now_ms(), message_id)
+        .await
     {
         Ok(marked) => marked,
         Err(err) => {
@@ -352,7 +360,7 @@ async fn mark_and_notify(
     conversation: &str,
     message_id: Option<String>,
 ) {
-    if !mark(state, reader, conversation, message_id.as_deref()) {
+    if !mark(state, reader, conversation, message_id.as_deref()).await {
         return;
     }
     for peer in state.sessions_of(reader).await {

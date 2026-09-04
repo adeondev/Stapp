@@ -67,3 +67,22 @@ history_limit = 200
 attachments_dir = "data/attachments"
 
 # S3/MinIO e opcional e so entra em builds `cargo build --features s3`.
+
+[tls]
+# Ativa terminacao TLS direta no executavel do Stapp (ACME Let's Encrypt ou certificados manuais).
+enabled = false
+port = 443
+# Dominios para emissao automatica via Let's Encrypt (TLS-ALPN-01)
+domains = []
+# Contato de e-mail para avisos de expiracao do Let's Encrypt (recomendado)
+email = ""
+# Diretorio para cache persistente de certificados emitidos
+cache_dir = "data/acme"
+# Defina como true para ambiente de producao do Let's Encrypt; false usa staging (evita rate limits em testes)
+production = false
+# Para uso com certificados proprios (ex: gerados via mkcert ou comprados), descomente:
+# cert_file = "data/cert.pem"
+# key_file = "data/key.pem"
+# Redireciona requisicoes HTTP comuns para HTTPS automaticamente na porta informada:
+# http_redirect_port = 80
+
