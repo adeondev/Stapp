@@ -32,12 +32,10 @@ async fn aggregates_presence_and_enforces_limits() {
 
 #[tokio::test]
 async fn limits_sessions_per_account() {
-    let mut server = TestServer::new(10, 4).await;
-    Arc::get_mut(&mut server.state)
-        .unwrap()
-        .config
-        .auth
-        .max_sessions_per_user = 2;
+    let dir = crate::test_support::TestDir::new();
+    let mut config = crate::test_support::config(dir.database(), 10, 4);
+    config.auth.max_sessions_per_user = 2;
+    let server = TestServer::with_config(config).await;
     let account = server.account("Daniel").await;
 
     server
