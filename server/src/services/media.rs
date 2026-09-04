@@ -143,6 +143,19 @@ impl MediaStorageService {
         }
     }
 
+    pub async fn open_object_file(&self, key: &str) -> Result<tokio::fs::File> {
+        match &self.backend {
+            Backend::Local { root } => {
+                let path = root.join("objects").join(key);
+                Ok(tokio::fs::File::open(path).await?)
+            }
+            #[cfg(feature = "s3")]
+            Backend::S3 { .. } => {
+                bail!("streaming direto por arquivo local indisponivel para backend S3")
+            }
+        }
+    }
+
     pub async fn get_object_bytes(&self, key: &str) -> Result<Vec<u8>> {
         match &self.backend {
             Backend::Local { root } => Ok(tokio::fs::read(root.join("objects").join(key)).await?),

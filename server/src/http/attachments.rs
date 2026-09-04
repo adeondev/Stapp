@@ -6,8 +6,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::io::SeekFrom;
 use std::sync::Arc;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
 use super::auth::{OriginContext, attach_common_headers, origin_context};
@@ -493,20 +495,74 @@ async fn content(
         Ok(Some(record)) if record.id == id => record,
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
-    let bytes = match state.media.get_object_bytes(&record.storage_key).await {
-        Ok(bytes) => bytes,
+    let range = headers
+        .get(header::RANGE)
+        .and_then(|value| value.to_str().ok());
+
+    match state.media.open_object_file(&record.storage_key).await {
+        Ok(file) => streamed_ranged_response(&record, file, range).await,
+        Err(_) => match state.media.get_object_bytes(&record.storage_key).await {
+            Ok(bytes) => ranged_response(&record, bytes, range),
+            Err(error) => {
+                tracing::warn!(%error, "conteudo de anexo ausente");
+                StatusCode::NOT_FOUND.into_response()
+            }
+        },
+    }
+}
+
+async fn streamed_ranged_response(
+    record: &crate::storage::attachments::AttachmentRecord,
+    mut file: tokio::fs::File,
+    range: Option<&str>,
+) -> Response {
+    let total = match file.metadata().await {
+        Ok(meta) => meta.len() as usize,
         Err(error) => {
-            tracing::warn!(%error, "conteudo de anexo ausente");
-            return StatusCode::NOT_FOUND.into_response();
+            tracing::error!(%error, "falha lendo metadados de anexo");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
         }
     };
-    ranged_response(
-        &record,
-        bytes,
-        headers
-            .get(header::RANGE)
-            .and_then(|value| value.to_str().ok()),
-    )
+    let parsed = range.and_then(|raw| parse_range(raw, total));
+    let (status, start, end) = parsed.map_or(
+        (StatusCode::OK, 0, total.saturating_sub(1)),
+        |(start, end)| (StatusCode::PARTIAL_CONTENT, start, end),
+    );
+    let content_length = if total == 0 { 0 } else { end - start + 1 };
+    let body = if total == 0 {
+        Body::empty()
+    } else {
+        if let Err(error) = file.seek(SeekFrom::Start(start as u64)).await {
+            tracing::error!(%error, "falha buscando deslocamento do anexo");
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+        let stream = ReaderStream::new(file.take(content_length as u64));
+        Body::from_stream(stream)
+    };
+    let mut response = Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, &record.content_type)
+        .header(header::CONTENT_LENGTH, content_length)
+        .header(header::ACCEPT_RANGES, "bytes")
+        .header(header::CACHE_CONTROL, "private, max-age=600")
+        .header(header::CONTENT_DISPOSITION, content_disposition(record))
+        .body(body)
+        .unwrap();
+    if status == StatusCode::PARTIAL_CONTENT {
+        response.headers_mut().insert(
+            header::CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes {start}-{end}/{total}")).unwrap(),
+        );
+    }
+    response.headers_mut().insert(
+        HeaderName::from_static("cross-origin-resource-policy"),
+        HeaderValue::from_static("cross-origin"),
+    );
+    response.headers_mut().insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    response
 }
 
 fn ranged_response(
