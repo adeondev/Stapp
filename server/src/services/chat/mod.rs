@@ -188,17 +188,13 @@ pub async fn send_with_nonce(
         );
     }
 
-    // Dispara scraping assíncrono para links seguros em background
+    // Enfileira scraping assincrono para links seguros na fila do crawler
     if let Some(target_url) = crate::services::preview::extract_first_url(&text_for_preview) {
-        let app_state = state.clone();
-        tokio::spawn(async move {
-            if let Some(preview) = crate::services::preview::scrape_metadata(&target_url).await {
-                app_state.broadcast(ServerMsg::LinkPreviewEnriched {
-                    message_id: msg_id,
-                    preview,
-                });
-            }
-        });
+        state.enqueue_preview(
+            msg_id,
+            target_url,
+            crate::services::preview::CrawlTarget::Channel,
+        );
     }
 }
 

@@ -280,23 +280,14 @@ pub async fn send_with_nonce(
     }
 
     if let Some(target_url) = crate::services::preview::extract_first_url(&text_for_preview) {
-        let app_state = state.clone();
-        let author_id = me.user_id.clone();
-        let other_id = other.clone();
-        tokio::spawn(async move {
-            if let Some(preview) = crate::services::preview::scrape_metadata(&target_url).await {
-                let enriched_msg = ServerMsg::LinkPreviewEnriched {
-                    message_id: msg_id,
-                    preview,
-                };
-                for session_peer in app_state.sessions_of(&author_id).await {
-                    app_state.send_to(&session_peer, enriched_msg.clone());
-                }
-                for session_peer in app_state.sessions_of(&other_id).await {
-                    app_state.send_to(&session_peer, enriched_msg.clone());
-                }
-            }
-        });
+        state.enqueue_preview(
+            msg_id,
+            target_url,
+            crate::services::preview::CrawlTarget::Direct {
+                author_id: me.user_id.clone(),
+                other_id: other.clone(),
+            },
+        );
     }
 }
 
