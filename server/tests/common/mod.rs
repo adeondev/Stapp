@@ -88,6 +88,8 @@ pub fn config(database: PathBuf, allow_registration: bool) -> Config {
             max_peers: 4,
             public_url: None,
             api_url: None,
+            api_key: None,
+            api_secret: None,
             api_key_env: "STAPP_TEST_LIVEKIT_KEY".into(),
             api_secret_env: "STAPP_TEST_LIVEKIT_SECRET".into(),
         },

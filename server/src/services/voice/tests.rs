@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use tokio::sync::broadcast::error::TryRecvError;
 
 use super::*;
@@ -173,4 +174,93 @@ async fn ninguem_entra_na_conversa_de_voz_dos_outros() {
         "entrar na call de conversa alheia tem que ser recusado"
     );
     assert!(server.state.peers_in_voice(&canal).await.is_empty());
+}
+
+#[tokio::test]
+async fn validate_backend_com_chaves_padrao_dev_sucesso() {
+    let mut config = crate::test_support::config(PathBuf::from("test.db"), 10, 4);
+    config.voice.backend = "livekit".into();
+    config.voice.api_key = Some("devkey".into());
+    config.voice.api_secret = Some("secret".into());
+    assert!(validate_backend(&config.voice).is_ok());
+    assert!(is_enabled(&config.voice));
+}
+
+#[tokio::test]
+async fn validate_backend_sem_chaves_retorna_ok_em_modo_degradado() {
+    let mut config = crate::test_support::config(PathBuf::from("test.db"), 10, 4);
+    config.voice.backend = "livekit".into();
+    config.voice.api_key = None;
+    config.voice.api_secret = None;
+    config.voice.api_key_env = "CHAVE_INEXISTENTE_XYZ".into();
+    config.voice.api_secret_env = "SEGREDO_INEXISTENTE_XYZ".into();
+    // Nao deve falhar a inicializacao: retorna Ok(()) e opera degradado
+    assert!(validate_backend(&config.voice).is_ok());
+    assert!(!is_enabled(&config.voice));
+}
+
+#[tokio::test]
+async fn validate_backend_disabled_retorna_ok() {
+    let mut config = crate::test_support::config(PathBuf::from("test.db"), 10, 4);
+    config.voice.backend = "disabled".into();
+    assert!(validate_backend(&config.voice).is_ok());
+    assert!(!is_enabled(&config.voice));
+}
+
+#[tokio::test]
+async fn join_com_voice_desativado_recusa_com_unavailable() {
+    let mut config = crate::test_support::config(PathBuf::from("test.db"), 10, 4);
+    config.voice.backend = "disabled".into();
+    let server = TestServer::with_config(config).await;
+    let alice = server.account("Alice").await;
+    server.state.register_session("a1", &alice).await.unwrap();
+
+    let mut events = server.state.subscribe();
+    join(&server.state, &"a1".to_string(), "voz-a").await;
+
+    let recusou = events
+        .try_recv()
+        .ok()
+        .map(|envelope| {
+            matches!(
+                envelope.msg,
+                ServerMsg::VoiceDenied {
+                    code: crate::protocol::VoiceDeniedCode::Unavailable,
+                    ..
+                }
+            )
+        })
+        .unwrap_or(false);
+    assert!(recusou, "entrar em call com voz desativada tem que recusar com Unavailable");
+}
+
+#[tokio::test]
+async fn join_livekit_sem_credenciais_recusa_com_unavailable() {
+    let mut config = crate::test_support::config(PathBuf::from("test.db"), 10, 4);
+    config.voice.backend = "livekit".into();
+    config.voice.api_key = None;
+    config.voice.api_secret = None;
+    config.voice.api_key_env = "VAR_INEXISTENTE_1".into();
+    config.voice.api_secret_env = "VAR_INEXISTENTE_2".into();
+    let server = TestServer::with_config(config).await;
+    let alice = server.account("Alice").await;
+    server.state.register_session("a1", &alice).await.unwrap();
+
+    let mut events = server.state.subscribe();
+    join(&server.state, &"a1".to_string(), "voz-a").await;
+
+    let recusou = events
+        .try_recv()
+        .ok()
+        .map(|envelope| {
+            matches!(
+                envelope.msg,
+                ServerMsg::VoiceDenied {
+                    code: crate::protocol::VoiceDeniedCode::Unavailable,
+                    ..
+                }
+            )
+        })
+        .unwrap_or(false);
+    assert!(recusou, "entrar em sala LiveKit sem credenciais tem que recusar com Unavailable");
 }

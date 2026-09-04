@@ -503,3 +503,109 @@ fn tls_env_overrides() {
     assert!(config.tls.production);
     assert!(config.validate().is_ok());
 }
+
+#[test]
+fn aceita_voice_backend_disabled_e_none() {
+    let mut config = test_config(PathBuf::from("test.db"), 20, 6);
+    config.voice.backend = "disabled".into();
+    assert!(config.validate().is_ok());
+
+    config.voice.backend = "none".into();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn carrega_chaves_livekit_diretamente_do_toml() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let dir = TestDir::new();
+    let path = dir.path().join("stapp.toml");
+    std::fs::write(
+        &path,
+        r#"
+            [server]
+            name = "Test"
+
+            [[channels]]
+            id = "geral"
+            name = "Geral"
+            kind = "text"
+
+            [storage]
+            database = "data/test.db"
+
+            [voice]
+            backend = "livekit"
+            public_url = "ws://127.0.0.1:7880"
+            api_url = "http://127.0.0.1:7880"
+            api_key = "chave_customizada_toml"
+            api_secret = "segredo_customizado_toml"
+        "#,
+    )
+    .unwrap();
+
+    let config = Config::load(&path).unwrap();
+    assert_eq!(config.voice.api_key.as_deref(), Some("chave_customizada_toml"));
+    assert_eq!(config.voice.api_secret.as_deref(), Some("segredo_customizado_toml"));
+}
+
+#[test]
+fn sobrescreve_chaves_livekit_via_variaveis_de_ambiente() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let mut config = test_config(PathBuf::from("test.db"), 20, 6);
+    config.voice.api_key = Some("chave_antiga".into());
+    config.voice.api_secret = Some("segredo_antigo".into());
+
+    unsafe {
+        std::env::set_var("STAPP_LIVEKIT_API_KEY", "chave_nova_env");
+        std::env::set_var("STAPP_LIVEKIT_API_SECRET", "segredo_novo_env");
+        std::env::set_var("STAPP_LIVEKIT_PUBLIC_URL", "ws://meuhost:7880");
+    }
+
+    config.apply_env_overrides();
+
+    unsafe {
+        std::env::remove_var("STAPP_LIVEKIT_API_KEY");
+        std::env::remove_var("STAPP_LIVEKIT_API_SECRET");
+        std::env::remove_var("STAPP_LIVEKIT_PUBLIC_URL");
+    }
+
+    assert_eq!(config.voice.api_key.as_deref(), Some("chave_nova_env"));
+    assert_eq!(config.voice.api_secret.as_deref(), Some("segredo_novo_env"));
+    assert_eq!(config.voice.public_url.as_deref(), Some("ws://meuhost:7880"));
+}
+
+#[test]
+fn carrega_variaveis_de_arquivo_dotenv() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let dir = TestDir::new();
+    let env_path = dir.path().join(".env");
+    std::fs::write(&env_path, "STAPP_PORT=9876\nSTAPP_LIVEKIT_API_KEY=key_from_dotenv\n").unwrap();
+
+    let config_path = dir.path().join("stapp.toml");
+    std::fs::write(
+        &config_path,
+        r#"
+            [server]
+            name = "Test Dotenv"
+
+            [[channels]]
+            id = "geral"
+            name = "Geral"
+            kind = "text"
+
+            [storage]
+            database = "data/test.db"
+        "#,
+    )
+    .unwrap();
+
+    let config = Config::load(&config_path).unwrap();
+
+    unsafe {
+        std::env::remove_var("STAPP_PORT");
+        std::env::remove_var("STAPP_LIVEKIT_API_KEY");
+    }
+
+    assert_eq!(config.server.port, 9876);
+    assert_eq!(config.voice.api_key.as_deref(), Some("key_from_dotenv"));
+}

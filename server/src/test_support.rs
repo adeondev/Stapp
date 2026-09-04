@@ -112,6 +112,8 @@ pub fn config(database: PathBuf, max_users: usize, max_peers: usize) -> Config {
             max_peers,
             public_url: None,
             api_url: None,
+            api_key: None,
+            api_secret: None,
             api_key_env: "STAPP_TEST_LIVEKIT_KEY".into(),
             api_secret_env: "STAPP_TEST_LIVEKIT_SECRET".into(),
         },
