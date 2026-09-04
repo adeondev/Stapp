@@ -114,4 +114,19 @@ describe('Connection', () => {
     warnSpy.mockRestore()
     connection.close()
   })
+
+  it('descarta mensagens efêmeras quando bufferedAmount excede 256KB', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const connection = new Connection('wss://stapp.example/ws', { onMessage: vi.fn(), onStatus: vi.fn() })
+    const socket = FakeWebSocket.instances[0]
+
+    socket.bufferedAmount = 300_000
+    const sent = connection.send({ t: 'typing.set', scope_kind: 'channel', scope_id: 'geral', active: true })
+
+    expect(sent).toBe(false)
+    expect(socket.sent).toHaveLength(0)
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[Backpressure Dropped]'))
+    warnSpy.mockRestore()
+    connection.close()
+  })
 })

@@ -22,7 +22,7 @@ describe('Zustand Atomic Stores', () => {
       users: [{ user_id: 'user-1', username: 'Daniel' }],
       directory: [{ user_id: 'user-2', username: 'Alice' }],
       profiles: [],
-      voice: { backend: 'livekit', url: 'wss://livekit', token: 'tok' },
+      voice: { backend: 'livekit', max_peers: 10, camera: true, screen_share: true, screen_audio: true },
       voice_peers: [],
       limits: { max_upload_bytes: 1000, max_text_chars: 500 },
     })
@@ -67,7 +67,7 @@ describe('Zustand Atomic Stores', () => {
     dispatchServerMessage({
       t: 'chat.history',
       channel: 'geral',
-      msgs: [{ id: 'm1', author_id: 'u1', author_username: 'Daniel', text: 'ola', ts: 100 }],
+      msgs: [{ id: 'm1', channel: 'geral', author_id: 'u1', author_username: 'Daniel', text: 'ola', ts: 100 }],
     })
 
     expect(useChatStore.getState().messages['geral']).toHaveLength(1)
@@ -75,7 +75,7 @@ describe('Zustand Atomic Stores', () => {
     dispatchServerMessage({
       t: 'chat.new',
       channel: 'geral',
-      msg: { id: 'm2', author_id: 'u2', author_username: 'Alice', text: 'tudo bem?', ts: 101 },
+      msg: { id: 'm2', channel: 'geral', author_id: 'u2', author_username: 'Alice', text: 'tudo bem?', ts: 101 },
     })
 
     expect(useChatStore.getState().messages['geral']).toHaveLength(2)
@@ -83,7 +83,7 @@ describe('Zustand Atomic Stores', () => {
     dispatchServerMessage({
       t: 'chat.updated',
       channel: 'geral',
-      msg: { id: 'm2', author_id: 'u2', author_username: 'Alice', text: 'tudo bem! (editado)', ts: 101 },
+      msg: { id: 'm2', channel: 'geral', author_id: 'u2', author_username: 'Alice', text: 'tudo bem! (editado)', ts: 101 },
     })
 
     expect(useChatStore.getState().messages['geral'][1].text).toBe('tudo bem! (editado)')

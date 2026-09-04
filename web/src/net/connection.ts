@@ -164,13 +164,19 @@ export class Connection {
     this.timer = setTimeout(() => this.open(), delay)
   }
 
-  send(msg: ClientMsg) {
+  send(msg: ClientMsg): boolean {
     if (this.ws?.readyState === WebSocket.OPEN) {
       if (this.ws.bufferedAmount > 65_536) {
         console.warn(`[Backpressure Alert] bufferedAmount alto: ${this.ws.bufferedAmount} bytes`)
       }
+      if (this.ws.bufferedAmount > 262_144 && (msg.t === 'typing.set' || msg.t === 'telemetry.ping')) {
+        console.warn(`[Backpressure Dropped] Descartando mensagem efêmera '${msg.t}' devido a buffer elevado (${this.ws.bufferedAmount} bytes)`)
+        return false
+      }
       this.ws.send(JSON.stringify(msg))
+      return true
     }
+    return false
   }
 
   close() {

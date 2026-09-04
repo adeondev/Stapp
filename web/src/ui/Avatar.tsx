@@ -1,7 +1,9 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
-import type { Profile, UserId } from '../protocol'
+import type { PeerId, Profile, UserId } from '../protocol'
 import { avatarUrl } from '../net/avatars'
 import { resolveProfile, type StappState } from '../store'
+import { usePresenceStore } from '../stores/presenceStore'
+import { useVoiceStore } from '../stores/voiceStore'
 
 /**
  * O avatar de uma pessoa, em um lugar so.
@@ -44,10 +46,13 @@ export function ProfileProvider({
 
 /** O perfil de alguem, com um provisorio enquanto o servidor nao mandou. */
 export function useProfile(userId: UserId | null | undefined, fallbackName = ''): Profile {
-  const { profiles } = useContext(ProfilesContext)
+  const { profiles: contextProfiles } = useContext(ProfilesContext)
+  const storeProfile = usePresenceStore((s) => (userId ? s.profiles[userId] : undefined))
+  const profile = storeProfile ?? (userId ? contextProfiles[userId] : undefined)
+
   return useMemo(
-    () => resolveProfile(profiles, userId ?? '', fallbackName),
-    [profiles, userId, fallbackName],
+    () => profile ?? resolveProfile(contextProfiles, userId ?? '', fallbackName),
+    [profile, contextProfiles, userId, fallbackName],
   )
 }
 
@@ -58,12 +63,16 @@ interface Props {
   /** Nome a usar enquanto o perfil nao chegou. */
   fallbackName?: string
   title?: string
+  peerId?: PeerId
+  speaking?: boolean
 }
 
-export function Avatar({ userId, className, fallbackName, title }: Props) {
+export function Avatar({ userId, className, fallbackName, title, peerId, speaking }: Props) {
   const profile = useProfile(userId, fallbackName)
   const { avatarBase } = useContext(ProfilesContext)
   const [falhou, setFalhou] = useState(false)
+  const storeSpeaking = useVoiceStore((s) => (peerId ? s.speakingPeers.has(peerId) : false))
+  const isSpeaking = speaking ?? storeSpeaking
 
   // Trocar a foto muda o `updated_at`, e com ele a URL — entao vale voltar a
   // tentar depois de um erro.
@@ -74,9 +83,11 @@ export function Avatar({ userId, className, fallbackName, title }: Props) {
       ? avatarUrl(avatarBase, profile.user_id, profile.updated_at)
       : null
 
+  const combinedClass = `${className ?? ''} ${isSpeaking ? 'is-speaking' : ''}`.trim()
+
   return (
     <span
-      className={className}
+      className={combinedClass || undefined}
       title={title}
       style={
         {
