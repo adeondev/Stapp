@@ -1,51 +1,63 @@
 //! Consultas de perfil.
-//!
-//! A linha e criada na migracao para toda conta que ja existia, e o
-//! `INSERT ... ON CONFLICT` cobre as contas novas — entao ler um perfil nunca
-//! volta vazio por falta de linha.
 
 use anyhow::Result;
-use rusqlite::Row;
-
 use super::Db;
 use crate::protocol::{Profile, UserId};
 
-/// Le o perfil junto do username, que mora em `users`. O `display_name` sai
-/// daqui ja resolvido: quem nunca escolheu um aparece com o proprio username.
 const SELECT: &str = "SELECT u.id,
                              u.username,
-                             COALESCE(NULLIF(p.display_name, ''), u.username),
-                             COALESCE(p.accent, 'blue'),
-                             COALESCE(p.bio, ''),
+                             COALESCE(NULLIF(p.display_name, ''), u.username) AS display_name,
+                             COALESCE(p.accent, 'blue') AS accent,
+                             COALESCE(p.bio, '') AS bio,
                              p.avatar_ext,
-                             COALESCE(p.updated_at, 0)
+                             COALESCE(p.updated_at, 0) AS updated_at
                         FROM users u
                         LEFT JOIN user_profiles p ON p.user_id = u.id";
 
-impl Db {
-    pub fn profile_of(&self, user_id: &UserId) -> Result<Option<Profile>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!("{SELECT} WHERE u.id = ?1"))?;
-        let mut rows = stmt.query([user_id])?;
-        match rows.next()? {
-            Some(row) => Ok(Some(ler_perfil(row)?)),
-            None => Ok(None),
+#[derive(sqlx::FromRow)]
+struct RawProfile {
+    id: String,
+    username: String,
+    display_name: String,
+    accent: String,
+    bio: String,
+    avatar_ext: Option<String>,
+    updated_at: i64,
+}
+
+impl From<RawProfile> for Profile {
+    fn from(r: RawProfile) -> Self {
+        Self {
+            user_id: r.id,
+            username: r.username,
+            display_name: r.display_name,
+            accent: r.accent,
+            bio: r.bio,
+            has_avatar: r.avatar_ext.is_some(),
+            updated_at: r.updated_at,
         }
     }
+}
 
-    /// Os perfis de todas as contas ativas. E o que vai no `welcome`.
-    pub fn all_profiles(&self) -> Result<Vec<Profile>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(&format!(
-            "{SELECT} WHERE u.disabled_at IS NULL ORDER BY u.username_key"
-        ))?;
-        let rows = stmt.query_map([], ler_perfil)?;
-        Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+impl Db {
+    pub async fn profile_of(&self, user_id: &UserId) -> Result<Option<Profile>> {
+        let query = format!("{SELECT} WHERE u.id = $1");
+        let row: Option<RawProfile> = sqlx::query_as(&query)
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(Into::into))
     }
 
-    /// Grava so o que veio; `None` deixa o campo como esta. Um `display_name`
-    /// vazio limpa a escolha e faz o perfil voltar a usar o username.
-    pub fn update_profile(
+    pub async fn all_profiles(&self) -> Result<Vec<Profile>> {
+        let query = format!("{SELECT} WHERE u.disabled_at IS NULL ORDER BY u.username_key");
+        let rows: Vec<RawProfile> = sqlx::query_as(&query)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn update_profile(
         &self,
         user_id: &UserId,
         display_name: Option<&str>,
@@ -53,45 +65,36 @@ impl Db {
         bio: Option<&str>,
         now: i64,
     ) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+        sqlx::query(
             "INSERT INTO user_profiles (user_id, display_name, accent, bio, updated_at)
-             VALUES (?1, ?2, COALESCE(?3, 'blue'), COALESCE(?4, ''), ?5)
+             VALUES ($1, $2, COALESCE($3, 'blue'), COALESCE($4, ''), $5)
              ON CONFLICT(user_id) DO UPDATE SET
-                 display_name = COALESCE(?2, display_name),
-                 accent       = COALESCE(?3, accent),
-                 bio          = COALESCE(?4, bio),
-                 updated_at   = ?5",
-            (user_id, display_name, accent, bio, now),
-        )?;
+                 display_name = COALESCE($2, display_name),
+                 accent       = COALESCE($3, accent),
+                 bio          = COALESCE($4, bio),
+                 updated_at   = $5",
+        )
+        .bind(user_id)
+        .bind(display_name)
+        .bind(accent)
+        .bind(bio)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
-}
 
-impl Db {
-    /// `Some("webp")` quando existe imagem, `None` quando voltou ao gerado.
-    /// Mexe no `updated_at` porque e ele que invalida o cache do navegador.
-    pub fn set_avatar(&self, user_id: &UserId, ext: Option<&str>, now: i64) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
+    pub async fn set_avatar(&self, user_id: &UserId, ext: Option<&str>, now: i64) -> Result<()> {
+        sqlx::query(
             "INSERT INTO user_profiles (user_id, avatar_ext, updated_at)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(user_id) DO UPDATE SET avatar_ext = ?2, updated_at = ?3",
-            (user_id, ext, now),
-        )?;
+             VALUES ($1, $2, $3)
+             ON CONFLICT(user_id) DO UPDATE SET avatar_ext = $2, updated_at = $3",
+        )
+        .bind(user_id)
+        .bind(ext)
+        .bind(now)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
-}
-
-fn ler_perfil(row: &Row) -> rusqlite::Result<Profile> {
-    let avatar_ext: Option<String> = row.get(5)?;
-    Ok(Profile {
-        user_id: row.get(0)?,
-        username: row.get(1)?,
-        display_name: row.get(2)?,
-        accent: row.get(3)?,
-        bio: row.get(4)?,
-        has_avatar: avatar_ext.is_some(),
-        updated_at: row.get(6)?,
-    })
 }

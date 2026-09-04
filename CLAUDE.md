@@ -236,7 +236,7 @@ Antes da primeira entrada, crie uma conta com `docker compose exec stapp-server 
   para chamadas em grupo, e o mesh permanece como fallback.
 - **Anti-glare do mesh:** quem *entra* na call cria as offers para todo mundo que já estava;
   quem já estava **só responde**. Nunca os dois lados ofertando.
-- **`rusqlite` usa a feature `bundled`** (compila o SQLite em C). No Windows precisa do MSVC
+- **`sqlx` com SQLite assíncrono** gerencia o banco via `SqlitePool` e migrações em `server/migrations/`. No Windows precisa do MSVC
   Build Tools.
 - **Analyser de audio precisa chegar ate `ctx.destination`.** O Chrome so processa o grafo que
   tem caminho ate a saida; um `AnalyserNode` num ramo solto le silencio. Por isso o

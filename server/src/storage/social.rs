@@ -25,35 +25,38 @@ pub struct SocialRecord {
 }
 
 impl Db {
-    pub fn allow_member_dms(&self, user_id: &str) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
-        Ok(conn.query_row(
-            "SELECT COALESCE((SELECT allow_member_dms FROM user_privacy WHERE user_id = ?1), 1)",
-            [user_id],
-            |row| row.get(0),
-        )?)
+    pub async fn allow_member_dms(&self, user_id: &str) -> Result<bool> {
+        let row: (bool,) = sqlx::query_as(
+            "SELECT COALESCE((SELECT allow_member_dms != 0 FROM user_privacy WHERE user_id = $1), 1)",
+        )
+        .bind(user_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row.0)
     }
 
-    pub fn set_allow_member_dms(&self, user_id: &str, allow: bool) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO user_privacy (user_id, allow_member_dms) VALUES (?1, ?2)
+    pub async fn set_allow_member_dms(&self, user_id: &str, allow: bool) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO user_privacy (user_id, allow_member_dms) VALUES ($1, $2)
              ON CONFLICT(user_id) DO UPDATE SET allow_member_dms = excluded.allow_member_dms",
-            (user_id, allow),
-        )?;
+        )
+        .bind(user_id)
+        .bind(allow as i64)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
-    pub fn social_records(&self, me: &str) -> Result<Vec<SocialRecord>> {
-        let accounts = self.list_accounts()?;
+    pub async fn social_records(&self, me: &str) -> Result<Vec<SocialRecord>> {
+        let accounts = self.list_accounts().await?;
         let mut records = Vec::new();
         for account in accounts {
             if account.id == me || account.disabled_at.is_some() {
                 continue;
             }
-            let relationship = self.relationship(me, &account.id)?;
-            let has_conversation = self.direct_conversation_exists(me, &account.id)?;
-            let target_open = self.allow_member_dms(&account.id)?;
+            let relationship = self.relationship(me, &account.id).await?;
+            let has_conversation = self.direct_conversation_exists(me, &account.id).await?;
+            let target_open = self.allow_member_dms(&account.id).await?;
             let blocked = matches!(
                 relationship,
                 Relationship::Blocked | Relationship::BlockedBy
@@ -72,11 +75,11 @@ impl Db {
         Ok(records)
     }
 
-    pub fn can_direct(&self, from: &str, to: &str) -> Result<bool> {
-        if from == to || self.account_by_id(to)?.is_none() {
+    pub async fn can_direct(&self, from: &str, to: &str) -> Result<bool> {
+        if from == to || self.account_by_id(to).await?.is_none() {
             return Ok(false);
         }
-        let relationship = self.relationship(from, to)?;
+        let relationship = self.relationship(from, to).await?;
         if matches!(
             relationship,
             Relationship::Blocked | Relationship::BlockedBy
@@ -84,183 +87,239 @@ impl Db {
             return Ok(false);
         }
         Ok(relationship == Relationship::Friend
-            || self.allow_member_dms(to)?
-            || self.direct_conversation_exists(from, to)?)
+            || self.allow_member_dms(to).await?
+            || self.direct_conversation_exists(from, to).await?)
     }
 
-    pub fn direct_conversation_exists(&self, a: &str, b: &str) -> Result<bool> {
+    pub async fn direct_conversation_exists(&self, a: &str, b: &str) -> Result<bool> {
         let conversation = super::conversation_id(a, b);
-        let conn = self.conn.lock().unwrap();
-        Ok(conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM dm_messages WHERE conversation_id = ?1)",
-            [conversation],
-            |row| row.get(0),
-        )?)
+        let exists: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM dm_messages WHERE conversation_id = $1)",
+        )
+        .bind(conversation)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(exists.0)
     }
 
-    pub fn request_friend(&self, from: &str, to: &str) -> Result<bool> {
+    pub async fn request_friend(&self, from: &str, to: &str) -> Result<bool> {
         if from == to {
             return Ok(false);
         }
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
-        let blocked: bool = tx.query_row(
+        let mut tx = self.pool.begin().await?;
+        let blocked: (bool,) = sqlx::query_as(
             "SELECT EXISTS(SELECT 1 FROM user_blocks
-              WHERE (blocker_id = ?1 AND blocked_id = ?2)
-                 OR (blocker_id = ?2 AND blocked_id = ?1))",
-            (from, to),
-            |row| row.get(0),
-        )?;
-        if blocked {
+              WHERE (blocker_id = $1 AND blocked_id = $2)
+                 OR (blocker_id = $2 AND blocked_id = $1))",
+        )
+        .bind(from)
+        .bind(to)
+        .fetch_one(&mut *tx)
+        .await?;
+        if blocked.0 {
             return Ok(false);
         }
         let (a, b) = pair(from, to);
-        let friends: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM friendships WHERE user_a = ?1 AND user_b = ?2)",
-            (&a, &b),
-            |row| row.get(0),
-        )?;
-        if friends {
+        let friends: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM friendships WHERE user_a = $1 AND user_b = $2)",
+        )
+        .bind(&a)
+        .bind(&b)
+        .fetch_one(&mut *tx)
+        .await?;
+        if friends.0 {
             return Ok(true);
         }
-        let inverse: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM friend_requests WHERE requester_id = ?1 AND addressee_id = ?2)",
-            (to, from),
-            |row| row.get(0),
-        )?;
-        if inverse {
-            tx.execute(
+        let inverse: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2)",
+        )
+        .bind(to)
+        .bind(from)
+        .fetch_one(&mut *tx)
+        .await?;
+        if inverse.0 {
+            sqlx::query(
                 "DELETE FROM friend_requests
-                  WHERE (requester_id = ?1 AND addressee_id = ?2)
-                     OR (requester_id = ?2 AND addressee_id = ?1)",
-                (from, to),
-            )?;
-            tx.execute(
-                "INSERT OR IGNORE INTO friendships (user_a, user_b, created_at) VALUES (?1, ?2, ?3)",
-                (&a, &b, now_ms()),
-            )?;
+                  WHERE (requester_id = $1 AND addressee_id = $2)
+                     OR (requester_id = $2 AND addressee_id = $1)",
+            )
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "INSERT OR IGNORE INTO friendships (user_a, user_b, created_at) VALUES ($1, $2, $3)",
+            )
+            .bind(&a)
+            .bind(&b)
+            .bind(now_ms())
+            .execute(&mut *tx)
+            .await?;
         } else {
-            tx.execute(
+            sqlx::query(
                 "INSERT OR IGNORE INTO friend_requests (requester_id, addressee_id, created_at)
-                 VALUES (?1, ?2, ?3)",
-                (from, to, now_ms()),
-            )?;
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(from)
+            .bind(to)
+            .bind(now_ms())
+            .execute(&mut *tx)
+            .await?;
         }
-        tx.commit()?;
+        tx.commit().await?;
         Ok(true)
     }
 
-    pub fn accept_friend(&self, me: &str, other: &str) -> Result<bool> {
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
-        let deleted = tx.execute(
-            "DELETE FROM friend_requests WHERE requester_id = ?1 AND addressee_id = ?2",
-            (other, me),
-        )?;
+    pub async fn accept_friend(&self, me: &str, other: &str) -> Result<bool> {
+        let mut tx = self.pool.begin().await?;
+        let deleted = sqlx::query(
+            "DELETE FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2",
+        )
+        .bind(other)
+        .bind(me)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+
         if deleted == 0 {
             return Ok(false);
         }
         let (a, b) = pair(me, other);
-        tx.execute(
-            "INSERT OR IGNORE INTO friendships (user_a, user_b, created_at) VALUES (?1, ?2, ?3)",
-            (&a, &b, now_ms()),
-        )?;
-        tx.commit()?;
+        sqlx::query(
+            "INSERT OR IGNORE INTO friendships (user_a, user_b, created_at) VALUES ($1, $2, $3)",
+        )
+        .bind(&a)
+        .bind(&b)
+        .bind(now_ms())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
         Ok(true)
     }
 
-    pub fn delete_friend_request(&self, requester: &str, addressee: &str) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
-        Ok(conn.execute(
-            "DELETE FROM friend_requests WHERE requester_id = ?1 AND addressee_id = ?2",
-            (requester, addressee),
-        )? > 0)
+    pub async fn delete_friend_request(&self, requester: &str, addressee: &str) -> Result<bool> {
+        let changed = sqlx::query(
+            "DELETE FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2",
+        )
+        .bind(requester)
+        .bind(addressee)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed > 0)
     }
 
-    pub fn remove_friend(&self, a: &str, b: &str) -> Result<bool> {
+    pub async fn remove_friend(&self, a: &str, b: &str) -> Result<bool> {
         let (a, b) = pair(a, b);
-        let conn = self.conn.lock().unwrap();
-        Ok(conn.execute(
-            "DELETE FROM friendships WHERE user_a = ?1 AND user_b = ?2",
-            (&a, &b),
-        )? > 0)
+        let changed = sqlx::query(
+            "DELETE FROM friendships WHERE user_a = $1 AND user_b = $2",
+        )
+        .bind(&a)
+        .bind(&b)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed > 0)
     }
 
-    pub fn block_user(&self, blocker: &str, blocked: &str) -> Result<bool> {
+    pub async fn block_user(&self, blocker: &str, blocked: &str) -> Result<bool> {
         if blocker == blocked {
             return Ok(false);
         }
-        let mut conn = self.conn.lock().unwrap();
-        let tx = conn.transaction()?;
-        tx.execute(
+        let mut tx = self.pool.begin().await?;
+        sqlx::query(
             "DELETE FROM friend_requests
-              WHERE (requester_id = ?1 AND addressee_id = ?2)
-                 OR (requester_id = ?2 AND addressee_id = ?1)",
-            (blocker, blocked),
-        )?;
+              WHERE (requester_id = $1 AND addressee_id = $2)
+                 OR (requester_id = $2 AND addressee_id = $1)",
+        )
+        .bind(blocker)
+        .bind(blocked)
+        .execute(&mut *tx)
+        .await?;
         let (a, b) = pair(blocker, blocked);
-        tx.execute(
-            "DELETE FROM friendships WHERE user_a = ?1 AND user_b = ?2",
-            (&a, &b),
-        )?;
-        let inserted = tx.execute(
+        sqlx::query(
+            "DELETE FROM friendships WHERE user_a = $1 AND user_b = $2",
+        )
+        .bind(&a)
+        .bind(&b)
+        .execute(&mut *tx)
+        .await?;
+        let inserted = sqlx::query(
             "INSERT OR IGNORE INTO user_blocks (blocker_id, blocked_id, created_at)
-             VALUES (?1, ?2, ?3)",
-            (blocker, blocked, now_ms()),
-        )?;
-        tx.commit()?;
+             VALUES ($1, $2, $3)",
+        )
+        .bind(blocker)
+        .bind(blocked)
+        .bind(now_ms())
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        tx.commit().await?;
         Ok(inserted > 0)
     }
 
-    pub fn unblock_user(&self, blocker: &str, blocked: &str) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
-        Ok(conn.execute(
-            "DELETE FROM user_blocks WHERE blocker_id = ?1 AND blocked_id = ?2",
-            (blocker, blocked),
-        )? > 0)
+    pub async fn unblock_user(&self, blocker: &str, blocked: &str) -> Result<bool> {
+        let changed = sqlx::query(
+            "DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2",
+        )
+        .bind(blocker)
+        .bind(blocked)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(changed > 0)
     }
 
-    fn relationship(&self, me: &str, other: &str) -> Result<Relationship> {
-        let conn = self.conn.lock().unwrap();
-        let me_blocks: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE blocker_id = ?1 AND blocked_id = ?2)",
-            (me, other),
-            |row| row.get(0),
-        )?;
-        if me_blocks {
+    async fn relationship(&self, me: &str, other: &str) -> Result<Relationship> {
+        let me_blocks: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2)",
+        )
+        .bind(me)
+        .bind(other)
+        .fetch_one(&self.pool)
+        .await?;
+        if me_blocks.0 {
             return Ok(Relationship::Blocked);
         }
-        let blocks_me: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE blocker_id = ?1 AND blocked_id = ?2)",
-            (other, me),
-            |row| row.get(0),
-        )?;
-        if blocks_me {
+        let blocks_me: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2)",
+        )
+        .bind(other)
+        .bind(me)
+        .fetch_one(&self.pool)
+        .await?;
+        if blocks_me.0 {
             return Ok(Relationship::BlockedBy);
         }
         let (a, b) = pair(me, other);
-        let friends: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM friendships WHERE user_a = ?1 AND user_b = ?2)",
-            (&a, &b),
-            |row| row.get(0),
-        )?;
-        if friends {
+        let friends: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM friendships WHERE user_a = $1 AND user_b = $2)",
+        )
+        .bind(&a)
+        .bind(&b)
+        .fetch_one(&self.pool)
+        .await?;
+        if friends.0 {
             return Ok(Relationship::Friend);
         }
-        let outgoing: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM friend_requests WHERE requester_id = ?1 AND addressee_id = ?2)",
-            (me, other),
-            |row| row.get(0),
-        )?;
-        if outgoing {
+        let outgoing: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2)",
+        )
+        .bind(me)
+        .bind(other)
+        .fetch_one(&self.pool)
+        .await?;
+        if outgoing.0 {
             return Ok(Relationship::Outgoing);
         }
-        let incoming: bool = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM friend_requests WHERE requester_id = ?1 AND addressee_id = ?2)",
-            (other, me),
-            |row| row.get(0),
-        )?;
-        Ok(if incoming {
+        let incoming: (bool,) = sqlx::query_as(
+            "SELECT EXISTS(SELECT 1 FROM friend_requests WHERE requester_id = $1 AND addressee_id = $2)",
+        )
+        .bind(other)
+        .bind(me)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(if incoming.0 {
             Relationship::Incoming
         } else {
             Relationship::None

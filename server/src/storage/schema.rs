@@ -1,352 +1,103 @@
-//! Versao do esquema e migracoes.
-//!
-//! O numero fica no `PRAGMA user_version` do proprio arquivo. Migracao nova =
-//! mais um bloco aqui e `SCHEMA_VERSION` incrementado; nada muda nas consultas.
+//! Versão do esquema e migrações estruturadas via SQLx.
 
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, bail};
-use rusqlite::Connection;
+use sqlx::SqlitePool;
 use uuid::Uuid;
 
 pub const SCHEMA_VERSION: i64 = 8;
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
 
-const V1: &str = "BEGIN IMMEDIATE;
-     CREATE TABLE users (
-         id            TEXT PRIMARY KEY,
-         username      TEXT NOT NULL,
-         username_key  TEXT NOT NULL UNIQUE,
-         password_hash TEXT NOT NULL,
-         created_at    INTEGER NOT NULL,
-         disabled_at   INTEGER
-     );
-     CREATE TABLE messages (
-         id              TEXT PRIMARY KEY,
-         channel         TEXT NOT NULL,
-         author_id       TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-         author_username TEXT NOT NULL,
-         text            TEXT NOT NULL,
-         ts              INTEGER NOT NULL
-     );
-     CREATE INDEX idx_messages_channel_ts ON messages (channel, ts);
-     PRAGMA user_version = 1;
-     COMMIT;";
+pub async fn migrate(pool: &SqlitePool, path: &Path) -> Result<()> {
+    let version_row: Option<(i64,)> = sqlx::query_as("PRAGMA user_version")
+        .fetch_optional(pool)
+        .await?;
+    let version = version_row.map(|r| r.0).unwrap_or(0);
 
-/// Mensagens diretas. A conversa nao tem tabela propria: o par de contas ja e a
-/// identidade dela (ver `storage::direct::conversation_id`).
-///
-/// `kind` existe desde ja para a chamada 1:1 poder deixar rastro na conversa
-/// ("chamada perdida") sem precisar de outra migracao.
-const V2: &str = "BEGIN IMMEDIATE;
-     CREATE TABLE dm_messages (
-         id              TEXT PRIMARY KEY,
-         conversation_id TEXT NOT NULL,
-         author_id       TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-         author_username TEXT NOT NULL,
-         kind            TEXT NOT NULL DEFAULT 'text',
-         text            TEXT NOT NULL,
-         ts              INTEGER NOT NULL
-     );
-     CREATE INDEX idx_dm_messages_conversation_ts ON dm_messages (conversation_id, ts);
-     CREATE TABLE dm_reads (
-         user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         conversation_id TEXT NOT NULL,
-         last_read_ts    INTEGER NOT NULL,
-         PRIMARY KEY (user_id, conversation_id)
-     );
-     PRAGMA user_version = 2;
-     COMMIT;";
+    if version > SCHEMA_VERSION {
+        bail!(
+            "o banco {} usa o esquema da versao {version}, mas este servidor so conhece ate {SCHEMA_VERSION}",
+            absolute_path(path).display()
+        );
+    }
 
-/// Sessoes persistentes e relacoes sociais locais ao servidor. A preferencia
-/// de DM fica numa tabela separada para que contas antigas recebam o default
-/// aberto sem reescrever `users`.
-const V3: &str = "BEGIN IMMEDIATE;
-     CREATE TABLE server_meta (
-         key   TEXT PRIMARY KEY,
-         value TEXT NOT NULL
-     );
-     CREATE TABLE auth_sessions (
-         id                    TEXT PRIMARY KEY,
-         user_id               TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         token_hash            TEXT NOT NULL,
-         previous_token_hash   TEXT,
-         previous_valid_until  INTEGER,
-         remember              INTEGER NOT NULL,
-         created_at            INTEGER NOT NULL,
-         last_used_at          INTEGER NOT NULL,
-         expires_at            INTEGER NOT NULL,
-         revoked_at            INTEGER
-     );
-     CREATE INDEX idx_auth_sessions_user ON auth_sessions (user_id);
-     CREATE TABLE user_privacy (
-         user_id           TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-         allow_member_dms  INTEGER NOT NULL DEFAULT 1
-     );
-     INSERT INTO user_privacy (user_id, allow_member_dms)
-          SELECT id, 1 FROM users;
-     CREATE TABLE friend_requests (
-         requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         addressee_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         created_at   INTEGER NOT NULL,
-         PRIMARY KEY (requester_id, addressee_id),
-         CHECK (requester_id <> addressee_id)
-     );
-     CREATE TABLE friendships (
-         user_a     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         user_b     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         created_at INTEGER NOT NULL,
-         PRIMARY KEY (user_a, user_b),
-         CHECK (user_a < user_b)
-     );
-     CREATE TABLE user_blocks (
-         blocker_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         created_at INTEGER NOT NULL,
-         PRIMARY KEY (blocker_id, blocked_id),
-         CHECK (blocker_id <> blocked_id)
-     );
-     PRAGMA user_version = 3;
-     COMMIT;";
+    let has_migrations_table: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '_sqlx_migrations'",
+    )
+    .fetch_one(pool)
+    .await?;
 
-/// Perfil publico da conta. Tabela separada de `users` pelo mesmo motivo de
-/// `user_privacy`: conta que ja existe ganha o default sem reescrever nada.
-///
-/// `display_name` NULL de proposito — significa "usa o username", e nao "vazio".
-/// `accent` guarda o NOME da cor, nao o hex: assim o tema manda no valor e trocar
-/// os tokens nao quebra nenhuma linha do banco.
-/// `avatar_ext` ja fica pronto para a imagem da etapa seguinte; NULL = avatar gerado.
-const V4: &str = "BEGIN IMMEDIATE;
-     CREATE TABLE user_profiles (
-         user_id      TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-         display_name TEXT,
-         accent       TEXT NOT NULL DEFAULT 'blue',
-         bio          TEXT NOT NULL DEFAULT '',
-         avatar_ext   TEXT,
-         updated_at   INTEGER NOT NULL DEFAULT 0
-     );
-     INSERT INTO user_profiles (user_id, accent, bio, updated_at)
-          SELECT id, 'blue', '', 0 FROM users;
-     PRAGMA user_version = 4;
-     COMMIT;";
-
-const V5: &str = "BEGIN IMMEDIATE;
-     CREATE TABLE attachments (
-         id           TEXT PRIMARY KEY,
-         message_id   TEXT,
-         user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         filename     TEXT NOT NULL,
-         content_type TEXT NOT NULL,
-         size_bytes   INTEGER NOT NULL,
-         s3_key       TEXT NOT NULL,
-         created_at   INTEGER NOT NULL
-     );
-     CREATE INDEX idx_attachments_message ON attachments (message_id);
-     PRAGMA user_version = 5;
-     COMMIT;";
-
-const V6: &str = "BEGIN IMMEDIATE;
-     CREATE TABLE polls (
-         id           TEXT PRIMARY KEY,
-         message_id   TEXT NOT NULL UNIQUE,
-         channel_id   TEXT,
-         author_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         question     TEXT NOT NULL,
-         allow_mult   INTEGER NOT NULL DEFAULT 0,
-         closed       INTEGER NOT NULL DEFAULT 0,
-         created_at   INTEGER NOT NULL
-     );
-     CREATE INDEX idx_polls_message ON polls (message_id);
-
-     CREATE TABLE poll_options (
-         id           TEXT PRIMARY KEY,
-         poll_id      TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
-         text         TEXT NOT NULL,
-         order_idx    INTEGER NOT NULL
-     );
-     CREATE INDEX idx_poll_options_poll ON poll_options (poll_id);
-
-     CREATE TABLE poll_votes (
-         poll_id      TEXT NOT NULL REFERENCES polls(id) ON DELETE CASCADE,
-         option_id    TEXT NOT NULL REFERENCES poll_options(id) ON DELETE CASCADE,
-         user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         created_at   INTEGER NOT NULL,
-         PRIMARY KEY (poll_id, option_id, user_id)
-     );
-     CREATE INDEX idx_poll_votes_poll ON poll_votes (poll_id);
-     PRAGMA user_version = 6;
-     COMMIT;";
-
-/// Resposta, edicao, mencao e reacao.
-///
-/// As colunas sao identicas em `messages` e `dm_messages` de proposito: o que
-/// muda entre canal e conversa e a audiencia do evento, nao o corpo da mensagem.
-///
-/// `reply_to` guarda so o id do alvo; o trecho mostrado e resolvido na leitura,
-/// entao editar o alvo atualiza a previa sozinho. Nao tem FK: apagar e
-/// definitivo, e uma RESTRICT travaria o delete de qualquer mensagem que ja
-/// tivesse sido respondida.
-///
-/// `mentions` e um array JSON de user_id. Mencao so e lida junto com a
-/// mensagem, entao vem de graca no mesmo SELECT em vez de custar mais uma
-/// consulta por lote. FUTURE: quando existir "mencoes nao lidas com indice",
-/// isto vira a tabela `message_mentions (message_id, user_id)` — e uma migracao,
-/// nao uma mudanca de protocolo.
-///
-/// `message_reactions` nao referencia mensagem porque a mesma tabela serve
-/// `messages` e `dm_messages`, exatamente como `attachments` na V5. Quem limpa
-/// e o delete em cascata do servico.
-const V7: &str = "BEGIN IMMEDIATE;
-     ALTER TABLE messages ADD COLUMN reply_to          TEXT;
-     ALTER TABLE messages ADD COLUMN edited_at         INTEGER;
-     ALTER TABLE messages ADD COLUMN mentions          TEXT    NOT NULL DEFAULT '[]';
-     ALTER TABLE messages ADD COLUMN mentions_everyone INTEGER NOT NULL DEFAULT 0;
-
-     ALTER TABLE dm_messages ADD COLUMN reply_to          TEXT;
-     ALTER TABLE dm_messages ADD COLUMN edited_at         INTEGER;
-     ALTER TABLE dm_messages ADD COLUMN mentions          TEXT    NOT NULL DEFAULT '[]';
-     ALTER TABLE dm_messages ADD COLUMN mentions_everyone INTEGER NOT NULL DEFAULT 0;
-
-     CREATE TABLE message_reactions (
-         message_id TEXT NOT NULL,
-         emoji      TEXT NOT NULL,
-         user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         created_at INTEGER NOT NULL,
-         PRIMARY KEY (message_id, emoji, user_id)
-     );
-     CREATE INDEX idx_message_reactions_message ON message_reactions (message_id, created_at);
-     PRAGMA user_version = 7;
-     COMMIT;";
-
-const V8: &str = "BEGIN IMMEDIATE;
-     ALTER TABLE attachments ADD COLUMN status          TEXT NOT NULL DEFAULT 'ready';
-     ALTER TABLE attachments ADD COLUMN checksum_sha256 TEXT;
-     ALTER TABLE attachments ADD COLUMN backend         TEXT NOT NULL DEFAULT 's3';
-     ALTER TABLE attachments ADD COLUMN expires_at      INTEGER;
-     ALTER TABLE attachments ADD COLUMN description     TEXT;
-     ALTER TABLE attachments ADD COLUMN duration_ms     INTEGER;
-     ALTER TABLE attachments ADD COLUMN waveform        TEXT;
-     ALTER TABLE attachments ADD COLUMN width           INTEGER;
-     ALTER TABLE attachments ADD COLUMN height          INTEGER;
-     ALTER TABLE attachments ADD COLUMN scope_kind      TEXT;
-     ALTER TABLE attachments ADD COLUMN scope_id        TEXT;
-     CREATE INDEX idx_attachments_orphans ON attachments (status, message_id, expires_at);
-
-     ALTER TABLE messages ADD COLUMN client_nonce TEXT;
-     ALTER TABLE dm_messages ADD COLUMN client_nonce TEXT;
-     CREATE UNIQUE INDEX idx_messages_nonce
-       ON messages (author_id, channel, client_nonce) WHERE client_nonce IS NOT NULL;
-     CREATE UNIQUE INDEX idx_dm_messages_nonce
-       ON dm_messages (author_id, conversation_id, client_nonce) WHERE client_nonce IS NOT NULL;
-
-     ALTER TABLE dm_reads ADD COLUMN last_message_id TEXT;
-     CREATE TABLE channel_reads (
-         user_id         TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         channel_id      TEXT NOT NULL,
-         last_message_id TEXT,
-         last_read_ts    INTEGER NOT NULL,
-         PRIMARY KEY (user_id, channel_id)
-     );
-     CREATE TABLE attachment_tickets (
-         ticket        TEXT PRIMARY KEY,
-         attachment_id TEXT NOT NULL REFERENCES attachments(id) ON DELETE CASCADE,
-         user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-         expires_at    INTEGER NOT NULL
-     );
-     CREATE INDEX idx_attachment_tickets_expiry ON attachment_tickets (expires_at);
-     PRAGMA user_version = 8;
-     COMMIT;";
-
-pub fn migrate(conn: &Connection, path: &Path) -> Result<()> {
-    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-
-    // Banco do prototipo anterior, quando mensagem guardava apelido e nao conta.
-    // Apagar sozinho seria perder conversa; entao paramos e deixamos a decisao
-    // com quem administra.
-    if version == 0 && has_any_stapp_table(conn)? {
+    if has_migrations_table.0 == 0 && version == 0 && has_any_stapp_table(pool).await? {
         bail!(
             "o banco {} usa o esquema antigo sem contas; mova ou remova esse arquivo conscientemente e inicie o servidor novamente",
             absolute_path(path).display()
         );
     }
-    if version > SCHEMA_VERSION {
-        bail!("o banco usa o esquema {version}, mas este servidor conhece ate {SCHEMA_VERSION}");
-    }
 
-    // Cada passo roda em sequencia, entao um banco em v0 chega em v2 sozinho.
-    if version < 1 {
-        conn.execute_batch(V1)?;
-    }
-    if version < 2 {
-        conn.execute_batch(V2)?;
-    }
-    if version < 3 {
-        conn.execute_batch(V3)?;
-    }
-    if version < 4 {
-        conn.execute_batch(V4)?;
-    }
-    if version < 5 {
-        conn.execute_batch(V5)?;
-    }
-    if version < 6 {
-        conn.execute_batch(V6)?;
-    }
-    if version < 7 {
-        conn.execute_batch(V7)?;
-    }
-    if version < 8 {
-        conn.execute_batch(V8)?;
-    }
+    if has_migrations_table.0 == 0 && version > 0 {
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS _sqlx_migrations (
+                version BIGINT PRIMARY KEY,
+                description TEXT NOT NULL,
+                installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                checksum BLOB NOT NULL,
+                execution_time BIGINT NOT NULL
+            )",
+        )
+        .execute(pool)
+        .await?;
 
-    ensure_server_id(conn)?;
-
-    Ok(())
-}
-
-fn ensure_server_id(conn: &Connection) -> Result<()> {
-    let exists: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM server_meta WHERE key = 'server_id')",
-        [],
-        |row| row.get(0),
-    )?;
-    if !exists {
-        conn.execute(
-            "INSERT INTO server_meta (key, value) VALUES ('server_id', ?1)",
-            [Uuid::new_v4().to_string()],
-        )?;
-    }
-    Ok(())
-}
-
-/// Aplica as migracoes ate a versao pedida. Existe para o teste conseguir
-/// montar um banco de versao antiga de verdade, em vez de fingir um.
-#[cfg(test)]
-pub(super) fn migrate_to(conn: &Connection, version: i64) -> Result<()> {
-    for (alvo, passo) in [
-        (1, V1),
-        (2, V2),
-        (3, V3),
-        (4, V4),
-        (5, V5),
-        (6, V6),
-        (7, V7),
-        (8, V8),
-    ] {
-        if version >= alvo {
-            conn.execute_batch(passo)?;
+        for m in MIGRATOR.iter() {
+            if m.version <= version {
+                sqlx::query(
+                    "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+                     VALUES ($1, $2, TRUE, $3, 0)",
+                )
+                .bind(m.version)
+                .bind(&*m.description)
+                .bind(&*m.checksum)
+                .execute(pool)
+                .await?;
+            }
         }
     }
+
+    MIGRATOR.run(pool).await?;
+
+    sqlx::query(&format!("PRAGMA user_version = {SCHEMA_VERSION}"))
+        .execute(pool)
+        .await?;
+
+    ensure_server_id(pool).await?;
+
     Ok(())
 }
 
-fn has_any_stapp_table(conn: &Connection) -> Result<bool> {
-    let count: i64 = conn.query_row(
+async fn ensure_server_id(pool: &SqlitePool) -> Result<()> {
+    let exists: (bool,) = sqlx::query_as(
+        "SELECT EXISTS(SELECT 1 FROM server_meta WHERE key = 'server_id')",
+    )
+    .fetch_one(pool)
+    .await?;
+    if !exists.0 {
+        sqlx::query("INSERT INTO server_meta (key, value) VALUES ('server_id', $1)")
+            .bind(Uuid::new_v4().to_string())
+            .execute(pool)
+            .await?;
+    }
+    Ok(())
+}
+
+async fn has_any_stapp_table(pool: &SqlitePool) -> Result<bool> {
+    let count: (i64,) = sqlx::query_as(
         "SELECT COUNT(*) FROM sqlite_master
           WHERE type = 'table' AND name IN ('messages', 'users')",
-        [],
-        |row| row.get(0),
-    )?;
-    Ok(count > 0)
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(count.0 > 0)
 }
 
 fn absolute_path(path: &Path) -> PathBuf {
@@ -355,4 +106,17 @@ fn absolute_path(path: &Path) -> PathBuf {
             .map(|dir| dir.join(path))
             .unwrap_or_else(|_| path.to_path_buf())
     })
+}
+
+#[cfg(test)]
+pub(super) async fn migrate_to(pool: &SqlitePool, version: i64) -> Result<()> {
+    for m in MIGRATOR.iter() {
+        if m.version <= version {
+            sqlx::raw_sql(&m.sql).execute(pool).await?;
+        }
+    }
+    sqlx::query(&format!("PRAGMA user_version = {version}"))
+        .execute(pool)
+        .await?;
+    Ok(())
 }

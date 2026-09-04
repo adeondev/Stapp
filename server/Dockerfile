@@ -13,12 +13,12 @@ COPY web/ ./
 RUN pnpm build
 
 # =======================================================================
-# Stage 2: Build Rust Backend (axum + tokio + rusqlite bundled)
+# Stage 2: Build Rust Backend (axum + tokio + sqlx bundled)
 # =======================================================================
 FROM rust:1.85-slim-bookworm AS server-builder
 WORKDIR /build/server
 
-# Install build dependencies for C-bundled rusqlite
+# Install build dependencies for C-bundled sqlite
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     build-essential \
@@ -33,6 +33,7 @@ RUN mkdir src tests && \
     cargo build --release && \
     rm -rf src tests
 
+COPY server/migrations ./migrations
 COPY server/src ./src
 COPY server/tests ./tests
 RUN touch src/main.rs src/lib.rs && cargo build --release --bin stapp-server
