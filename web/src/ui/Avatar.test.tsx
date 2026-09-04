@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
 import type { Profile } from '../protocol'
 import { Avatar, ProfileProvider } from './Avatar'
@@ -86,5 +86,27 @@ describe('Avatar', () => {
   it('nome que comeca com emoji ainda mostra uma letra', () => {
     desenhar({ 'user-1': perfil({ display_name: '🔥 deon' }) }, 'user-1')
     expect(screen.getByText('D')).toBeTruthy()
+  })
+
+  it('adiciona classe is-speaking dinamicamente quando o peer fala', async () => {
+    const { useVoiceStore } = await import('../stores/voiceStore')
+    const { container } = render(
+      <ProfileProvider profiles={{ 'user-1': perfil() }} avatarBase={null}>
+        <Avatar userId="user-1" className="avatar-teste" peerId="peer-1" />
+      </ProfileProvider>,
+    )
+
+    const span = container.querySelector('.avatar-teste') as HTMLElement
+    expect(span.className).not.toContain('is-speaking')
+
+    act(() => {
+      useVoiceStore.getState().setSpeaking('peer-1', true)
+    })
+    expect(span.className).toContain('is-speaking')
+
+    act(() => {
+      useVoiceStore.getState().setSpeaking('peer-1', false)
+    })
+    expect(span.className).not.toContain('is-speaking')
   })
 })

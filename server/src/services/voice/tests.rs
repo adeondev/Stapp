@@ -53,7 +53,7 @@ async fn sends_roster_before_announcing_a_voice_join() {
 }
 
 #[tokio::test]
-async fn relays_signaling_only_inside_the_same_voice_channel() {
+async fn mesh_signaling_relay_is_retired_and_emits_no_events() {
     let server = TestServer::new(10, 4).await;
     let first = "first".to_string();
     let second = "second".to_string();
@@ -70,34 +70,17 @@ async fn relays_signaling_only_inside_the_same_voice_channel() {
         .await
         .unwrap();
     server.state.join_voice(&first, "voz-a", 4).await.unwrap();
-    server.state.join_voice(&second, "voz-b", 4).await.unwrap();
+    server.state.join_voice(&second, "voz-a", 4).await.unwrap();
     let mut events = server.state.subscribe();
 
     relay(
         &server.state,
         &first,
         &second,
-        serde_json::json!({ "kind": "blocked" }),
+        serde_json::json!({ "kind": "retired_signal" }),
     )
     .await;
     assert!(matches!(events.try_recv(), Err(TryRecvError::Empty)));
-
-    server.state.join_voice(&second, "voz-a", 4).await.unwrap();
-    relay(
-        &server.state,
-        &first,
-        &second,
-        serde_json::json!({ "kind": "allowed" }),
-    )
-    .await;
-
-    let event = events.try_recv().unwrap();
-    assert!(matches!(event.target, Target::Peer(ref id) if id == &second));
-    assert!(matches!(
-        event.msg,
-        ServerMsg::RtcSignal { ref from, ref payload }
-            if from == &first && payload["kind"] == "allowed"
-    ));
 }
 
 #[test]

@@ -532,6 +532,12 @@ pub enum ClientMsg {
         to: PeerId,
         payload: serde_json::Value,
     },
+
+    #[serde(rename = "telemetry.ping")]
+    TelemetryPing {
+        nonce: String,
+        t0: u64,
+    },
 }
 
 // ---------------------------------------------------------------- servidor -> cliente
@@ -768,12 +774,27 @@ pub enum ServerMsg {
 
     #[serde(rename = "error")]
     Error { message: String },
+
+    #[serde(rename = "telemetry.pong")]
+    TelemetryPong {
+        nonce: String,
+        t0: u64,
+        t1: u64,
+        t2: u64,
+    },
 }
 
 pub fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+pub fn now_micros() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_micros() as u64)
         .unwrap_or(0)
 }
 

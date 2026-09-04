@@ -1,8 +1,9 @@
 //! Autoridade de chamadas do Stapp.
 //!
-//! O mesh continua como contingencia. No LiveKit, `voice.join` apenas reserva
-//! a vaga e entrega um grant efemero; a presenca so e publicada depois de
-//! `voice.connected`, quando o cliente confirma que chegou ao SFU.
+//! O LiveKit SFU e o backend padrao e definitivo para chamadas de voz, video e
+//! streaming. `voice.join` reserva a vaga e entrega um grant efemero; a presenca
+//! so e publicada depois de `voice.connected`, quando o cliente confirma que
+//! chegou ao SFU. O relay manual de sinalizacao WebRTC foi aposentado.
 
 mod livekit;
 
@@ -226,16 +227,13 @@ pub async fn set_state(
     .await;
 }
 
-pub async fn relay(state: &AppState, from: &PeerId, to: &PeerId, payload: serde_json::Value) {
-    if state.config.voice.backend == "mesh" && state.shares_voice_channel(from, to).await {
-        state.send_to(
-            to,
-            ServerMsg::RtcSignal {
-                from: from.clone(),
-                payload,
-            },
-        );
-    }
+pub async fn relay(_state: &AppState, from: &PeerId, to: &PeerId, _payload: serde_json::Value) {
+    // Relay de sinalizacao WebRTC mesh aposentado: LiveKit SFU gerencia toda sinalizacao de midia diretamente.
+    tracing::debug!(
+        from = %from,
+        to = %to,
+        "rtc signaling relay e no-op: LiveKit SFU gerencia a midia diretamente"
+    );
 }
 
 async fn authorize_channel(state: &AppState, peer_id: &PeerId, channel: &str) -> Option<usize> {

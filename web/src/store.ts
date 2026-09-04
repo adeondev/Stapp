@@ -361,6 +361,7 @@ export function reduce(state: StappState, msg: StappAction): StappState {
     case 'rtc.signal':
     case 'error':
     case 'dm.denied':
+    case 'telemetry.pong':
       return state
   }
 }

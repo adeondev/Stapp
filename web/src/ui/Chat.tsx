@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChatEntry, DirectoryEntry, Limits, UserId } from '../protocol'
+import { useChatStore } from '../stores/chatStore'
 import { IconAt, IconEdit, IconHash, IconPhone, IconReaction, IconReply, IconTrash } from './Icons'
 import { Avatar, ProfileName } from './Avatar'
 import { MarkdownRenderer } from './rich/MarkdownRenderer'
@@ -116,13 +117,18 @@ export function Chat({
   onCreatePoll,
   onClosePoll,
   onCall,
-  sendResults = {},
-  typingUsers = [],
+  sendResults: propSendResults,
+  typingUsers: propTypingUsers,
   readReceiptId,
   channelReadReceipts = {},
   onTyping,
   onRead,
 }: Props) {
+  const storeSendResults = useChatStore((s) => s.sendResults)
+  const sendResults = propSendResults ?? storeSendResults
+  const typingKey = `${kind}:${scopeId}`
+  const storeTypingUsers = useChatStore((s) => s.typing[typingKey])
+  const typingUsers = propTypingUsers ?? storeTypingUsers ?? []
   const userMenu = useUserMenu()
   const [draft, setDraft] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -285,15 +291,28 @@ export function Chat({
     const el = textareaRef.current
     if (!el) return
     el.style.height = 'auto'
-    el.style.height = `${el.scrollHeight}px`
+    const newHeight = `${el.scrollHeight}px`
+    if (el.style.height !== newHeight) {
+      el.style.height = newHeight
+    }
   }, [draft])
 
   // So acompanha o fim se o usuario ja estava no fim — se ele subiu para ler
   // algo antigo, mensagem nova nao arranca a tela dele.
+  // Usa requestAnimationFrame para desacoplar da fase sincrona de layout e evitar forced reflow.
   useLayoutEffect(() => {
     const el = scroller.current
-    if (el && pinned.current) el.scrollTop = el.scrollHeight
-  }, [messages, title])
+    if (!el || !pinned.current) return
+    const frameId = requestAnimationFrame(() => {
+      if (scroller.current && pinned.current) {
+        const target = scroller.current.scrollHeight
+        if (scroller.current.scrollTop !== target) {
+          scroller.current.scrollTop = target
+        }
+      }
+    })
+    return () => cancelAnimationFrame(frameId)
+  }, [messages.length, title])
 
   useEffect(() => {
     let savedDraft = ''

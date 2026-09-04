@@ -23,6 +23,7 @@ rustls-acme = { version = "0.15", features = ["axum", "tokio"] }
 rust-embed = "8.12"
 mime_guess = "2.0"
 tokio-stream = "0.1"
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 ipnet = { version = "2", features = ["serde"] }
@@ -41,6 +42,7 @@ hex = "0.4"
 infer = "0.19"
 subtle = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "sync", "time", "fs", "io-util"] }
+tokio-util = { version = "0.7", features = ["io"] }
 toml = "1"
 tower-http = { version = "0.7", features = ["fs", "set-header"] }
 tracing = "0.1"

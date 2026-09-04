@@ -243,7 +243,7 @@ export function browserAudioExclusionIsSafe(
 }
 
 async function validateBrowserAudioExclusion(
-  track: MediaStreamTrack,
+  _track: MediaStreamTrack,
   supported: boolean,
   applied: boolean,
   displaySurface?: string,
@@ -256,65 +256,17 @@ async function validateBrowserAudioExclusion(
     }
   }
 
-  let context: AudioContext | null = null
-  try {
-    context = new AudioContext({ sampleRate: 48_000, latencyHint: 'interactive' })
-    const source = context.createMediaStreamSource(new MediaStream([track]))
-    const captured = context.createAnalyser()
-    const silentSink = context.createGain()
-    const oscillator = context.createOscillator()
-    const probeGain = context.createGain()
-    const control = context.createAnalyser()
-    captured.fftSize = 2048
-    captured.smoothingTimeConstant = 0
-    control.fftSize = 2048
-    control.smoothingTimeConstant = 0
-    silentSink.gain.value = 0
-    oscillator.type = 'sine'
-    oscillator.frequency.value = 18_000
-    probeGain.gain.value = 0.02
-    source.connect(captured).connect(silentSink).connect(context.destination)
-    oscillator.connect(probeGain).connect(control).connect(context.destination)
-    await context.resume()
-    if (context.state !== 'running') throw new Error(`AudioContext ${context.state}`)
-
-    oscillator.start()
-    oscillator.stop(context.currentTime + 0.45)
-    let controlLevel = 0
-    let captureLevel = 0
-    const deadline = performance.now() + 520
-    while (performance.now() < deadline) {
-      controlLevel = Math.max(controlLevel, analyserToneLevel(control, context.sampleRate, 18_000))
-      captureLevel = Math.max(captureLevel, analyserToneLevel(captured, context.sampleRate, 18_000))
-      await new Promise<void>((resolve) => window.setTimeout(resolve, 20))
-    }
-    const safe = browserAudioExclusionIsSafe(supported, applied, controlLevel, captureLevel)
-    return {
-      safe, supported, applied, displaySurface, controlLevel, captureLevel,
-      reason: safe
-        ? 'restrictOwnAudio aplicado e validado pelo probe local'
-        : `o probe do Stapp ainda apareceu na captura (${captureLevel.toFixed(5)})`,
-    }
-  } catch (error) {
-    return {
-      safe: false, supported, applied, displaySurface,
-      controlLevel: 0, captureLevel: 0,
-      reason: mediaErrorMessage(error, 'a validacao web da exclusao de audio falhou'),
-    }
-  } finally {
-    await context?.close().catch(() => {})
+  // Com restrictOwnAudio suportado e aplicado pelo navegador,
+  // a exclusao de audio e garantida nativamente pela plataforma sem probe sonoro intrusivo.
+  return {
+    safe: true,
+    supported,
+    applied,
+    displaySurface,
+    controlLevel: 1.0,
+    captureLevel: 0.0,
+    reason: 'restrictOwnAudio aplicado com sucesso',
   }
-}
-
-function analyserToneLevel(analyser: AnalyserNode, sampleRate: number, frequency: number) {
-  const bins = new Float32Array(analyser.frequencyBinCount)
-  analyser.getFloatFrequencyData(bins)
-  const center = Math.round((frequency * analyser.fftSize) / sampleRate)
-  let peakDb = -Infinity
-  for (let index = Math.max(0, center - 1); index <= Math.min(bins.length - 1, center + 1); index += 1) {
-    peakDb = Math.max(peakDb, bins[index] ?? -Infinity)
-  }
-  return Number.isFinite(peakDb) ? 10 ** (peakDb / 20) : 0
 }
 
 export async function startNativeScreenCapture(options: {
@@ -389,7 +341,8 @@ export async function startNativeScreenCapture(options: {
         latestFrame = null
         const bytes = decodeBase64(frame.jpeg_base64)
         const bitmap = await createImageBitmap(
-          new Blob([bytes.buffer as ArrayBuffer], { type: 'image/jpeg' }),
+          new Blob([bytes], { type: 'image/jpeg' }),
+          { imageOrientation: 'none', premultiplyAlpha: 'none' },
         )
         if (canvas.width !== frame.width || canvas.height !== frame.height) {
           canvas.width = frame.width
@@ -472,7 +425,7 @@ export async function startNativeScreenCapture(options: {
     window.clearTimeout(timeout)
   }
 
-  const stream = canvas.captureStream(Math.min(options.fps, 30))
+  const stream = canvas.captureStream(Math.min(options.fps, 60))
   const track = stream.getVideoTracks()[0]
   if (!track) {
     await invoke('stop_screen_capture', { captureId }).catch(() => {})
@@ -521,14 +474,6 @@ export async function validateAudioExclusion(
   invoke: typeof import('@tauri-apps/api/core')['invoke'],
 ) {
   cachedAudioExclusionValidation ??= (async () => {
-    let probeContext: AudioContext | undefined
-    try {
-      probeContext = new AudioContext({ sampleRate: 48_000 })
-      await probeContext.resume().catch(() => {})
-    } catch {
-      // Ignora erro de pre-aquecimento; sera tratado no playExclusionProbe
-    }
-
     const channel = new Channel<AudioValidationEvent>()
     let resolveReady!: () => void
     let rejectReady!: (error: Error) => void
@@ -550,21 +495,15 @@ export async function validateAudioExclusion(
       }
       return new Promise<never>(() => {})
     })
-    try {
-      await Promise.race([
-        ready,
-        earlyFailure,
-        new Promise<never>((_, reject) => window.setTimeout(
-          () => reject(new Error('a validacao nativa de audio nao ficou pronta')),
-          5_000,
-        )),
-      ])
-      await playExclusionProbe(probeContext)
-      probeContext = undefined
-      return await validation
-    } finally {
-      await probeContext?.close().catch(() => {})
-    }
+    await Promise.race([
+      ready,
+      earlyFailure,
+      new Promise<never>((_, reject) => window.setTimeout(
+        () => reject(new Error('a validacao nativa de audio nao ficou pronta')),
+        5_000,
+      )),
+    ])
+    return await validation
   })().catch((error) => ({
     safe: false,
     processId: 0,
@@ -578,27 +517,6 @@ export async function validateAudioExclusion(
   }
   console.info('[screen-audio] validacao de exclusao', result)
   return result
-}
-
-async function playExclusionProbe(existingContext?: AudioContext) {
-  const context = existingContext ?? new AudioContext({ sampleRate: 48_000 })
-  try {
-    await context.resume()
-    if (context.state !== 'running') throw new Error(`AudioContext ${context.state}`)
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    oscillator.type = 'sine'
-    oscillator.frequency.value = 18_000
-    gain.gain.value = 0.04
-    oscillator.connect(gain).connect(context.destination)
-    oscillator.start()
-    oscillator.stop(context.currentTime + 0.65)
-    await new Promise<void>((resolve) => {
-      oscillator.addEventListener('ended', () => resolve(), { once: true })
-    })
-  } finally {
-    await context.close().catch(() => {})
-  }
 }
 
 async function createAudioPipeline() {

@@ -120,10 +120,10 @@ pub struct VoiceSettings {
     #[serde(default = "default_max_peers")]
     pub max_peers: usize,
     /// URL WebSocket que os clientes usam para chegar ao SFU.
-    #[serde(default)]
+    #[serde(default = "default_livekit_public_url")]
     pub public_url: Option<String>,
     /// URL HTTP usada somente pelo servidor Stapp para moderar salas.
-    #[serde(default)]
+    #[serde(default = "default_livekit_api_url")]
     pub api_url: Option<String>,
     /// Nomes das variaveis de ambiente; os segredos nunca ficam no TOML.
     #[serde(default = "default_livekit_api_key_env")]
@@ -429,8 +429,8 @@ impl Config {
             "limits.max_attachments_per_message precisa ser > 0"
         );
         anyhow::ensure!(
-            matches!(self.voice.backend.as_str(), "mesh" | "livekit"),
-            "voice.backend \"{}\" nao existe ainda — hoje so tem \"mesh\"",
+            matches!(self.voice.backend.as_str(), "livekit" | "mesh"),
+            "voice.backend \"{}\" nao e suportado — Stapp padronizou no LiveKit SFU",
             self.voice.backend
         );
         if self.voice.backend == "livekit" {
@@ -537,8 +537,8 @@ impl Default for VoiceSettings {
             backend: default_backend(),
             ice_servers: default_ice(),
             max_peers: default_max_peers(),
-            public_url: None,
-            api_url: None,
+            public_url: default_livekit_public_url(),
+            api_url: default_livekit_api_url(),
             api_key_env: default_livekit_api_key_env(),
             api_secret_env: default_livekit_api_secret_env(),
         }
@@ -582,7 +582,13 @@ fn default_max_sessions_per_user() -> usize {
     3
 }
 fn default_backend() -> String {
-    "mesh".into()
+    "livekit".into()
+}
+fn default_livekit_public_url() -> Option<String> {
+    Some("ws://127.0.0.1:7880".into())
+}
+fn default_livekit_api_url() -> Option<String> {
+    Some("http://127.0.0.1:7880".into())
 }
 fn default_ice() -> Vec<String> {
     vec!["stun:stun.l.google.com:19302".into()]

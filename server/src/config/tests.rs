@@ -73,7 +73,7 @@ fn rejects_invalid_limits_and_voice_backend() {
             .validate()
             .unwrap_err()
             .to_string()
-            .contains("nao existe ainda")
+            .contains("nao e suportado")
     );
 }
 

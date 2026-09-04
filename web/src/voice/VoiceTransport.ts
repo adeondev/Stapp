@@ -155,12 +155,12 @@ export function createVoiceTransport(
   config: VoiceConfig,
   options: VoiceTransportOptions,
 ): VoiceTransport {
-  switch (config.backend) {
-    case 'mesh':
-      return new MeshTransport(config, options)
-    case 'livekit':
-      return new LiveKitTransport(config, options)
+  if (config.backend === 'livekit') {
+    return new LiveKitTransport(config, options)
   }
+  // MeshTransport legado descontinuado; mantido como fallback com aviso no console
+  console.warn('[VoiceTransport] O backend mesh P2P esta descontinuado. LiveKit SFU e o padrao definitivo.')
+  return new MeshTransport(config, options)
 }
 
 export function emptySnapshot(): VoiceSnapshot {
