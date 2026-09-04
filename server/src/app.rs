@@ -266,7 +266,11 @@ pub fn redirect_to_https_app(tls_port: u16) -> Router {
 
         (
             axum::http::StatusCode::MOVED_PERMANENTLY,
-            [(header::LOCATION, target)],
+            [
+                (header::LOCATION, target),
+                (header::CONNECTION, "close".to_string()),
+                (header::CONTENT_LENGTH, "0".to_string()),
+            ],
         )
     })
 }
