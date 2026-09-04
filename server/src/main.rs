@@ -4,6 +4,9 @@ use stapp_server::cli::Cli;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Carrega variáveis de ambiente do arquivo .env antes de inicializar o logger e a CLI
+    dotenvy::dotenv().ok();
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
