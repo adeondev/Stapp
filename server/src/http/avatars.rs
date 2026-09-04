@@ -99,7 +99,7 @@ fn responder(status: StatusCode, corpo: &str, contexto: &OriginContext) -> Respo
 /// dificil de adivinhar, mas nao e segredo. Serve porque `<img src>` nao manda
 /// cabecalho; se o servidor virar publico, isto vira uma rota assinada.
 async fn serve(State(state): State<Arc<AppState>>, Path(user_id): Path<UserId>) -> Response {
-    match profile::read_avatar(&state, &user_id) {
+    match profile::read_avatar(&state, &user_id).await {
         Some(bytes) => {
             let mut resposta = (
                 [

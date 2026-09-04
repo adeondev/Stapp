@@ -75,7 +75,7 @@ pub async fn update(
 /// Guarda a imagem e avisa todo mundo. Devolve o tamanho gravado.
 pub async fn set_avatar(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Result<usize, String> {
     let dir = avatar_dir(state);
-    let tamanho = avatar::store(&dir, user_id, bytes).map_err(|erro| erro.to_string())?;
+    let tamanho = avatar::store(&dir, user_id, bytes).await.map_err(|erro| erro.to_string())?;
 
     if let Err(err) = state
         .db
@@ -84,7 +84,7 @@ pub async fn set_avatar(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Res
     {
         tracing::error!(%err, "falha marcando o avatar no banco");
         // O arquivo sem a linha no banco seria lixo invisivel.
-        avatar::remove(&dir, user_id);
+        avatar::remove(&dir, user_id).await;
         return Err("nao consegui salvar o avatar".into());
     }
 
@@ -98,12 +98,12 @@ pub async fn clear_avatar(state: &AppState, user_id: &UserId) {
         tracing::error!(%err, "falha limpando o avatar");
         return;
     }
-    avatar::remove(&avatar_dir(state), user_id);
+    avatar::remove(&avatar_dir(state), user_id).await;
     announce(state, user_id).await;
 }
 
-pub fn read_avatar(state: &AppState, user_id: &UserId) -> Option<Vec<u8>> {
-    avatar::read(&avatar_dir(state), user_id)
+pub async fn read_avatar(state: &AppState, user_id: &UserId) -> Option<Vec<u8>> {
+    avatar::read(&avatar_dir(state), user_id).await
 }
 
 fn avatar_dir(state: &AppState) -> PathBuf {

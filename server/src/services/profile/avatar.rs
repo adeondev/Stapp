@@ -47,8 +47,9 @@ pub fn extensao() -> &'static str {
     EXTENSAO
 }
 
-/// Decodifica, corta quadrado, reduz e grava. Devolve o tamanho final em bytes.
-pub fn store(dir: &Path, user_id: &str, bytes: &[u8]) -> Result<usize, AvatarError> {
+/// Processa a imagem: decodifica, corta quadrado no centro, redimensiona via Lanczos3
+/// e codifica em WebP sem perdas. Operacao puramente de CPU.
+pub fn process_image(bytes: &[u8]) -> Result<Vec<u8>, AvatarError> {
     // `load_from_memory` adivinha o formato pelos proprios bytes.
     let imagem = image::load_from_memory(bytes).map_err(|_| AvatarError::NaoEImagem)?;
     let quadrada = cortar_quadrado(imagem).resize_exact(LADO, LADO, FilterType::Lanczos3);
@@ -58,19 +59,34 @@ pub fn store(dir: &Path, user_id: &str, bytes: &[u8]) -> Result<usize, AvatarErr
     WebPEncoder::new_lossless(Cursor::new(&mut saida))
         .write_image(&rgba, LADO, LADO, image::ExtendedColorType::Rgba8)
         .map_err(|_| AvatarError::NaoEImagem)?;
+    Ok(saida)
+}
 
+/// Versao sincrona para processamento direto ou testes.
+pub fn store_sync(dir: &Path, user_id: &str, bytes: &[u8]) -> Result<usize, AvatarError> {
+    let saida = process_image(bytes)?;
     std::fs::create_dir_all(dir).map_err(AvatarError::Io)?;
     std::fs::write(caminho(dir, user_id), &saida).map_err(AvatarError::Io)?;
     Ok(saida.len())
 }
 
-pub fn remove(dir: &Path, user_id: &str) {
-    // Sumir com um arquivo que ja nao existe nao e erro.
-    let _ = std::fs::remove_file(caminho(dir, user_id));
+/// Decodifica, corta quadrado, reduz via Lanczos3 e grava em WebP no pool de blocking do Tokio.
+pub async fn store(dir: &Path, user_id: &str, bytes: &[u8]) -> Result<usize, AvatarError> {
+    let dir = dir.to_path_buf();
+    let user_id = user_id.to_string();
+    let bytes = bytes.to_vec();
+    tokio::task::spawn_blocking(move || store_sync(&dir, &user_id, &bytes))
+        .await
+        .map_err(|_| AvatarError::Io(std::io::Error::new(std::io::ErrorKind::Other, "spawn_blocking falhou")))?
 }
 
-pub fn read(dir: &Path, user_id: &str) -> Option<Vec<u8>> {
-    std::fs::read(caminho(dir, user_id)).ok()
+pub async fn remove(dir: &Path, user_id: &str) {
+    // Sumir com um arquivo que ja nao existe nao e erro.
+    let _ = tokio::fs::remove_file(caminho(dir, user_id)).await;
+}
+
+pub async fn read(dir: &Path, user_id: &str) -> Option<Vec<u8>> {
+    tokio::fs::read(caminho(dir, user_id)).await.ok()
 }
 
 /// O quadrado central. Cortar antes de redimensionar evita a foto esticada.
