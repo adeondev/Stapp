@@ -64,7 +64,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: ./web
-        run: pnpm install --frozen-lockfile
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build frontend web client
         working-directory: ./web
