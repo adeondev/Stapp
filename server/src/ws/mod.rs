@@ -69,9 +69,27 @@ async fn connection(mut socket: WebSocket, state: Arc<AppState>, origin: SocketA
     loop {
         tokio::select! {
             incoming = socket.recv() => {
+                let t1 = crate::protocol::now_micros();
                 let Some(Ok(frame)) = incoming else { break };
                 match frame {
                     WsMessage::Text(text) => match serde_json::from_str::<ClientMsg>(&text) {
+                        Ok(ClientMsg::TelemetryPing { nonce, t0 }) => {
+                            let t2 = crate::protocol::now_micros();
+                            tracing::info!(
+                                peer = %peer_id,
+                                %nonce,
+                                t0_us = t0,
+                                t1_us = t1,
+                                t2_us = t2,
+                                uplink_us = t1.saturating_sub(t0),
+                                server_us = t2.saturating_sub(t1),
+                                "telemetria_rtt_processada"
+                            );
+                            let pong = ServerMsg::TelemetryPong { nonce, t0, t1, t2 };
+                            if send_direct(&mut socket, &pong).await.is_err() {
+                                break;
+                            }
+                        }
                         Ok(msg) => {
                             phase = route(&state, &peer_id, origin, phase, msg).await;
                         }
