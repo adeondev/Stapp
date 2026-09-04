@@ -78,6 +78,7 @@ async fn connection(socket: WebSocket, state: Arc<AppState>, origin: SocketAddr)
         registration_enabled: state.config.auth.allow_registration,
         plaintext_auth_allowed: state.config.auth.allows_plaintext_from(origin.ip()),
         min_client_version: state.config.server.min_client_version.clone(),
+        voice_enabled: crate::services::voice::is_enabled(&state.config.voice),
     };
     if let Ok(json) = serde_json::to_string(&hello) {
         if tx.send(WsMessage::Text(json.into())).await.is_err() {

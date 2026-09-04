@@ -15,7 +15,17 @@ use crate::storage::conversation_id;
 const DIRECT_MAX_PEERS: usize = 2;
 const DIRECT_PREFIX: &str = "dm:";
 
+pub use livekit::is_configured;
 pub use livekit::validate_backend;
+
+pub fn is_enabled(config: &crate::config::VoiceSettings) -> bool {
+    match config.backend.as_str() {
+        "disabled" | "none" => false,
+        "livekit" => is_configured(config),
+        "mesh" => true,
+        _ => false,
+    }
+}
 
 pub fn direct_channel(a: &UserId, b: &UserId) -> String {
     format!("{DIRECT_PREFIX}{}", conversation_id(a, b))
@@ -63,6 +73,17 @@ pub async fn all_peers(state: &AppState) -> Vec<VoicePeer> {
 }
 
 pub async fn join(state: &AppState, peer_id: &PeerId, channel: &str) {
+    if state.config.voice.backend == "disabled" || state.config.voice.backend == "none" {
+        denied(
+            state,
+            peer_id,
+            channel,
+            VoiceDeniedCode::Unavailable,
+            "Modulo de voz desativado neste servidor",
+        );
+        return;
+    }
+
     let Some(max_peers) = authorize_channel(state, peer_id, channel).await else {
         return;
     };
@@ -80,6 +101,17 @@ pub async fn join(state: &AppState, peer_id: &PeerId, channel: &str) {
 }
 
 async fn join_livekit(state: &AppState, peer_id: &PeerId, channel: &str, max_peers: usize) {
+    if !livekit::is_configured(&state.config.voice) {
+        denied(
+            state,
+            peer_id,
+            channel,
+            VoiceDeniedCode::Unavailable,
+            "Servico de voz nao configurado neste servidor",
+        );
+        return;
+    }
+
     if let Err(error) = state
         .reserve_voice(peer_id, channel, max_peers, livekit::RESERVATION_TTL)
         .await

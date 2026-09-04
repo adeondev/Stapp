@@ -356,6 +356,8 @@ export type ServerMsg =
       plaintext_auth_allowed: boolean
       /** Versao minima exigida do cliente (semver). */
       min_client_version?: string
+      /** Se o servico de voz esta ativo e configurado no servidor. */
+      voice_enabled?: boolean
     }
   | { t: 'auth.error'; code: AuthErrorCode; message: string; retry_after_ms?: number }
   | {
@@ -370,6 +372,8 @@ export type ServerMsg =
       /** Os perfis de todo mundo, inclusive o seu. */
       profiles: Profile[]
       voice: VoiceConfig
+      /** Se o servico de voz esta ativo e configurado no servidor. */
+      voice_enabled?: boolean
       voice_peers: VoicePeer[]
       limits: Limits
     }
