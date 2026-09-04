@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import stappLogo from '../assets/imgs/svg/stapp_logo.svg'
 import { AuthApi, AuthApiError } from './net/auth'
 import { Connection, type ConnectionStatus } from './net/connection'
@@ -7,7 +7,8 @@ import { hasPendingLogout, lastServer, loadServers, markLogoutPending, normalize
   removeServer, saveServer, setPendingLogout, type SavedServer } from './net/servers'
 import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
 import { PROTOCOL_VERSION } from './protocol'
-import { directChannelPartner, directChannelPartnerId, initialState, profileOf, reduce, totalUnread } from './store'
+import { directChannelPartner, directChannelPartnerId, profileOf, totalUnread, type StappState } from './store'
+import { dispatchServerMessage, resetAllStores, useChatStore, usePresenceStore, useVoiceStore } from './stores'
 import { AccountBar } from './ui/AccountBar'
 import { avatarBaseFromWs, comRenovacao, removeAvatar, uploadAvatar } from './net/avatars'
 import { ProfileProvider } from './ui/Avatar'
@@ -24,14 +25,13 @@ import { CallStage } from './ui/CallStage'
 import { CallMiniPip } from './ui/CallMiniPip'
 import { VoiceSettings } from './ui/VoiceSettings'
 import { UserMenuProvider } from './ui/UserMenu'
-import { createVoiceTransport, emptySnapshot, type VoiceSnapshot, type VoiceTransport } from './voice/VoiceTransport'
+import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
 import { useAutoUpdater } from './platform/updater/useAutoUpdater'
 import { UpdateModal } from './ui/updater/UpdateModal'
 import { MandatoryUpdateLock } from './ui/updater/MandatoryUpdateLock'
 import './ui/app.css'
 
-interface CallState { channel: string; muted: boolean; deafened: boolean }
 interface Ringing { userId: UserId; username: string; direction: 'incoming' | 'outgoing' }
 interface ActiveServer { profile: SavedServer; persisted: boolean }
 
@@ -57,10 +57,60 @@ export default function App() {
   const [authenticated, setAuthenticated] = useState(false)
   const attemptedUsername = useRef(active?.profile.username ?? '')
 
-  const [state, dispatch] = useReducer(reduce, initialState)
+  const selfPeerId = usePresenceStore((s) => s.selfPeerId)
+  const selfUserId = usePresenceStore((s) => s.selfUserId)
+  const serverName = usePresenceStore((s) => s.serverName)
+  const channels = usePresenceStore((s) => s.channels)
+  const users = usePresenceStore((s) => s.users)
+  const directory = usePresenceStore((s) => s.directory)
+  const allowMemberDms = usePresenceStore((s) => s.allowMemberDms)
+  const socialMembers = usePresenceStore((s) => s.socialMembers)
+  const profiles = usePresenceStore((s) => s.profiles)
+  const limits = usePresenceStore((s) => s.limits)
+
+  const call = useVoiceStore((s) => s.call)
+  const setCall = useVoiceStore((s) => s.setCall)
+  const voiceSnapshot = useVoiceStore((s) => s.voiceSnapshot)
+  const setVoiceSnapshot = useVoiceStore((s) => s.setVoiceSnapshot)
+  const voiceConfig = useVoiceStore((s) => s.voiceConfig)
+  const voicePeers = useVoiceStore((s) => s.voicePeers)
+
+  const messages = useChatStore((s) => s.messages)
+  const conversations = useChatStore((s) => s.conversations)
+  const directMessages = useChatStore((s) => s.directMessages)
+  const sendResults = useChatStore((s) => s.sendResults)
+  const typing = useChatStore((s) => s.typing)
+  const dmReadReceipts = useChatStore((s) => s.dmReadReceipts)
+  const channelReads = useChatStore((s) => s.channelReads)
+
+  const state: StappState = useMemo(() => ({
+    selfPeerId,
+    selfUserId,
+    serverName,
+    channels,
+    users,
+    voiceConfig,
+    voicePeers,
+    messages,
+    directory,
+    conversations,
+    directMessages,
+    allowMemberDms,
+    socialMembers,
+    profiles,
+    limits,
+    sendResults,
+    typing,
+    dmReadReceipts,
+    channelReads,
+  }), [
+    selfPeerId, selfUserId, serverName, channels, users, voiceConfig, voicePeers,
+    messages, directory, conversations, directMessages, allowMemberDms,
+    socialMembers, profiles, limits, sendResults, typing, dmReadReceipts, channelReads,
+  ])
+
   const [status, setStatus] = useState<ConnectionStatus>('offline')
   const [notice, setNotice] = useState<string | null>(null)
-  const [speaking, setSpeaking] = useState<ReadonlySet<PeerId>>(() => new Set())
   const [view, setView] = useState<View | null>(null)
   const viewRef = useRef<View | null>(null)
   viewRef.current = view
@@ -68,9 +118,7 @@ export default function App() {
   // O `onMessage` e montado uma vez e nao enxerga o estado atual; a ref e o que
   // deixa a citacao saber se e voce sem remontar a conexao a cada render.
   const selfUserIdRef = useRef<UserId | null>(null)
-  selfUserIdRef.current = state.selfUserId
-  const [call, setCall] = useState<CallState | null>(null)
-  const [voiceSnapshot, setVoiceSnapshot] = useState<VoiceSnapshot>(emptySnapshot)
+  selfUserIdRef.current = selfUserId
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
   const [_voicePreferences, setVoicePreferences] = useState<VoicePreferences>(loadVoicePreferences)
   const [ringing, setRinging] = useState<Ringing | null>(null)
@@ -95,15 +143,12 @@ export default function App() {
     voice.current = null
     unsubscribeVoice.current?.()
     unsubscribeVoice.current = null
-    dispatch({ t: 'app.reset' })
+    resetAllStores()
     setAuthenticated(false)
     setView(null)
-    setCall(null)
     previousServerView.current = null
-    setVoiceSnapshot(emptySnapshot())
     setVoiceSettingsOpen(false)
     setRinging(null)
-    setSpeaking(new Set())
     setNotice(null)
   }, [])
 
@@ -203,7 +248,6 @@ export default function App() {
           unsubscribeVoice.current?.()
           setCall(null)
           setRinging(null)
-          setSpeaking(new Set())
           setAuthBusy(false)
           setAuthError(null)
           setAuthenticated(true)
@@ -212,12 +256,7 @@ export default function App() {
             selfPeerId: msg.self_peer_id,
             send: (out) => connection.current?.send(out),
             onSpeaking(peerId, isSpeaking) {
-              setSpeaking((previous) => {
-                if (previous.has(peerId) === isSpeaking) return previous
-                const next = new Set(previous)
-                if (isSpeaking) next.add(peerId); else next.delete(peerId)
-                return next
-              })
+              useVoiceStore.getState().setSpeaking(peerId, isSpeaking)
             },
             onError: setNotice,
           })
@@ -261,7 +300,7 @@ export default function App() {
         }
         if (msg.t === 'call.ended') { setRinging(null); setNotice(CALL_REASON[msg.reason]) }
         if (msg.t === 'error') setNotice(msg.message)
-        dispatch(msg)
+        dispatchServerMessage(msg)
         voice.current?.handleServerMessage(msg)
       },
       onStatus(next, detail) {
@@ -626,7 +665,7 @@ export default function App() {
       <Sidebar state={state} status={status} view={view} mode={sidebarMode}
         onSelectHome={selectHome}
         onSelectChannel={selectChannel} onSelectDirect={selectDirect}
-        callChannel={call?.channel ?? null} onJoinCall={handleJoinCall} speaking={speaking}
+        callChannel={call?.channel ?? null} onJoinCall={handleJoinCall}
         footer={<div className="sidebar__footer-stack">
           {call && <VoiceBar channelName={callName} muted={call.muted} deafened={call.deafened}
             onToggleMute={toggleMute} onToggleDeafen={toggleDeafen} onLeave={leaveCall}

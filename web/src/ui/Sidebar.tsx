@@ -3,6 +3,7 @@ import stappLogo from '../../assets/imgs/svg/stapp_logo.svg'
 import type { ConnectionStatus } from '../net/connection'
 import type { PeerId, UserId } from '../protocol'
 import { directList, peersInChannel, type StappState } from '../store'
+import { useVoiceStore } from '../stores/voiceStore'
 import { IconHash, IconMicOff, IconSpeaker, IconUsers } from './Icons'
 import { useUserMenu } from './UserMenu'
 import './sidebar.css'
@@ -33,12 +34,14 @@ interface Props {
   onSelectDirect(userId: UserId): void
   callChannel: string | null
   onJoinCall(id: string): void
-  speaking: ReadonlySet<PeerId>
+  speaking?: ReadonlySet<PeerId>
   footer: React.ReactNode
 }
 
 export function Sidebar({ state, status, view, mode, onSelectHome, onSelectChannel, onSelectDirect,
-  callChannel, onJoinCall, speaking, footer }: Props) {
+  callChannel, onJoinCall, speaking: propSpeaking, footer }: Props) {
+  const storeSpeaking = useVoiceStore((s) => s.speakingPeers)
+  const speaking = propSpeaking ?? storeSpeaking
   const conversations = directList(state)
   const incomingRequests = state.socialMembers.filter((member) => member.relationship === 'incoming').length
   const home = mode === 'home'
