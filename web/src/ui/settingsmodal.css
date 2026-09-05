@@ -1,0 +1,543 @@
+/* ==========================================================================
+   Central Unificada de Configurações - Stapp (Flat Design / Zero Box-Shadow)
+   ========================================================================== */
+
+.settingsmodal__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--scrim-strong, rgba(0, 0, 0, 0.75));
+  backdrop-filter: blur(4px);
+  padding: 24px;
+}
+
+.settingsmodal {
+  display: flex;
+  width: min(960px, 100%);
+  height: min(720px, 92vh);
+  background: var(--bg-app);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  color: var(--text-normal);
+  font-family: inherit;
+}
+
+/* --------------------------------------------------------------------------
+   Sidebar de Navegação por Abas
+   -------------------------------------------------------------------------- */
+.settingsmodal__sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 12px 16px;
+  overflow-y: auto;
+}
+
+.settingsmodal__nav-title {
+  padding: 0 10px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+
+.settingsmodal__nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settingsmodal__tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.settingsmodal__tab-btn:hover {
+  background: var(--modifier-hover);
+  color: var(--text-normal);
+}
+
+.settingsmodal__tab-btn.is-active {
+  background: var(--modifier-selected);
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.settingsmodal__sidebar-footer {
+  margin-top: auto;
+  padding-top: 16px;
+}
+
+.settingsmodal__version {
+  display: block;
+  padding: 0 10px;
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
+/* --------------------------------------------------------------------------
+   Conteúdo Principal da Aba
+   -------------------------------------------------------------------------- */
+.settingsmodal__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--bg-app);
+}
+
+.settingsmodal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 32px 16px;
+}
+
+.settingsmodal__title-wrap h2 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-normal);
+}
+
+.settingsmodal__title-wrap p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settingsmodal__close-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settingsmodal__close-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--modifier-hover);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.settingsmodal__close-btn:hover {
+  background: var(--modifier-active);
+  color: var(--text-normal);
+}
+
+.settingsmodal__esc-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+
+.settingsmodal__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 32px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* --------------------------------------------------------------------------
+   Seções e Cartões Comuns
+   -------------------------------------------------------------------------- */
+.settingsmodal__section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settingsmodal__section-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.settingsmodal__card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+/* --------------------------------------------------------------------------
+   Aba: Minha Conta
+   -------------------------------------------------------------------------- */
+.settingsmodal__profile-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.settingsmodal__profile-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.settingsmodal__profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+}
+
+.settingsmodal__profile-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.settingsmodal__profile-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settingsmodal__profile-username {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.settingsmodal__profile-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-faint);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.settingsmodal__profile-id:hover {
+  color: var(--accent-brand);
+}
+
+.settingsmodal__form-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settingsmodal__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.settingsmodal__field label {
+  font-size: 12px;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+
+.settingsmodal__input,
+.settingsmodal__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 0;
+  background: var(--bg-input);
+  color: var(--text-normal);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+
+.settingsmodal__input:focus-visible,
+.settingsmodal__textarea:focus-visible {
+  outline: 2px solid var(--accent-brand);
+}
+
+.settingsmodal__textarea {
+  resize: vertical;
+  min-height: 72px;
+}
+
+.settingsmodal__accents-picker {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settingsmodal__accent-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 100ms ease;
+}
+
+.settingsmodal__accent-btn:hover {
+  transform: scale(1.1);
+}
+
+.settingsmodal__accent-btn.is-selected {
+  border-color: var(--text-normal);
+  transform: scale(1.15);
+}
+
+.settingsmodal__actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.settingsmodal__btn-primary {
+  padding: 8px 18px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent-brand);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 120ms ease;
+}
+
+.settingsmodal__btn-primary:hover {
+  background: var(--accent-brand-hover);
+}
+
+.settingsmodal__btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.settingsmodal__btn-secondary {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--modifier-hover);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.settingsmodal__btn-secondary:hover {
+  background: var(--modifier-active);
+  color: var(--text-normal);
+}
+
+/* --------------------------------------------------------------------------
+   Aba: Aparência (Tokens e Superfícies)
+   -------------------------------------------------------------------------- */
+.settingsmodal__tokens-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+
+.settingsmodal__token-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+}
+
+.settingsmodal__token-color {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.settingsmodal__token-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settingsmodal__token-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-normal);
+  font-family: monospace;
+}
+
+.settingsmodal__token-desc {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.settingsmodal__preview-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+}
+
+/* --------------------------------------------------------------------------
+   Aba: Notificações & Sons
+   -------------------------------------------------------------------------- */
+.settingsmodal__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settingsmodal__row-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settingsmodal__row-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.settingsmodal__row-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.settingsmodal__range-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 240px;
+}
+
+.settingsmodal__range-slider {
+  flex: 1;
+  accent-color: var(--accent-brand);
+  cursor: pointer;
+}
+
+.settingsmodal__range-val {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  width: 38px;
+  text-align: right;
+}
+
+.settingsmodal__status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill, 9999px);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settingsmodal__status-badge.is-granted {
+  background: var(--online-quiet, rgba(34, 197, 94, 0.15));
+  color: var(--status-online);
+}
+
+.settingsmodal__status-badge.is-denied {
+  background: var(--danger-quiet, rgba(239, 68, 68, 0.15));
+  color: var(--danger, #ef4444);
+}
+
+.settingsmodal__status-badge.is-default {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.settingsmodal__copy-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: 11px;
+  font-family: monospace;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: 0;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.settingsmodal__copy-pill:hover {
+  background: var(--modifier-hover);
+  color: var(--text-normal);
+}
+
+.settingsmodal__photo-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+/* Responsividade */
+@media (max-width: 720px) {
+  .settingsmodal {
+    flex-direction: column;
+    height: 100%;
+    border-radius: 0;
+  }
+  .settingsmodal__sidebar {
+    width: 100%;
+    flex-direction: row;
+    padding: 12px;
+    overflow-x: auto;
+  }
+  .settingsmodal__nav-list {
+    flex-direction: row;
+  }
+  .settingsmodal__nav-title,
+  .settingsmodal__sidebar-footer {
+    display: none;
+  }
+  .settingsmodal__content {
+    padding: 16px;
+  }
+}
