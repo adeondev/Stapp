@@ -169,15 +169,19 @@ async fn connection(socket: WebSocket, state: Arc<AppState>, origin: SocketAddr)
 
     writer.abort();
 
-    // Sair da call primeiro: enquanto a sessao existe, o `voice.left` sai limpo.
-    voice::leave(&state, &peer_id).await;
-    if let Some(removal) = state.remove_session(&peer_id).await {
-        if removal.last_session {
-            // Ultima conexao da conta: nao da para deixar chamada tocando.
-            call::drop_for(&state, &removal.user_id).await;
-            state.broadcast(ServerMsg::UserOffline {
-                user_id: removal.user_id,
-            });
+    let was_in_voice = state.is_in_voice(&peer_id).await;
+    if was_in_voice {
+        crate::services::voice::handle_connection_drop(Arc::clone(&state), peer_id.clone()).await;
+    } else {
+        voice::leave(&state, &peer_id).await;
+        if let Some(removal) = state.remove_session(&peer_id).await {
+            if removal.last_session {
+                // Ultima conexao da conta: nao da para deixar chamada tocando.
+                call::drop_for(&state, &removal.user_id).await;
+                state.broadcast(ServerMsg::UserOffline {
+                    user_id: removal.user_id,
+                });
+            }
         }
     }
     tracing::debug!(peer = %peer_id, "conexao fechada");

@@ -7,6 +7,9 @@
 
 mod livekit;
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use crate::config::ChannelKind;
 use crate::protocol::{PeerId, ServerMsg, UserId, VoiceConfig, VoiceDeniedCode, VoicePeer};
 use crate::session::{AppState, Target, VoiceJoin, VoiceJoinError};
@@ -95,9 +98,79 @@ pub async fn join(state: &AppState, peer_id: &PeerId, channel: &str) {
     }
 
     match state.join_voice(peer_id, channel, max_peers).await {
-        Ok(joined) => publish_join(state, peer_id, channel, joined).await,
+        Ok((joined, takeover)) => {
+            if let Some(takeover) = takeover {
+                handle_takeover(state, &takeover).await;
+            }
+            publish_join(state, peer_id, channel, joined).await;
+        }
         Err(error) => deny_join_error(state, peer_id, channel, max_peers, error),
     }
+}
+
+async fn handle_takeover(state: &AppState, takeover: &crate::session::VoiceTakeover) {
+    tracing::info!(
+        old_peer = %takeover.old_peer_id,
+        channel = %takeover.channel,
+        published = takeover.published,
+        "executando takeover de sessao de voz antiga da mesma conta"
+    );
+    if state.config.voice.backend == "livekit" {
+        if let Err(err) = livekit::remove_participant(state, &takeover.old_peer_id, &takeover.channel).await {
+            tracing::warn!(old_peer = %takeover.old_peer_id, %err, "falha removendo participante antigo do LiveKit no takeover");
+        }
+    }
+    if takeover.published {
+        anunciar(
+            state,
+            &takeover.channel,
+            None,
+            ServerMsg::VoiceLeft {
+                peer_id: takeover.old_peer_id.clone(),
+            },
+        )
+        .await;
+    }
+    state.send_to(
+        &takeover.old_peer_id,
+        ServerMsg::VoiceLeft {
+            peer_id: takeover.old_peer_id.clone(),
+        },
+    );
+    let _ = state.remove_session(&takeover.old_peer_id).await;
+}
+
+pub async fn handle_connection_drop(state: Arc<AppState>, peer_id: PeerId) {
+    if state.config.voice.backend != "livekit" || !state.is_in_voice(&peer_id).await {
+        leave(&state, &peer_id).await;
+        if let Some(removal) = state.remove_session(&peer_id).await {
+            if removal.last_session {
+                crate::services::call::drop_for(&state, &removal.user_id).await;
+                state.broadcast(ServerMsg::UserOffline {
+                    user_id: removal.user_id,
+                });
+            }
+        }
+        return;
+    }
+
+    tokio::spawn(async move {
+        tracing::info!(peer = %peer_id, "grace period de 20s para voz iniciado apos queda de conexao");
+        tokio::time::sleep(Duration::from_secs(20)).await;
+
+        if state.is_in_voice(&peer_id).await {
+            tracing::info!(peer = %peer_id, "grace period expirado sem reconexao; encerrando participacao de voz");
+            leave(&state, &peer_id).await;
+            if let Some(removal) = state.remove_session(&peer_id).await {
+                if removal.last_session {
+                    crate::services::call::drop_for(&state, &removal.user_id).await;
+                    state.broadcast(ServerMsg::UserOffline {
+                        user_id: removal.user_id,
+                    });
+                }
+            }
+        }
+    });
 }
 
 async fn join_livekit(state: &AppState, peer_id: &PeerId, channel: &str, max_peers: usize) {
@@ -112,11 +185,16 @@ async fn join_livekit(state: &AppState, peer_id: &PeerId, channel: &str, max_pee
         return;
     }
 
-    if let Err(error) = state
+    let takeover = match state
         .reserve_voice(peer_id, channel, max_peers, livekit::RESERVATION_TTL)
         .await
     {
-        return deny_join_error(state, peer_id, channel, max_peers, error);
+        Ok(t) => t,
+        Err(error) => return deny_join_error(state, peer_id, channel, max_peers, error),
+    };
+
+    if let Some(takeover) = takeover {
+        handle_takeover(state, &takeover).await;
     }
 
     match livekit::issue_grant(state, peer_id, channel).await {

@@ -24,7 +24,7 @@ use crate::storage::Db;
 
 pub use bus::{Envelope, Target};
 pub use calls::{CallStartError, PendingCall};
-pub use membership::{VoiceJoin, VoiceJoinError};
+pub use membership::{VoiceJoin, VoiceJoinError, VoiceTakeover};
 pub use registry::SessionError;
 
 /// Uma conexao autenticada. Uma conta pode ter varias.
