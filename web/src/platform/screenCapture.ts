@@ -76,7 +76,7 @@ type CaptureEvent =
       capture_id: number
       width: number
       height: number
-      jpeg_base64: string
+      frame: Uint8Array | ArrayBuffer | number[]
     }
   | {
       event: 'audio_format'
@@ -84,7 +84,11 @@ type CaptureEvent =
       sample_rate: number
       channels: number
     }
-  | { event: 'audio_chunk'; capture_id: number; pcm_base64: string }
+  | {
+      event: 'audio_chunk'
+      capture_id: number
+      pcm: Uint8Array | ArrayBuffer | number[]
+    }
   | { event: 'audio_unavailable'; capture_id: number; reason: string }
   | { event: 'ended'; capture_id: number; reason: string }
 
@@ -339,9 +343,9 @@ export async function startNativeScreenCapture(options: {
       while (latestFrame && !stopped) {
         const frame = latestFrame
         latestFrame = null
-        const bytes = decodeBase64(frame.jpeg_base64)
+        const bytes = toUint8Array(frame.frame)
         const bitmap = await createImageBitmap(
-          new Blob([bytes], { type: 'image/jpeg' }),
+          new Blob([bytes as BlobPart], { type: 'image/jpeg' }),
           { imageOrientation: 'none', premultiplyAlpha: 'none' },
         )
         if (canvas.width !== frame.width || canvas.height !== frame.height) {
@@ -389,8 +393,8 @@ export async function startNativeScreenCapture(options: {
     }
     if (event.event === 'audio_chunk') {
       if (!audioConfirmed || !audioPipeline) return
-      const bytes = decodeBase64(event.pcm_base64)
-      const buffer = bytes.buffer as ArrayBuffer
+      const bytes = toUint8Array(event.pcm)
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
       audioPipeline.node.port.postMessage({ t: 'pcm', buffer }, [buffer])
       return
     }
@@ -574,11 +578,8 @@ function mediaErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
-function decodeBase64(value: string) {
-  const binary = atob(value)
-  const bytes = new Uint8Array(binary.length)
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index)
-  }
-  return bytes
+function toUint8Array(data: Uint8Array | ArrayBuffer | number[]): Uint8Array {
+  if (data instanceof Uint8Array) return data
+  if (data instanceof ArrayBuffer) return new Uint8Array(data)
+  return new Uint8Array(data)
 }

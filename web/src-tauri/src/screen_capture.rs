@@ -1,5 +1,4 @@
 use crate::screen_sources::{parse_source_id, scale_to_fit, SourceLocator};
-use base64::Engine;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -62,7 +61,8 @@ pub enum CaptureEvent {
         capture_id: u32,
         width: u32,
         height: u32,
-        jpeg_base64: String,
+        #[serde(with = "serde_bytes")]
+        frame: Vec<u8>,
     },
     AudioFormat {
         capture_id: u32,
@@ -71,7 +71,8 @@ pub enum CaptureEvent {
     },
     AudioChunk {
         capture_id: u32,
-        pcm_base64: String,
+        #[serde(with = "serde_bytes")]
+        pcm: Vec<u8>,
     },
     AudioUnavailable {
         capture_id: u32,
@@ -324,7 +325,7 @@ fn capture_loop(
                 &image,
                 target_width,
                 target_height,
-                image::imageops::FilterType::Triangle,
+                image::imageops::FilterType::Nearest,
             )
         };
         let rgb = image::DynamicImage::ImageRgba8(image).into_rgb8();
@@ -346,7 +347,7 @@ fn capture_loop(
                 capture_id,
                 width: target_width,
                 height: target_height,
-                jpeg_base64: base64::engine::general_purpose::STANDARD.encode(jpeg),
+                frame: jpeg,
             })
             .is_err()
         {
@@ -498,7 +499,7 @@ fn capture_process_audio(
             if channel
                 .send(CaptureEvent::AudioChunk {
                     capture_id,
-                    pcm_base64: base64::engine::general_purpose::STANDARD.encode(chunk),
+                    pcm: chunk,
                 })
                 .is_err()
             {
