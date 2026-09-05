@@ -119,14 +119,51 @@ pub async fn vote(state: &Arc<AppState>, peer_id: &str, poll_id: String, option_
         .vote_poll(&poll_id, &option_id, &user.user_id, now_ms())
         .await
     {
-        Ok(updated_poll) => {
-            let Some(channel) = canal_da_enquete(state, &updated_poll.message_id).await else {
+        Ok(voter_poll) => {
+            let Some(channel) = canal_da_enquete(state, &voter_poll.message_id).await else {
                 return;
             };
-            state.broadcast(ServerMsg::ChatPollUpdate {
-                channel,
-                poll: updated_poll,
-            });
+
+            // Payload público contém apenas dados agregados sem vazar o voted_by_me do votante
+            let mut public_poll = voter_poll.clone();
+            for opt in &mut public_poll.options {
+                opt.voted_by_me = None;
+            }
+
+            let voter_peers = state.sessions_of(&user.user_id).await;
+            if voter_peers.is_empty() {
+                state.send_to(
+                    peer_id,
+                    ServerMsg::ChatPollUpdate {
+                        channel: channel.clone(),
+                        poll: voter_poll,
+                    },
+                );
+                state.broadcast_except_peers(
+                    &[peer_id.to_string()],
+                    ServerMsg::ChatPollUpdate {
+                        channel,
+                        poll: public_poll,
+                    },
+                );
+            } else {
+                for vp in &voter_peers {
+                    state.send_to(
+                        vp,
+                        ServerMsg::ChatPollUpdate {
+                            channel: channel.clone(),
+                            poll: voter_poll.clone(),
+                        },
+                    );
+                }
+                state.broadcast_except_peers(
+                    &voter_peers,
+                    ServerMsg::ChatPollUpdate {
+                        channel,
+                        poll: public_poll,
+                    },
+                );
+            }
         }
         Err(err) => {
             state.send_to(
@@ -149,10 +186,46 @@ pub async fn close(state: &Arc<AppState>, peer_id: &str, poll_id: String) {
             let Some(channel) = canal_da_enquete(state, &closed_poll.message_id).await else {
                 return;
             };
-            state.broadcast(ServerMsg::ChatPollUpdate {
-                channel,
-                poll: closed_poll,
-            });
+
+            let mut public_poll = closed_poll.clone();
+            for opt in &mut public_poll.options {
+                opt.voted_by_me = None;
+            }
+
+            let closer_peers = state.sessions_of(&user.user_id).await;
+            if closer_peers.is_empty() {
+                state.send_to(
+                    peer_id,
+                    ServerMsg::ChatPollUpdate {
+                        channel: channel.clone(),
+                        poll: closed_poll,
+                    },
+                );
+                state.broadcast_except_peers(
+                    &[peer_id.to_string()],
+                    ServerMsg::ChatPollUpdate {
+                        channel,
+                        poll: public_poll,
+                    },
+                );
+            } else {
+                for cp in &closer_peers {
+                    state.send_to(
+                        cp,
+                        ServerMsg::ChatPollUpdate {
+                            channel: channel.clone(),
+                            poll: closed_poll.clone(),
+                        },
+                    );
+                }
+                state.broadcast_except_peers(
+                    &closer_peers,
+                    ServerMsg::ChatPollUpdate {
+                        channel,
+                        poll: public_poll,
+                    },
+                );
+            }
         }
         Err(err) => {
             state.send_to(

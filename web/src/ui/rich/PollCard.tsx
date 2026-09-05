@@ -25,7 +25,7 @@ export const PollCard = memo(function PollCard({ poll, selfUserId, onVote, onClo
       <div className="stapp-poll-options">
         {poll.options.map((opt) => {
           const percent = total > 0 ? Math.round((opt.votes / total) * 100) : 0
-          const isVoted = Boolean(opt.voted_by_me)
+          const isVoted = opt.voted_by_me === true
 
           return (
             <button

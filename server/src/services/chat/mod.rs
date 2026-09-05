@@ -12,9 +12,10 @@ use crate::storage::MessageLocation;
 /// Assim, trocar de canal na UI nao exige outra ida ao servidor.
 pub async fn send_history(state: &AppState, peer_id: &str) {
     let limit = state.config.storage.history_limit;
+    let user_id = state.identity_of(peer_id).await.map(|u| u.user_id);
 
     for channel in state.config.text_channels() {
-        match state.db.history(&channel.id, limit).await {
+        match state.db.history_for_user(&channel.id, limit, user_id.as_ref()).await {
             Ok(msgs) => state.send_to(
                 peer_id,
                 ServerMsg::ChatHistory {

@@ -14,6 +14,8 @@ pub enum Target {
     All,
     /// Todo mundo menos este.
     Except(PeerId),
+    /// Todo mundo menos estes peers.
+    ExceptPeers(Vec<PeerId>),
     Peer(PeerId),
 }
 
@@ -28,6 +30,7 @@ impl Envelope {
         match &self.target {
             Target::All => true,
             Target::Except(id) => id != me,
+            Target::ExceptPeers(ids) => !ids.iter().any(|id| id == me),
             Target::Peer(id) => id == me,
         }
     }
@@ -49,5 +52,13 @@ impl AppState {
 
     pub fn broadcast(&self, msg: ServerMsg) {
         self.publish(Target::All, msg);
+    }
+
+    pub fn broadcast_except_peers(&self, peers: &[String], msg: ServerMsg) {
+        if peers.is_empty() {
+            self.broadcast(msg);
+        } else {
+            self.publish(Target::ExceptPeers(peers.to_vec()), msg);
+        }
     }
 }

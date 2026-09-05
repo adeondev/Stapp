@@ -49,4 +49,24 @@ describe('PollCard', () => {
     fireEvent.click(closeBtn)
     expect(onClose).toHaveBeenCalledWith('poll-1')
   })
+
+  it('marca visualmente apenas a opção com voted_by_me verdadeiro', () => {
+    const pollWithOptions: Poll = {
+      ...mockPoll,
+      options: [
+        { id: 'opt-1', text: 'Opção 1', votes: 1, voted_by_me: true },
+        { id: 'opt-2', text: 'Opção 2', votes: 2, voted_by_me: false },
+        { id: 'opt-3', text: 'Opção 3', votes: 0 },
+      ],
+    }
+    render(<PollCard poll={pollWithOptions} selfUserId="user-bob" onVote={vi.fn()} />)
+
+    const btn1 = screen.getByText('Opção 1').closest('button')
+    const btn2 = screen.getByText('Opção 2').closest('button')
+    const btn3 = screen.getByText('Opção 3').closest('button')
+
+    expect(btn1?.classList.contains('is-voted')).toBe(true)
+    expect(btn2?.classList.contains('is-voted')).toBe(false)
+    expect(btn3?.classList.contains('is-voted')).toBe(false)
+  })
 })
