@@ -19,7 +19,7 @@
   gap: 6px;
   margin: 0;
   padding: 16px 8px 4px;
-  color: var(--text-dim);
+  color: var(--text-muted, var(--text-dim));
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
@@ -30,12 +30,12 @@
   width: 7px;
   height: 7px;
   border-radius: var(--radius-pill);
-  background: var(--online);
+  background: var(--status-online, var(--online));
   flex-shrink: 0;
 }
 
 .members__status-dot.is-offline {
-  background: var(--text-faint);
+  background: var(--status-offline, var(--text-faint));
 }
 
 .members__count {
@@ -57,7 +57,7 @@
   padding: 0 8px;
   margin-block: 1px;
   border-radius: var(--radius-sm);
-  color: var(--text-dim);
+  color: var(--text-muted, var(--text-dim));
   text-align: left;
 }
 
@@ -69,7 +69,7 @@
 /* Quem esta offline continua na lista, mas apagado e dessaturado — e assim que da para
    varrer a coluna e achar quem esta por perto sem ler nome por nome. */
 .members__row.is-offline {
-  opacity: 0.35;
+  opacity: var(--status-card-offline-opacity, 0.35);
   filter: grayscale(0.5);
 }
 .members__row.is-offline:hover {
