@@ -1,4 +1,4 @@
-import type { PeerId, RtcPayload, ServerMsg, VoiceConfig } from '../protocol'
+import type { ClientMsg, PeerId, RtcPayload, ServerMsg, VoiceConfig } from '../protocol'
 import type {
   DiagnosticReport,
   MediaDeviceLists,
@@ -64,8 +64,12 @@ export class MeshTransport implements VoiceTransport {
 
   constructor(
     private readonly config: Extract<VoiceConfig, { backend: 'mesh' }>,
-    private readonly options: VoiceTransportOptions,
+    private options: VoiceTransportOptions,
   ) {}
+
+  updateSession(selfPeerId: PeerId, send: (msg: ClientMsg) => boolean | void) {
+    this.options = { ...this.options, selfPeerId, send: (msg) => { send(msg) } }
+  }
 
   async join(channel: string): Promise<boolean> {
     if (this.channel) this.leave()

@@ -35,6 +35,10 @@
   line-height: 18px;
 }
 
+.voicebar__label--reconnecting {
+  color: var(--warning);
+}
+
 .voicebar__signal { flex: 0 0 auto; }
 
 .voicebar__channel {

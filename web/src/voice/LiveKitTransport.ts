@@ -15,7 +15,7 @@ import {
   type NativeScreenCapture,
   type ScreenSource,
 } from '../platform/screenCapture'
-import type { PeerId, ServerMsg, VoiceConfig } from '../protocol'
+import type { ClientMsg, PeerId, ServerMsg, VoiceConfig } from '../protocol'
 import type {
   DiagnosticReport,
   InboundAudioDiagnostic,
@@ -89,6 +89,9 @@ export class LiveKitTransport implements VoiceTransport {
   private inboundAudioDiagnostics: InboundAudioDiagnostic[] = []
   private audioHealthTimer: number | null = null
   private audioHealthCollecting = false
+  private reconnectTimer: number | null = null
+  private reconnectAttempts = 0
+  private readonly maxReconnectAttempts = 5
   private state: VoiceSnapshot = {
     status: 'idle', channel: null, muted: false, deafened: false,
     cameraEnabled: false, screenSharing: false, screenHasAudio: null,
@@ -97,15 +100,23 @@ export class LiveKitTransport implements VoiceTransport {
 
   constructor(
     private readonly config: Extract<VoiceConfig, { backend: 'livekit' }>,
-    private readonly options: VoiceTransportOptions,
+    private options: VoiceTransportOptions,
   ) {}
+
+  updateSession(selfPeerId: PeerId, send: (msg: ClientMsg) => boolean | void) {
+    this.options = { ...this.options, selfPeerId, send: (msg) => { send(msg) } }
+    if (this.requestedChannel && (this.state.status === 'reconnecting' || this.state.status === 'requesting')) {
+      this.options.send({ t: 'voice.join', channel: this.requestedChannel })
+    }
+  }
 
   async join(channel: string): Promise<boolean> {
     if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
       this.fail('O microfone exige uma conexão segura (HTTPS) ou o aplicativo Desktop. Em conexões HTTP remotas, o navegador bloqueia a captura de mídia.')
       return false
     }
-    if (this.requestedChannel === channel && this.state.status !== 'idle') return true
+    if (this.requestedChannel === channel && this.state.status === 'connected') return true
+    this.clearReconnect()
     if (this.requestedChannel || this.room) this.endSession(true)
     this.sessionGeneration += 1
     this.requestedChannel = channel
@@ -119,11 +130,13 @@ export class LiveKitTransport implements VoiceTransport {
   handleServerMessage(msg: ServerMsg) {
     if (msg.t === 'voice.grant' && msg.channel === this.requestedChannel) {
       // A duplicate grant must never create a second Room playing the same peers.
-      if (this.state.status !== 'requesting') return
+      if (this.state.status !== 'requesting' && this.state.status !== 'reconnecting') return
+      this.clearReconnect()
       void this.connect(msg.url, msg.token, msg.expires_at, msg.channel, this.sessionGeneration)
       return
     }
     if (msg.t === 'voice.denied' && msg.channel === this.requestedChannel) {
+      this.clearReconnect()
       this.endSession(false)
       this.state = { ...this.state, status: 'idle', channel: null, error: msg.message }
       this.emit()
@@ -661,6 +674,7 @@ export class LiveKitTransport implements VoiceTransport {
       }
       await this.enableMicrophone()
       if (!this.isCurrentRoom(room, channel, generation)) return
+      this.clearReconnect()
       this.state = { ...this.state, status: 'connected', channel, error: null }
       this.options.send({ t: 'voice.connected', channel })
       this.sync()
@@ -669,8 +683,17 @@ export class LiveKitTransport implements VoiceTransport {
         if (connectingRoom) await connectingRoom.disconnect(true).catch(() => {})
         return
       }
-      this.endSession(false)
-      this.fail(mediaError(error, 'Midia temporariamente indisponivel.'))
+      if (error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'NotFoundError')) {
+        this.endSession(false)
+        this.fail(mediaError(error, 'Midia temporariamente indisponivel.'))
+        return
+      }
+      if (this.requestedChannel && this.reconnectAttempts < this.maxReconnectAttempts) {
+        this.handleUnexpectedDisconnect()
+      } else {
+        this.endSession(false)
+        this.fail(mediaError(error, 'Midia temporariamente indisponivel.'))
+      }
     }
   }
 
@@ -743,15 +766,7 @@ export class LiveKitTransport implements VoiceTransport {
     })
     room.on(sdk.RoomEvent.Disconnected, () => {
       if (current() && this.requestedChannel) {
-        this.endSession(true)
-        this.state = {
-          ...this.state,
-          status: 'idle', channel: null, participants: [], media: [],
-          cameraEnabled: false, screenSharing: false, screenHasAudio: null,
-          error: 'A conexao de midia foi encerrada.',
-        }
-        this.emit()
-        this.options.onError('A conexao de midia foi encerrada.')
+        this.handleUnexpectedDisconnect()
       }
     })
   }
@@ -1227,6 +1242,7 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   private endSession(sendLeave: boolean) {
+    this.clearReconnect()
     const hadSession = Boolean(this.requestedChannel || this.room)
     this.sessionGeneration += 1
     this.requestedChannel = null
@@ -1257,6 +1273,80 @@ export class LiveKitTransport implements VoiceTransport {
     this.audioSources.clear()
     this.watchedScreenPeers.clear()
     void this.disposeSession(room, processor, screenCapture, browserScreenCapture)
+  }
+
+  private handleUnexpectedDisconnect() {
+    if (!this.requestedChannel) return
+
+    const room = this.room
+    this.room = null
+    this.sdk = null
+    for (const publicationId of [...this.audioElements.keys()]) this.detachAudio(publicationId)
+    this.publicationOwners.clear()
+    this.audioSources.clear()
+    this.watchedScreenPeers.clear()
+    this.stopAudioHealthMonitor()
+    void room?.disconnect(true).catch(() => {})
+
+    this.state = {
+      ...this.state,
+      status: 'reconnecting',
+      participants: [],
+      media: [],
+      error: null,
+    }
+    this.emit()
+
+    this.scheduleReconnect()
+  }
+
+  private scheduleReconnect() {
+    if (!this.requestedChannel) return
+    const channel = this.requestedChannel
+    if (this.reconnectTimer !== null) return
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.failReconnect('A conexao de midia foi perdida e nao pode ser recuperada.')
+      return
+    }
+
+    const attempt = () => {
+      if (!this.requestedChannel || this.state.status !== 'reconnecting') {
+        this.clearReconnect()
+        return
+      }
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        this.failReconnect('A conexao de midia foi perdida e nao pode ser recuperada.')
+        return
+      }
+      this.reconnectAttempts += 1
+      this.options.send({ t: 'voice.join', channel })
+      this.reconnectTimer = window.setTimeout(attempt, 4_000)
+    }
+
+    this.reconnectAttempts += 1
+    this.options.send({ t: 'voice.join', channel })
+    this.reconnectTimer = window.setTimeout(attempt, 4_000)
+  }
+
+  private clearReconnect() {
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer)
+      this.reconnectTimer = null
+    }
+    this.reconnectAttempts = 0
+  }
+
+  private failReconnect(reason: string) {
+    this.clearReconnect()
+    this.endSession(false)
+    this.state = {
+      ...this.state,
+      status: 'idle',
+      channel: null,
+      error: reason,
+    }
+    this.emit()
+    this.options.onError(reason)
   }
 
   private clearLocalPlaybackPreferences() {

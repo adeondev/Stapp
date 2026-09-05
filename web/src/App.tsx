@@ -252,32 +252,41 @@ export default function App() {
         }
 
         if (msg.t === 'welcome') {
-          voice.current?.destroy()
-          unsubscribeVoice.current?.()
-          setCall(null)
-          setRinging(null)
           setAuthBusy(false)
           setAuthError(null)
           setAuthenticated(true)
           updateActiveProfile({ username: attemptedUsername.current, lastUsed: Date.now(), logoutPending: undefined })
-          const transport = createVoiceTransport(msg.voice, {
-            selfPeerId: msg.self_peer_id,
-            send: (out) => connection.current?.send(out),
-            onSpeaking(peerId, isSpeaking) {
-              useVoiceStore.getState().setSpeaking(peerId, isSpeaking)
-            },
-            onError: setNotice,
-          })
-          voice.current = transport
-          unsubscribeVoice.current = transport.subscribe((snapshot) => {
-            setVoiceSnapshot(snapshot)
-            if (snapshot.status === 'idle' && !snapshot.channel) {
-              setCall(null)
-              setView((current) => current?.kind === 'voice'
-                ? (previousServerView.current ?? { kind: 'home' })
-                : current)
-            }
-          })
+
+          const currentCall = useVoiceStore.getState().call
+          const activeVoiceChannel = currentCall?.channel ?? voice.current?.snapshot().channel
+
+          if (voice.current && activeVoiceChannel) {
+            voice.current.updateSession?.(msg.self_peer_id, (out) => connection.current?.send(out))
+            void voice.current.join(activeVoiceChannel)
+          } else {
+            voice.current?.destroy()
+            unsubscribeVoice.current?.()
+            setCall(null)
+            setRinging(null)
+            const transport = createVoiceTransport(msg.voice, {
+              selfPeerId: msg.self_peer_id,
+              send: (out) => connection.current?.send(out),
+              onSpeaking(peerId, isSpeaking) {
+                useVoiceStore.getState().setSpeaking(peerId, isSpeaking)
+              },
+              onError: setNotice,
+            })
+            voice.current = transport
+            unsubscribeVoice.current = transport.subscribe((snapshot) => {
+              setVoiceSnapshot(snapshot)
+              if (snapshot.status === 'idle' && !snapshot.channel) {
+                setCall(null)
+                setView((current) => current?.kind === 'voice'
+                  ? (previousServerView.current ?? { kind: 'home' })
+                  : current)
+              }
+            })
+          }
           setView((current) => current ?? { kind: 'home' })
         }
 
@@ -687,7 +696,7 @@ export default function App() {
         callChannel={call?.channel ?? null} onJoinCall={handleJoinCall}
         onLogout={logout} onRemoveServer={() => removeSaved(active.profile.url)}
         footer={<div className="sidebar__footer-stack">
-          {call && <VoiceBar channelName={callName} onLeave={leaveCall}
+          {call && <VoiceBar channelName={callName} status={voiceSnapshot.status} onLeave={leaveCall}
             onOpen={() => {
               if (callPartnerId) selectDirect(callPartnerId)
               else if (call?.channel) openServerCallView(call.channel)

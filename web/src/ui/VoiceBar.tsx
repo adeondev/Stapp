@@ -1,8 +1,10 @@
+import type { VoiceConnectionStatus } from '../voice/VoiceTransport'
 import { IconLeave, IconSignal } from './Icons'
 import './voicebar.css'
 
 interface Props {
   channelName: string
+  status?: VoiceConnectionStatus
   onLeave(): void
   onOpen(): void
 }
@@ -11,13 +13,14 @@ interface Props {
    logo abaixo, e continuam no mesmo lugar da tela esteja você em call ou não.
    Ter os mesmos dois botões em duas barras vizinhas era o que fazia o rodapé
    parecer duplicado. */
-export function VoiceBar({ channelName, onLeave, onOpen }: Props) {
+export function VoiceBar({ channelName, status = 'connected', onLeave, onOpen }: Props) {
+  const isReconnecting = status === 'reconnecting'
   return (
-    <div className="voicebar">
+    <div className={`voicebar ${isReconnecting ? 'voicebar--reconnecting' : ''}`}>
       <button className="voicebar__where" type="button" onClick={onOpen} title="Abrir chamada">
-        <span className="voicebar__label">
+        <span className={`voicebar__label ${isReconnecting ? 'voicebar__label--reconnecting' : ''}`}>
           <IconSignal size={14} className="voicebar__signal" />
-          Voz conectada
+          {isReconnecting ? 'Reconectando voz…' : 'Voz conectada'}
         </span>
         <span className="voicebar__channel">{channelName}</span>
       </button>
