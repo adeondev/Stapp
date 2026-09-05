@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { avatarUrl } from '../net/avatars'
 import { callSounds } from '../net/callSounds'
 import { notificationSound } from '../net/notifications'
+import { APP_VERSION } from '../platform/updater'
 import { ACCENTS, type AccentName, type Profile } from '../protocol'
 import { DEFAULT_VOICE_PREFERENCES, loadVoicePreferences, resetVoicePreferences, saveVoicePreferences, type VoicePreferences } from '../voice/preferences'
 import { startMicrophoneTest } from '../voice/testMicrophone'
@@ -125,7 +126,7 @@ export function SettingsModal({
             </button>
           </nav>
           <div className="settingsmodal__sidebar-footer">
-            <span className="settingsmodal__version">Stapp Desktop v0.1.0-beta.5</span>
+            <span className="settingsmodal__version">Stapp Desktop v{APP_VERSION}</span>
           </div>
         </aside>
 
