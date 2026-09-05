@@ -25,6 +25,21 @@ fn janela_inclui_somente_a_arvore_escolhida_e_recusa_o_stapp() {
 }
 
 #[test]
+fn exclusao_usa_o_pid_do_webview_quando_registrado() {
+    register_webview_process_id(9999);
+    assert_eq!(get_exclusion_process_id(), 9999);
+    register_webview_process_id(0);
+    assert_eq!(get_exclusion_process_id(), std::process::id());
+}
+
+#[test]
+fn janela_recusa_o_pid_do_webview_registrado() {
+    register_webview_process_id(777);
+    assert!(make_audio_target(SourceLocator::Window(7), Some(777), 42).is_err());
+    register_webview_process_id(0);
+}
+
+#[test]
 fn pcm_so_sai_em_blocos_completos_e_preserva_o_restante() {
     let mut samples = VecDeque::from(vec![1, 2, 3, 4, 5, 6]);
     assert_eq!(take_pcm_chunk(&mut samples, 4), Some(vec![1, 2, 3, 4]));

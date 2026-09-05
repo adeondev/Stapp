@@ -20,7 +20,25 @@ use wasapi::{
 };
 
 static NEXT_CAPTURE_ID: AtomicU32 = AtomicU32::new(1);
+static WEBVIEW_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 static CAPTURES: OnceLock<Mutex<HashMap<u32, CaptureSession>>> = OnceLock::new();
+
+pub fn register_webview_process_id(pid: u32) {
+    WEBVIEW_PROCESS_ID.store(pid, Ordering::Relaxed);
+}
+
+pub fn webview_process_id() -> u32 {
+    WEBVIEW_PROCESS_ID.load(Ordering::Relaxed)
+}
+
+pub fn get_exclusion_process_id() -> u32 {
+    let webview_pid = webview_process_id();
+    if webview_pid > 0 {
+        webview_pid
+    } else {
+        std::process::id()
+    }
+}
 
 fn captures() -> &'static Mutex<HashMap<u32, CaptureSession>> {
     CAPTURES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -89,7 +107,7 @@ pub struct AudioExclusionValidation {
 pub fn validate_screen_audio_exclusion(
     channel: Channel<AudioValidationEvent>,
 ) -> AudioExclusionValidation {
-    let process_id = std::process::id();
+    let process_id = get_exclusion_process_id();
     let thread_channel = channel.clone();
     let join_handle = thread::Builder::new()
         .name("stapp-validate-audio-exclusion".to_string())
@@ -151,7 +169,7 @@ pub fn validate_screen_audio_exclusion(
     });
     AudioExclusionValidation {
         safe: false,
-        process_id: std::process::id(),
+        process_id: get_exclusion_process_id(),
         windows_build: None,
         include_level: 0.0,
         exclude_level: 0.0,
@@ -364,7 +382,7 @@ fn audio_target(locator: SourceLocator) -> Result<AudioTarget, String> {
                 .ok_or_else(|| "a janela selecionada desapareceu".to_string())?,
         ),
     };
-    make_audio_target(locator, selected_process_id, std::process::id())
+    make_audio_target(locator, selected_process_id, get_exclusion_process_id())
 }
 
 #[cfg(windows)]
@@ -374,7 +392,7 @@ fn make_audio_target(
     own_process_id: u32,
 ) -> Result<AudioTarget, String> {
     match locator {
-        // Excluir a arvore do Stapp evita reenviar as vozes da propria call.
+        // Excluir a arvore do Stapp/WebView2 evita reenviar as vozes da propria call.
         SourceLocator::Screen(_) => Ok(AudioTarget {
             process_id: own_process_id,
             include_tree: false,
@@ -382,7 +400,12 @@ fn make_audio_target(
         SourceLocator::Window(_) => {
             let process_id = selected_process_id
                 .ok_or_else(|| "a janela selecionada desapareceu".to_string())?;
-            if process_id == own_process_id {
+            let current_pid = std::process::id();
+            let webview_pid = webview_process_id();
+            if process_id == own_process_id
+                || process_id == current_pid
+                || (webview_pid > 0 && process_id == webview_pid)
+            {
                 return Err("o audio da janela do Stapp nao pode ser compartilhado".to_string());
             }
             Ok(AudioTarget {
