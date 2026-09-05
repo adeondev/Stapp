@@ -292,3 +292,43 @@ export function IconVolumeLow({ size = 16, className }: IconProps) {
 export function IconVolumeOff({ size = 16, className }: IconProps) {
   return <VolumeOffIcon size={size} className={className} />
 }
+
+// Barra de canais e cabecalho da conversa.
+export function IconSearch({ size = 16, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}><circle cx="11" cy="11" r="7" />
+    <path d="m20 20-3.6-3.6" /></StrokeIcon>
+}
+
+/** Abre e fecha a coluna de membros. E um painel com gente dentro, nao a
+    silhueta generica de pessoa — o desenho precisa dizer "coluna", senao vira
+    o mesmo icone do menu de perfil. */
+export function IconMembers({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}>
+    <rect x="3" y="4" width="18" height="16" rx="2.5" />
+    <path d="M15 4v16" />
+    <circle cx="8.6" cy="10" r="1.9" />
+    <path d="M5.4 15.6c.5-1.5 1.7-2.3 3.2-2.3s2.7.8 3.2 2.3" />
+  </StrokeIcon>
+}
+
+export function IconSend({ size = 16, className }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
+    className={className} aria-hidden="true">
+    <path d="M3.4 20.4 21 12 3.4 3.6 3.4 10.1 15.5 12 3.4 13.9z" />
+  </svg>
+}
+
+export function IconGif({ size = 18, className }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <rect x="2.5" y="5" width="19" height="14" rx="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    <text x="12" y="15.4" textAnchor="middle" fill="currentColor"
+      fontSize="7.4" fontWeight="700" fontFamily="inherit">GIF</text>
+  </svg>
+}
+
+export function IconPin({ size = 18, className }: IconProps) {
+  return <StrokeIcon size={size} className={className}>
+    <path d="M14.5 2.5 21.5 9.5l-2.6 1a4 4 0 0 0-2 1.6l-2 3.3-6.3-6.3 3.3-2a4 4 0 0 0 1.6-2z" />
+    <path d="M8.6 15.4 3 21" />
+  </StrokeIcon>
+}

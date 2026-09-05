@@ -23,15 +23,14 @@
   height: 28px;
   min-height: 28px;
   align-items: stretch;
-  background: #242529;
-  border-bottom: 1px solid #1b1c1f;
+  background: var(--bg-app);
   color: var(--text-dim);
   user-select: none;
 }
 
 .desktop-titlebar.is-unfocused {
   color: var(--text-faint);
-  background: #222327;
+  background: var(--bg-sidebar);
 }
 
 .desktop-titlebar__brand {
@@ -73,16 +72,16 @@
   padding: 0;
   place-items: center;
   border-radius: 0;
-  color: #b5bac1;
+  color: var(--interactive);
 }
 
 .desktop-titlebar__controls button:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-hover);
   color: var(--text);
 }
 
 .desktop-titlebar__controls button:active {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--bg-active);
 }
 
 .desktop-titlebar__controls button:focus-visible {
@@ -91,7 +90,7 @@
 
 .desktop-titlebar__controls .desktop-titlebar__close:hover,
 .desktop-titlebar__controls .desktop-titlebar__close:active {
-  background: #da373c;
+  background: var(--danger);
   color: #ffffff;
 }
 

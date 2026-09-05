@@ -4,25 +4,48 @@
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: var(--bg-app);
+  background: var(--bg-chat);
 }
 
+/* Mesma altura e mesmo fio do cabecalho da conversa: trocar de Amigos para um
+   canal nao pode mexer a barra de cima do lugar. */
 .friends__head {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 16px;
-  min-height: 58px;
-  padding: 8px 20px;
-  background: var(--bg-app);
+  gap: 12px;
+  min-height: var(--header-height);
+  padding: 0 16px;
+  background: var(--bg-chat);
+}
+
+.friends__head::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.24);
+  content: '';
 }
 
 .friends__title {
   display: flex;
   align-items: center;
   gap: 8px;
+  padding-right: 12px;
   color: var(--text);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
+}
+
+/* Risco vertical separando o titulo das abas. E um fundo de 1px, nao borda. */
+.friends__title::after {
+  width: 1px;
+  height: 24px;
+  margin-left: 12px;
+  background: var(--separator-solid);
+  content: '';
 }
 
 .friends__title svg {
@@ -30,26 +53,21 @@
 }
 
 .friends__tabs {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--pill-surface);
+  gap: 4px;
   overflow-x: auto;
+  scrollbar-width: none;
 }
 
 .friends__tabs button {
-  position: relative;
-  z-index: 1;
-  padding: 5px 12px;
-  border-radius: var(--radius-pill);
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
   color: var(--text-dim);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
   white-space: nowrap;
-  transition: background 140ms ease, color 140ms ease;
 }
 
 .friends__tab-count {
@@ -67,44 +85,28 @@
 }
 
 .friends__tabs button:hover {
-  background: var(--pill-hover);
-  color: var(--text-soft);
+  background: var(--modifier-hover);
+  color: var(--interactive-hover);
 }
 
-.friends__tabs button.is-active {
-  background: none;
-  color: var(--on-accent);
-}
-
+.friends__tabs button.is-active,
 .friends__tabs button.is-active:hover {
-  background: none;
+  background: var(--modifier-selected);
+  color: var(--interactive-active);
 }
 
-.friends__tab-indicator {
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 0;
-  z-index: 0;
-  border-radius: var(--radius-pill);
-  background: var(--pill-active);
-  opacity: 0;
-  transition: width 320ms var(--motion-smooth), translate 380ms var(--motion-spring), opacity 120ms ease;
-}
-
-.friends__tab-indicator.is-ready {
-  opacity: 1;
-}
-
+/* "Adicionar amigo" e verde e nao cinza: e a unica aba que cria alguma coisa,
+   e no Discord ela e o botao de acao da barra, nao mais uma aba igual. */
 .friends__tabs button.friends__add-tab,
 .friends__tabs button.friends__add-tab.is-active {
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--online);
+  color: #ffffff;
 }
 
 .friends__tabs button.friends__add-tab:hover {
-  background: var(--accent-hover);
-  color: var(--on-accent);
+  background: var(--online);
+  color: #ffffff;
+  opacity: 0.86;
 }
 
 .friends__body {
@@ -117,7 +119,7 @@
 .friends__add {
   max-width: 760px;
   padding: 20px 22px;
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius);
   background: var(--bg-sidebar);
 }
 
@@ -142,7 +144,7 @@
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius);
   background: var(--bg-canvas);
 }
 
@@ -204,22 +206,22 @@
   gap: 12px;
   min-height: 56px;
   padding: 8px 12px;
-  margin-block: 3px;
-  border-radius: var(--radius-xl);
+  margin-block: 1px;
+  border-radius: var(--radius);
   transition: background 140ms ease;
 }
 
 .friends__row:hover {
-  background: var(--pill-hover);
+  background: var(--modifier-hover);
 }
 
 .friends__avatar {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  border-radius: var(--radius-lg);
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: var(--radius-pill);
   background: var(--avatar-accent, var(--accent));
   color: var(--avatar-ink, var(--on-accent));
   font-weight: 700;
