@@ -292,11 +292,6 @@
 .chat__delivery { display: flex; gap: 8px; color: var(--text-faint); font-size: 11px; }
 .chat__delivery button { border: 0; background: transparent; color: var(--danger); cursor: pointer; font-weight: 650; }
 .chat__seen { display: block; margin-top: 2px; color: var(--text-faint); font-size: 10px; text-align: right; }
-.chat__readers { position: relative; display: flex; justify-content: flex-end; align-items: center; margin-left: auto; border: 0; background: transparent; color: var(--text-faint); cursor: pointer; }
-.chat__reader-avatar { width: 18px; height: 18px; margin-left: -4px; border-radius: 50%; }
-.chat__reader-list { position: absolute; right: 0; bottom: 24px; z-index: 30; display: grid; min-width: 180px; gap: 5px; padding: 8px; border-radius: 8px; background: var(--bg-floating, var(--bg-raised)); color: var(--text); text-align: left; }
-.chat__reader-list > span { display: flex; align-items: center; gap: 7px; min-height: 24px; font-size: 12px; }
-.chat__reader-list img { width: 22px; height: 22px; border-radius: 50%; }
 .chat__typing {
   display: flex;
   align-items: center;
