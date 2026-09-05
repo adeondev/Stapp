@@ -19,11 +19,11 @@
 .voicesettings__toggle input { width: 18px; height: 18px; accent-color: var(--accent); }
 .voicesettings__choice { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
 .voicesettings__choice button { display: flex; flex-direction: column; gap: 3px; padding: 11px; background: var(--bg-raised); text-align: left; }
-.voicesettings__choice button.is-active { background: var(--pill-active); }
+.voicesettings__choice button.is-active { background: var(--accent); color: var(--on-accent); }
 .voicesettings__noise { display: flex; flex-direction: column; gap: 7px; }
 .voicesettings__noise > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
 .voicesettings__noise button { padding: 8px; background: var(--bg-raised); }
-.voicesettings__noise button.is-active { background: var(--pill-active); color: var(--text); }
+.voicesettings__noise button.is-active { background: var(--accent); color: var(--on-accent); }
 .voicesettings__processor-status { padding: 8px 10px; border-radius: var(--radius-sm); background: var(--bg-raised); color: var(--text-dim); }
 .voicesettings__processor-status.is-active { color: var(--online); }
 .voicesettings__processor-status.is-fallback { color: var(--warning); }

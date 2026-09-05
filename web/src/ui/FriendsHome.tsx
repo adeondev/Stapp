@@ -1,5 +1,5 @@
 import { Avatar, ProfileName } from './Avatar'
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { SocialMember, UserId } from '../protocol'
 import { IconAt, IconCheck, IconUsers, IconX } from './Icons'
 import { useUserMenu } from './UserMenu'
@@ -20,8 +20,6 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
   const [tab, setTab] = useState<Tab>('online')
   const [query, setQuery] = useState('')
   const [feedback, setFeedback] = useState<string | null>(null)
-  const tabsRef = useRef<HTMLDivElement>(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
   const incoming = members.filter((member) => member.relationship === 'incoming')
   const outgoing = members.filter((member) => member.relationship === 'outgoing')
   const shown = useMemo(() => members.filter((member) => {
@@ -31,23 +29,6 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
     if (tab === 'blocked') return member.relationship === 'blocked'
     return false
   }), [members, onlineIds, tab])
-
-  useLayoutEffect(() => {
-    const tabs = tabsRef.current
-    if (!tabs) return
-    const update = () => {
-      const active = tabs.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
-      if (active) setIndicator({ left: active.offsetLeft, width: active.offsetWidth })
-    }
-    update()
-    window.addEventListener('resize', update)
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
-    observer?.observe(tabs)
-    return () => {
-      window.removeEventListener('resize', update)
-      observer?.disconnect()
-    }
-  }, [tab])
 
   function addFriend(event: React.FormEvent) {
     event.preventDefault()
@@ -63,9 +44,10 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
     <section className="friends">
       <header className="friends__head">
         <div className="friends__title"><IconUsers size={19} /><strong>Amigos</strong></div>
-        <div ref={tabsRef} className="friends__tabs" role="tablist" aria-label="Filtros de amizade">
-          <span className={`friends__tab-indicator ${indicator.width > 0 ? 'is-ready' : ''}`}
-            style={{ width: indicator.width, translate: `${indicator.left}px 0` }} aria-hidden="true" />
+        {/* A aba ativa se marca com o proprio fundo. A pilula que deslizava
+            atras dos rotulos precisava medir o DOM a cada troca e a cada
+            resize — muito maquinario para dizer "voce esta aqui". */}
+        <div className="friends__tabs" role="tablist" aria-label="Filtros de amizade">
           {(['online', 'all', 'pending', 'blocked'] as ListTab[]).map((value) => (
             <button key={value} type="button" role="tab" aria-selected={tab === value}
               className={tab === value ? 'is-active' : ''} onClick={() => setTab(value)}>

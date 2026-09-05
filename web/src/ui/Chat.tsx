@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChatEntry, DirectoryEntry, Limits, UserId } from '../protocol'
 import { useChatStore } from '../stores/chatStore'
-import { IconAt, IconEdit, IconHash, IconPhone, IconReaction, IconReply, IconTrash } from './Icons'
+import { IconAt, IconEdit, IconHash, IconMembers, IconPhone, IconReaction, IconReply, IconTrash } from './Icons'
 import { Avatar, ProfileName } from './Avatar'
 import { MarkdownRenderer } from './rich/MarkdownRenderer'
 import { EmojiPicker } from './rich/EmojiPicker'
@@ -74,6 +74,9 @@ interface Props {
   onClosePoll?(pollId: string): void
   /** So existe em conversa direta: o botao de ligar. */
   onCall?: () => void
+  /** So existe em canal: o botao que abre e fecha a coluna de membros. */
+  membersOpen?: boolean
+  onToggleMembers?: () => void
 }
 
 interface PendingUpload {
@@ -117,6 +120,8 @@ export function Chat({
   onCreatePoll,
   onClosePoll,
   onCall,
+  membersOpen,
+  onToggleMembers,
   sendResults: propSendResults,
   typingUsers: propTypingUsers,
   readReceiptId,
@@ -690,22 +695,49 @@ export function Chat({
         </div>
       )}
       <header className="chat__head">
-        {kind === 'direct' ? <IconAt /> : <IconHash />}
+        <span className="chat__head-icon">{kind === 'direct' ? <IconAt size={22} /> : <IconHash size={22} />}</span>
         <span className="chat__title">{title}</span>
-        {onCall && (
-          <button className="chat__call" type="button" onClick={onCall} title={`ligar para ${title}`}>
-            <IconPhone />
-          </button>
-        )}
+        {/* So entra aqui o que o Stapp de fato faz. Encher a barra com sinos e
+            alfinetes que nao levam a lugar nenhum e o caminho curto para a
+            pessoa parar de confiar no que ve. */}
+        <div className="chat__tools">
+          {onCall && (
+            <button className="chat__tool" type="button" onClick={onCall}
+              title={`Ligar para ${title}`} aria-label={`Ligar para ${title}`}>
+              <IconPhone size={20} />
+            </button>
+          )}
+          {onToggleMembers && (
+            <button className={`chat__tool ${membersOpen ? 'is-active' : ''}`} type="button"
+              onClick={onToggleMembers} aria-pressed={membersOpen}
+              title={membersOpen ? 'Ocultar membros' : 'Mostrar membros'}
+              aria-label={membersOpen ? 'Ocultar membros' : 'Mostrar membros'}>
+              <IconMembers size={20} />
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
+        {/* Comeco da conversa. Era uma linha de 14px em caixa baixa perdida no
+            meio do vazio; agora e o mesmo bloco de boas-vindas do Discord —
+            marca o topo do historico e diz de quem/do que e a conversa. */}
         {messages.length === 0 && (
-          <p className="chat__empty">
-            {kind === 'direct'
-              ? 'início da conversa direta.'
-              : 'nenhuma mensagem ainda. envie a primeira.'}
-          </p>
+          <div className="chat__welcome">
+            {kind === 'direct' ? (
+              <Avatar userId={scopeId} className="chat__welcome-avatar" fallbackName={title} />
+            ) : (
+              <span className="chat__welcome-icon"><IconHash size={44} /></span>
+            )}
+            <h2 className="chat__welcome-title">
+              {kind === 'direct' ? title : `Bem-vindo a #${title}!`}
+            </h2>
+            <p className="chat__welcome-text">
+              {kind === 'direct'
+                ? `Este é o começo da sua conversa direta com ${title}.`
+                : `Este é o começo do canal #${title}.`}
+            </p>
+          </div>
         )}
 
         {messages.map((msg, i) => {
@@ -719,10 +751,13 @@ export function Chat({
           }
 
           const previous = messages[i - 1]
+          /* Uma resposta nunca entra no bloco anterior: ela precisa do proprio
+             avatar na calha, senao a linha de citacao aponta para o vazio. */
           const grouped =
             previous !== undefined &&
             previous.kind !== 'call' &&
             previous.author_id === msg.author_id &&
+            msg.reply_to === undefined &&
             msg.ts - previous.ts < GROUP_WINDOW_MS
 
           const souEu = selfUserId !== undefined && msg.author_id === selfUserId
@@ -921,6 +956,9 @@ export function Chat({
       )}
 
       <div className="chat__composer">
+        {/* Uma caixa so: anexo, resposta e gravacao sao SECOES do campo de
+            escrever, nao caixas soltas empilhadas em cima dele. */}
+        <div className="chat__composer-box">
         {isRecordingAudio && (
           <AudioRecorder
             onRecordingComplete={handleRecordingComplete}
@@ -1048,7 +1086,7 @@ export function Chat({
           textareaRef={textareaRef}
           fileInputRef={fileInputRef}
           value={draft}
-          placeholder={canSend ? (kind === 'direct' ? `falar com ${title}` : `falar em ${title}`) : disabledReason ?? 'sem conexao com o servidor'}
+          placeholder={canSend ? (kind === 'direct' ? `Conversar com ${title}` : `Conversar em #${title}`) : disabledReason ?? 'Sem conexão com o servidor'}
           disabled={!canSend}
           hasContent={temConteudo}
           uploading={subindoAnexo}
@@ -1068,6 +1106,7 @@ export function Chat({
           onPoll={() => setShowPollModal(true)}
           overlay={<MentionAutocomplete consulta={consultaMencao} candidatos={mentionables} onEscolher={inserirMencao} onFechar={() => setConsultaMencao(null)} />}
         />
+        </div>
         <EmojiPicker isOpen={showEmojiPicker} onClose={() => setShowEmojiPicker(false)} onSelectEmoji={insertEmoji} />
         <GifPicker isOpen={showGifPicker} onClose={() => setShowGifPicker(false)} onSelectGif={(gifUrl) => {
           setShowGifPicker(false)
@@ -1077,7 +1116,11 @@ export function Chat({
         }} />
         <PollCreatorModal isOpen={showPollModal} onClose={() => setShowPollModal(false)} onCreatePoll={(question, options, allowMult) => onCreatePoll?.(question, options, allowMult)} />
         {typingUsers.filter((entry) => entry.expiresAt > Date.now()).length > 0 && (
-          <div className="chat__typing" role="status"><span>•••</span> {typingUsers.filter((entry) => entry.expiresAt > Date.now()).map((entry) => entry.username).join(', ')} esta digitando</div>
+          <div className="chat__typing" role="status">
+            <span className="chat__typing-dots" aria-hidden="true"><i /><i /><i /></span>
+            <strong>{typingUsers.filter((entry) => entry.expiresAt > Date.now()).map((entry) => entry.username).join(', ')}</strong>
+            {' '}está digitando…
+          </div>
         )}
       </div>
     </section>

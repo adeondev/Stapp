@@ -10,6 +10,8 @@
   grid-template-columns: var(--rail-width) var(--sidebar-width) minmax(0, 1fr) var(--members-width);
 }
 
+/* O palco. Mesmo tom da conversa: qualquer diferenca aqui aparece como uma
+   faixa de cor atras do chat quando ele nao preenche a altura toda. */
 .main {
   position: relative;
   display: flex;
@@ -17,19 +19,19 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--bg-app);
+  background: var(--bg-chat);
 }
 
 .notice {
   position: absolute;
-  top: 12px;
+  top: 60px;
   left: 50%;
   z-index: 5;
   max-width: min(520px, calc(100% - 32px));
   padding: 8px 16px;
   border-radius: var(--radius);
   background: var(--danger);
-  color: var(--on-accent);
+  color: #ffffff;
   font-size: 13px;
   font-weight: 600;
   translate: -50% 0;
@@ -75,3 +77,4 @@
     --sidebar-width: 210px;
   }
 }
+

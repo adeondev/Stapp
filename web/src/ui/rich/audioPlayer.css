@@ -101,11 +101,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-raised);
-  border-radius: var(--radius);
-  margin-bottom: 0.5rem;
-  border: 0;
+  padding: 8px 12px;
 }
 
 .stapp-recorder-copy,

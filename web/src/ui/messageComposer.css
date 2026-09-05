@@ -1,24 +1,121 @@
-.message-composer { position: relative; padding: 0 16px 16px; }
-.message-composer__input { position: relative; display: flex; align-items: flex-end; min-height: 48px; gap: 8px; padding: 8px; border-radius: 8px; background: var(--bg-input); }
-.message-composer__textarea { flex: 1; min-width: 0; min-height: 24px; max-height: 144px; margin: 0; padding: 4px 0; resize: none; overflow-y: auto; border: 0; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 14px; line-height: 20px; }
+/* O respiro e o fundo agora sao da caixa em chat.css. */
+.message-composer { position: relative; }
+
+.message-composer__input {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  min-height: 44px;
+  gap: 4px;
+  padding: 0 8px 0 0;
+  background: transparent;
+}
+
+.message-composer__textarea {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  max-height: 50vh;
+  margin: 0;
+  padding: 11px 0;
+  resize: none;
+  overflow-y: auto;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 16px;
+  line-height: 22px;
+}
+
+.message-composer__textarea:focus { outline: 0; }
 .message-composer__textarea::placeholder { color: var(--text-faint); }
-.message-composer__actions { display: flex; align-items: center; gap: 2px; }
-.message-composer__button { display: grid; place-items: center; min-width: 32px; height: 32px; padding: 0 7px; border: 0; border-radius: 8px; background: transparent; color: var(--text-dim); cursor: pointer; font-size: 14px; font-weight: 700; }
-.message-composer__button:hover:not(:disabled) { background: var(--bg-hover); color: var(--text); }
-.message-composer__button:disabled { cursor: not-allowed; opacity: .4; }
-.message-composer__button.is-plus { border-radius: 50%; background: var(--bg-hover); font-size: 22px; font-weight: 400; }
-.message-composer__button.is-send { background: var(--accent); color: var(--on-accent); }
-.message-composer__plus-wrap { position: relative; }
-.message-composer__menu { position: absolute; bottom: 40px; left: 0; z-index: 45; display: grid; min-width: 190px; gap: 2px; padding: 6px; border-radius: 8px; background: var(--bg-floating, var(--bg-raised)); }
-.message-composer__menu button { display: flex; align-items: center; gap: 10px; min-height: 32px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; color: var(--text); cursor: pointer; text-align: left; }
-.message-composer__menu button:hover, .message-composer__menu button:focus-visible { outline: 0; background: var(--accent); color: var(--on-accent); }
-.message-composer__menu span { width: 26px; color: inherit; font-size: 12px; font-weight: 700; text-align: center; }
-.message-composer__counter { position: absolute; right: 10px; bottom: -15px; color: var(--text-dim); font-size: 10px; }
+
+.message-composer__actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding-bottom: 6px;
+}
+
+.message-composer__button {
+  display: grid;
+  width: 34px;
+  height: 32px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--interactive);
+}
+
+.message-composer__button:hover:not(:disabled) { color: var(--interactive-active); }
+.message-composer__button:disabled { cursor: not-allowed; opacity: 0.4; }
+
+/* O "+" e o unico com fundo: e o botao que abre coisa nova, e precisa se
+   separar dos tres que so trocam o conteudo da mensagem. */
+.message-composer__plus-wrap { position: relative; padding: 6px 0 6px 10px; }
+
+.message-composer__button.is-plus {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+  background: var(--interactive);
+  color: var(--bg-input);
+}
+
+.message-composer__button.is-plus:hover:not(:disabled) {
+  background: var(--interactive-active);
+  color: var(--bg-input);
+}
+
+.message-composer__button.is-send { color: var(--accent); }
+.message-composer__button.is-send:hover:not(:disabled) { color: var(--accent-hover); }
+
+.message-composer__menu {
+  position: absolute;
+  bottom: 44px;
+  left: 0;
+  z-index: 45;
+  display: grid;
+  min-width: 190px;
+  gap: 2px;
+  padding: 6px;
+  border-radius: var(--radius);
+  background: var(--bg-floating);
+}
+
+.message-composer__menu button {
+  display: flex;
+  min-height: 32px;
+  align-items: center;
+  padding: 0 9px;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 14px;
+  text-align: left;
+}
+
+.message-composer__menu button:hover,
+.message-composer__menu button:focus-visible {
+  outline: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.message-composer__counter {
+  position: absolute;
+  right: 10px;
+  bottom: -16px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .message-composer__counter.is-over { color: var(--danger); }
 .message-composer__menu .is-mobile-action { display: none; }
 
 @media (max-width: 700px) {
-  .message-composer { padding-inline: 8px; }
+  .chat__composer { padding-inline: 8px; }
   .message-composer__button.is-secondary { display: none; }
   .message-composer__menu .is-mobile-action { display: flex; }
 }

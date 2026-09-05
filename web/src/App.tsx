@@ -70,6 +70,13 @@ export default function App() {
 
   const call = useVoiceStore((s) => s.call)
   const setCall = useVoiceStore((s) => s.setCall)
+  /* Microfone e fone sao PREFERENCIA da pessoa, nao estado de uma chamada.
+     Antes eles so existiam dentro de `call`: os botoes sumiam da tela ao
+     desligar, e quem tinha entrado mudo voltava com o microfone aberto na
+     chamada seguinte. Agora a verdade mora aqui, a chamada so espelha, e o
+     par de botoes fica fixo no painel de conta — como no Discord. */
+  const [voicePrefs, setVoicePrefs] = useState({ muted: false, deafened: false })
+  const voicePrefsRef = useRef(voicePrefs)
   const voiceSnapshot = useVoiceStore((s) => s.voiceSnapshot)
   const setVoiceSnapshot = useVoiceStore((s) => s.setVoiceSnapshot)
   const voiceConfig = useVoiceStore((s) => s.voiceConfig)
@@ -123,6 +130,7 @@ export default function App() {
   const [_voicePreferences, setVoicePreferences] = useState<VoicePreferences>(loadVoicePreferences)
   const [ringing, setRinging] = useState<Ringing | null>(null)
   const [editingProfile, setEditingProfile] = useState(false)
+  const [membersOpen, setMembersOpen] = useState(true)
 
   const connection = useRef<Connection | null>(null)
   const authApi = useRef<AuthApi | null>(null)
@@ -294,7 +302,9 @@ export default function App() {
           setRinging(null)
           void voice.current?.join(msg.channel).then((started) => {
             if (started) {
-              setCall({ channel: msg.channel, muted: false, deafened: false })
+              voice.current?.setMuted(voicePrefsRef.current.muted)
+              voice.current?.setDeafened(voicePrefsRef.current.deafened)
+              setCall({ channel: msg.channel, ...voicePrefsRef.current })
             }
           })
         }
@@ -509,7 +519,10 @@ export default function App() {
   const joinCall = useCallback(async (channelId: string) => {
     const started = await voice.current?.join(channelId)
     if (started) {
-      setCall({ channel: channelId, muted: false, deafened: false })
+      // A preferencia de microfone atravessa a entrada: quem entrou mudo continua mudo.
+      voice.current?.setMuted(voicePrefsRef.current.muted)
+      voice.current?.setDeafened(voicePrefsRef.current.deafened)
+      setCall({ channel: channelId, ...voicePrefsRef.current })
       const serverVoice = state.channels.some((channel) => channel.kind === 'voice' && channel.id === channelId)
       if (serverVoice) openServerCallView(channelId)
     }
@@ -566,16 +579,20 @@ export default function App() {
       ? (previousServerView.current ?? { kind: 'home' })
       : current)
   }, [])
-  const toggleMute = useCallback(() => setCall((current) => {
-    if (!current) return current
-    voice.current?.setMuted(!current.muted)
-    return { ...current, muted: !current.muted }
-  }), [])
-  const toggleDeafen = useCallback(() => setCall((current) => {
-    if (!current) return current
-    voice.current?.setDeafened(!current.deafened)
-    return { ...current, deafened: !current.deafened }
-  }), [])
+  /** Fonte unica: grava a escolha, manda para o transporte e espelha na call. */
+  const aplicarVoicePrefs = useCallback((proximo: { muted: boolean; deafened: boolean }) => {
+    voicePrefsRef.current = proximo
+    setVoicePrefs(proximo)
+    voice.current?.setMuted(proximo.muted)
+    voice.current?.setDeafened(proximo.deafened)
+    setCall((atual) => atual ? { ...atual, ...proximo } : atual)
+  }, [setCall])
+  const toggleMute = useCallback(() => {
+    aplicarVoicePrefs({ ...voicePrefsRef.current, muted: !voicePrefsRef.current.muted })
+  }, [aplicarVoicePrefs])
+  const toggleDeafen = useCallback(() => {
+    aplicarVoicePrefs({ ...voicePrefsRef.current, deafened: !voicePrefsRef.current.deafened })
+  }, [aplicarVoicePrefs])
 
   const resolveUserId = useCallback((peerId: PeerId): UserId | undefined => {
     if (peerId === state.selfPeerId) return state.selfUserId ?? undefined
@@ -640,7 +657,9 @@ export default function App() {
   const onlineIds = new Set(state.users.map((user) => user.user_id))
   const railServers = servers.some((server) => server.url === active.profile.url) ? servers : [active.profile, ...servers]
   const sidebarMode = sidebarModeFor(view)
-  const showMembers = view?.kind === 'channel'
+  // A coluna de membros vira e mexe atrapalha em tela estreita, e ate agora nao
+  // havia como fechar. O botao vive no cabecalho da conversa, como no Discord.
+  const showMembers = view?.kind === 'channel' && membersOpen
   const meuPerfil = profileOf(state, state.selfUserId ?? '', attemptedUsername.current)
   const avatarBase = avatarBaseFromWs(active.profile.url)
   const callPartnerId = call ? directChannelPartnerId(state, call.channel) : null
@@ -666,15 +685,18 @@ export default function App() {
         onSelectHome={selectHome}
         onSelectChannel={selectChannel} onSelectDirect={selectDirect}
         callChannel={call?.channel ?? null} onJoinCall={handleJoinCall}
+        onLogout={logout} onRemoveServer={() => removeSaved(active.profile.url)}
         footer={<div className="sidebar__footer-stack">
-          {call && <VoiceBar channelName={callName} muted={call.muted} deafened={call.deafened}
-            onToggleMute={toggleMute} onToggleDeafen={toggleDeafen} onLeave={leaveCall}
+          {call && <VoiceBar channelName={callName} onLeave={leaveCall}
             onOpen={() => {
               if (callPartnerId) selectDirect(callPartnerId)
               else if (call?.channel) openServerCallView(call.channel)
             }} />}
-          <AccountBar onOpenProfile={() => setEditingProfile(true)} userId={state.selfUserId} username={self?.username ?? attemptedUsername.current} onLogout={logout}
-            onRemoveServer={() => removeSaved(active.profile.url)} />
+          <AccountBar onOpenProfile={() => setEditingProfile(true)} userId={state.selfUserId}
+            username={self?.username ?? attemptedUsername.current}
+            muted={voicePrefs.muted} deafened={voicePrefs.deafened}
+            onToggleMute={toggleMute} onToggleDeafen={toggleDeafen}
+            onOpenVoiceSettings={() => setVoiceSettingsOpen(true)} />
         </div>} />
 
       <main className="main">
@@ -732,6 +754,8 @@ export default function App() {
                 onSend={sendMessage}
                 onVotePoll={votePoll}
                 onCreatePoll={createPoll}
+                membersOpen={membersOpen}
+                onToggleMembers={() => setMembersOpen((aberto) => !aberto)}
                 onClosePoll={closePoll}
               />
             ) : conversation ? (
@@ -785,7 +809,7 @@ export default function App() {
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
         selfUserId={state.selfUserId} selfUsername={self?.username ?? attemptedUsername.current}
-        onEditSelf={() => setEditingProfile(true)} onMessage={selectDirect} onAction={socialAction} />}
+        onEditSelf={() => setEditingProfile(true)} />}
       <ProfileEditor isOpen={editingProfile} profile={meuPerfil} avatarBase={avatarBase}
         onClose={() => setEditingProfile(false)}
         onSave={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
