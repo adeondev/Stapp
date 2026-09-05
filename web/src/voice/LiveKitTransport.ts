@@ -1178,9 +1178,11 @@ export class LiveKitTransport implements VoiceTransport {
         this.detachAudio(publicationId)
       }
     }
+    const sdk = this.sdk
     const audio = document.createElement('audio')
     audio.autoplay = true
-    audio.muted = this.state.deafened
+    const isScreenAudio = Boolean(sdk && publication.source === sdk.Track.Source.ScreenShareAudio)
+    audio.muted = isScreenAudio ? false : this.state.deafened
     audio.dataset.stappVoice = publication.trackSid
     audio.hidden = true
     document.body.append(audio)
@@ -1223,7 +1225,8 @@ export class LiveKitTransport implements VoiceTransport {
         ? this.getScreenShareVolume(owner)
         : 100
     const master = this.preferences.outputVolume
-    audio.muted = this.state.deafened
+    const isScreenAudio = Boolean(sdk && source === sdk.Track.Source.ScreenShareAudio)
+    audio.muted = isScreenAudio ? false : this.state.deafened
     audio.volume = clamp((trackVolume / 100) * (master / 100), 0, 1)
   }
 

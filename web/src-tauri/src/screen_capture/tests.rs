@@ -40,6 +40,11 @@ fn janela_recusa_o_pid_do_webview_registrado() {
 }
 
 #[test]
+fn janela_invalida_retorna_falso() {
+    assert!(!is_window_valid(0));
+}
+
+#[test]
 fn pcm_so_sai_em_blocos_completos_e_preserva_o_restante() {
     let mut samples = VecDeque::from(vec![1, 2, 3, 4, 5, 6]);
     assert_eq!(take_pcm_chunk(&mut samples, 4), Some(vec![1, 2, 3, 4]));

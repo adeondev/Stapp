@@ -280,6 +280,10 @@ fn capture_loop(
     channel: Channel<CaptureEvent>,
     stop: Arc<AtomicBool>,
 ) {
+    let window_id = match locator {
+        SourceLocator::Window(id) => Some(id),
+        SourceLocator::Screen(_) => None,
+    };
     let Some(source) = resolve_source(locator) else {
         let _ = channel.send(CaptureEvent::Ended {
             capture_id,
@@ -292,6 +296,15 @@ fn capture_loop(
     let mut consecutive_failures = 0;
 
     while !stop.load(Ordering::Relaxed) {
+        if let Some(win_id) = window_id {
+            if !is_window_valid(win_id) {
+                let _ = channel.send(CaptureEvent::Ended {
+                    capture_id,
+                    reason: "a janela foi fechada".to_string(),
+                });
+                break;
+            }
+        }
         let started = Instant::now();
         let image = match &source {
             CaptureSource::Screen(screen) => screen.capture_image(),
@@ -303,6 +316,15 @@ fn capture_loop(
                 image
             }
             Err(_) => {
+                if let Some(win_id) = window_id {
+                    if !is_window_valid(win_id) {
+                        let _ = channel.send(CaptureEvent::Ended {
+                            capture_id,
+                            reason: "a janela foi fechada".to_string(),
+                        });
+                        break;
+                    }
+                }
                 consecutive_failures += 1;
                 if consecutive_failures >= maximum_failures {
                     let _ = channel.send(CaptureEvent::Ended {
@@ -661,6 +683,21 @@ fn windows_build_number() -> Option<u32> {
     // SAFETY: RtlGetVersion receives a valid, correctly sized writable struct
     // and does not retain its pointer after returning.
     (unsafe { RtlGetVersion(&mut info) } >= 0).then_some(info.build)
+}
+
+#[cfg(windows)]
+fn is_window_valid(window_id: u32) -> bool {
+    #[link(name = "user32")]
+    extern "system" {
+        fn IsWindow(hwnd: *mut std::ffi::c_void) -> i32;
+    }
+    // SAFETY: IsWindow receives an HWND pointer-sized value and returns 0 if invalid.
+    unsafe { IsWindow(window_id as usize as *mut std::ffi::c_void) != 0 }
+}
+
+#[cfg(not(windows))]
+fn is_window_valid(_window_id: u32) -> bool {
+    true
 }
 
 #[cfg(all(test, windows))]

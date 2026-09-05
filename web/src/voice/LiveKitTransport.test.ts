@@ -494,6 +494,47 @@ describe('LiveKitTransport', () => {
     expect(transport.getScreenShareVolume(remote.identity)).toBe(100)
   })
 
+  it('deafen muta apenas audio do microfone e preserva som da tela compartilhada', async () => {
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn(),
+    })
+    await transport.join('sala')
+    transport.handleServerMessage({
+      t: 'voice.grant', channel: 'sala', url: 'ws://sfu', token: 'jwt', expires_at: Date.now() + 60_000,
+    })
+    await vi.waitFor(() => expect(transport.snapshot().status).toBe('connected'))
+
+    const sdk = await import('livekit-client') as unknown as {
+      Room: { instances: Array<any> }; Participant: new (id: string, name: string) => any
+      Publication: new (id: string, source: string, kind?: string) => any; RoomEvent: Record<string, string>; Track: any
+    }
+    const room = sdk.Room.instances[0]
+    const remote = new sdk.Participant('peer-deafen', 'DeafenTest')
+    const microphone = new sdk.Publication('mic-deafen', sdk.Track.Source.Microphone, sdk.Track.Kind.Audio)
+    const screenAudio = new sdk.Publication('screen-deafen', sdk.Track.Source.ScreenShareAudio, sdk.Track.Kind.Audio)
+    remote.trackPublications.set(microphone.trackSid, microphone)
+    remote.trackPublications.set(screenAudio.trackSid, screenAudio)
+    room.remoteParticipants.set(remote.identity, remote)
+    room.emit(sdk.RoomEvent.TrackSubscribed, microphone.audioTrack, microphone, remote)
+    room.emit(sdk.RoomEvent.TrackSubscribed, screenAudio.audioTrack, screenAudio, remote)
+
+    const micAudio = document.querySelector<HTMLAudioElement>('audio[data-stapp-voice="mic-deafen"]')
+    const screenAudioEl = document.querySelector<HTMLAudioElement>('audio[data-stapp-voice="screen-deafen"]')
+    expect(micAudio?.muted).toBe(false)
+    expect(screenAudioEl?.muted).toBe(false)
+
+    transport.setDeafened(true)
+    expect(micAudio?.muted).toBe(true)
+    expect(screenAudioEl?.muted).toBe(false)
+
+    transport.setDeafened(false)
+    expect(micAudio?.muted).toBe(false)
+    expect(screenAudioEl?.muted).toBe(false)
+
+    transport.leave()
+    transport.destroy()
+  })
+
   it('substitui microfone republicado sem tocar duas copias e limpa ao desconectar', async () => {
     const transport = new LiveKitTransport(config, {
       selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn(),
