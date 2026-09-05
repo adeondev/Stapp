@@ -703,6 +703,75 @@ describe('LiveKitTransport', () => {
     expect(transport.snapshot().status).toBe('idle')
   })
 
+  it('ao desconectar inesperadamente, transiciona para reconnecting sem ejetar o canal e tenta reobter grant', async () => {
+    const sent: ClientMsg[] = []
+    const sdk = await import('livekit-client') as unknown as {
+      Room: { instances: Array<{ emit(event: string, ...args: unknown[]): void }> }
+      RoomEvent: { Disconnected: string }
+    }
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer',
+      send: (msg) => { sent.push(msg) },
+      onSpeaking: vi.fn(),
+      onError: vi.fn(),
+    })
+    await transport.join('geral')
+    transport.handleServerMessage({
+      t: 'voice.grant',
+      channel: 'geral',
+      url: 'ws://sfu:7880',
+      token: 'jwt-1',
+      expires_at: Date.now() + 60_000,
+    })
+
+    await new Promise((r) => setTimeout(r, 10))
+    expect(transport.snapshot().status).toBe('connected')
+    expect(transport.snapshot().channel).toBe('geral')
+
+    // Simula queda abrupta na conexao LiveKit
+    const room = sdk.Room.instances[sdk.Room.instances.length - 1]
+    room.emit(sdk.RoomEvent.Disconnected)
+
+    // O status deve ser reconnecting e o canal deve ser preservado
+    expect(transport.snapshot().status).toBe('reconnecting')
+    expect(transport.snapshot().channel).toBe('geral')
+
+    // Deve solicitar novo grant
+    expect(sent).toContainEqual({ t: 'voice.join', channel: 'geral' })
+
+    // Servidor responde com grant novo
+    transport.handleServerMessage({
+      t: 'voice.grant',
+      channel: 'geral',
+      url: 'ws://sfu:7880',
+      token: 'jwt-2',
+      expires_at: Date.now() + 60_000,
+    })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(transport.snapshot().status).toBe('connected')
+    expect(transport.snapshot().channel).toBe('geral')
+
+    transport.destroy()
+  })
+
+  it('updateSession atualiza o peer e o callback send durante a chamada', async () => {
+    const sentV1: ClientMsg[] = []
+    const sentV2: ClientMsg[] = []
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'peer-old',
+      send: (msg) => { sentV1.push(msg) },
+      onSpeaking: vi.fn(),
+      onError: vi.fn(),
+    })
+    await transport.join('geral')
+    expect(sentV1).toEqual([{ t: 'voice.join', channel: 'geral' }])
+
+    transport.updateSession('peer-new', (msg) => { sentV2.push(msg) })
+    expect(transport.snapshot().channel).toBe('geral')
+
+    transport.destroy()
+  })
+
   describe('mediaUrlForThisDevice', () => {
     it('resolve qualquer IP/host nao-TLS para localhost quando executado em navegador local', () => {
       // Local browser environment (localhost)

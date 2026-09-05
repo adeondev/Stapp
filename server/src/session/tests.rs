@@ -74,10 +74,21 @@ async fn keeps_one_voice_session_per_account() {
         .join_voice(&"one".into(), "voz-a", 4)
         .await
         .unwrap();
-    assert!(matches!(
-        server.state.join_voice(&"two".into(), "voz-a", 4).await,
-        Err(VoiceJoinError::AccountAlreadyInVoice)
-    ));
+    let (segundo, takeover) = server
+        .state
+        .join_voice(&"two".into(), "voz-a", 4)
+        .await
+        .unwrap();
+    assert_eq!(segundo.peer.peer_id, "two");
+    assert!(takeover.is_some());
+    let t = takeover.unwrap();
+    assert_eq!(t.old_peer_id, "one");
+    assert_eq!(t.channel, "voz-a");
+    assert!(t.published);
+
+    let peers = server.state.peers_in_voice("voz-a").await;
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0], "two");
 }
 
 #[tokio::test]
@@ -145,14 +156,14 @@ async fn o_roster_nao_inclui_quem_esta_chegando() {
     server.state.register_session("one", &daniel).await.unwrap();
     server.state.register_session("two", &alice).await.unwrap();
 
-    let primeiro = server
+    let (primeiro, _) = server
         .state
         .join_voice(&"one".into(), "voz-a", 4)
         .await
         .unwrap();
     assert!(primeiro.roster.is_empty());
 
-    let segundo = server
+    let (segundo, _) = server
         .state
         .join_voice(&"two".into(), "voz-a", 4)
         .await
@@ -218,3 +229,83 @@ async fn reserva_expirada_nao_vira_participante() {
     ));
     assert!(server.state.peers_in_voice("voz-a").await.is_empty());
 }
+
+#[tokio::test]
+async fn reserve_voice_executa_takeover_de_sessao_fantasma() {
+    use std::time::Duration;
+    let server = TestServer::new(10, 2).await;
+    let account = server.account("Daniel").await;
+    server
+        .state
+        .register_session("zombie", &account)
+        .await
+        .unwrap();
+    server
+        .state
+        .register_session("fresh", &account)
+        .await
+        .unwrap();
+
+    server
+        .state
+        .join_voice(&"zombie".into(), "voz-geral", 4)
+        .await
+        .unwrap();
+    assert_eq!(
+        server.state.peers_in_voice("voz-geral").await,
+        vec!["zombie"]
+    );
+
+    let takeover = server
+        .state
+        .reserve_voice(
+            &"fresh".into(),
+            "voz-geral",
+            4,
+            Duration::from_secs(15),
+        )
+        .await
+        .unwrap();
+    assert!(takeover.is_some());
+    let t = takeover.unwrap();
+    assert_eq!(t.old_peer_id, "zombie");
+    assert_eq!(t.channel, "voz-geral");
+    assert!(t.published);
+
+    // Sessao antiga foi desalojada do canal
+    assert!(server.state.peers_in_voice("voz-geral").await.is_empty());
+
+    // Sessao nova confirma a entrada
+    server
+        .state
+        .confirm_voice(&"fresh".into(), "voz-geral")
+        .await
+        .unwrap();
+    assert_eq!(
+        server.state.peers_in_voice("voz-geral").await,
+        vec!["fresh"]
+    );
+}
+
+#[tokio::test]
+async fn is_in_voice_identifica_presenca_corretamente() {
+    let server = TestServer::new(10, 2).await;
+    let account = server.account("Daniel").await;
+    server
+        .state
+        .register_session("sess1", &account)
+        .await
+        .unwrap();
+    assert!(!server.state.is_in_voice(&"sess1".into()).await);
+
+    server
+        .state
+        .join_voice(&"sess1".into(), "voz-b", 4)
+        .await
+        .unwrap();
+    assert!(server.state.is_in_voice(&"sess1".into()).await);
+
+    server.state.leave_voice(&"sess1".into()).await.unwrap();
+    assert!(!server.state.is_in_voice(&"sess1".into()).await);
+}
+
