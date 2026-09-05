@@ -3,6 +3,7 @@ import stappLogo from '../assets/imgs/svg/stapp_logo.svg'
 import { AuthApi, AuthApiError } from './net/auth'
 import { Connection, type ConnectionStatus } from './net/connection'
 import { IncomingRequestTracker, notificationSound } from './net/notifications'
+import { callSounds } from './net/callSounds'
 import { hasPendingLogout, lastServer, loadServers, markLogoutPending, normalizeServerUrl,
   removeServer, saveServer, setPendingLogout, type SavedServer } from './net/servers'
 import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
@@ -148,6 +149,7 @@ export default function App() {
   }, [])
 
   const resetRoom = useCallback(() => {
+    callSounds.stopAll()
     voice.current?.destroy()
     voice.current = null
     unsubscribeVoice.current?.()
@@ -308,18 +310,27 @@ export default function App() {
           if (msg.unread > 0 && msg.msg.kind === 'text') notificationSound.play()
         }
         if (msg.t === 'dm.denied') setNotice('Essa pessoa aceita novas conversas apenas de amigos.')
-        if (msg.t === 'call.incoming') setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
+        if (msg.t === 'call.incoming') {
+          setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
+          callSounds.playRingtone()
+        }
         if (msg.t === 'call.accepted') {
+          callSounds.stopLoop()
           setRinging(null)
           void voice.current?.join(msg.channel).then((started) => {
             if (started) {
+              callSounds.playJoin()
               voice.current?.setMuted(voicePrefsRef.current.muted)
               voice.current?.setDeafened(voicePrefsRef.current.deafened)
               setCall({ channel: msg.channel, ...voicePrefsRef.current })
             }
           })
         }
-        if (msg.t === 'call.ended') { setRinging(null); setNotice(CALL_REASON[msg.reason]) }
+        if (msg.t === 'call.ended') {
+          callSounds.stopLoop()
+          setRinging(null)
+          setNotice(CALL_REASON[msg.reason])
+        }
         if (msg.t === 'error') setNotice(msg.message)
         dispatchServerMessage(msg)
         voice.current?.handleServerMessage(msg)
@@ -530,6 +541,7 @@ export default function App() {
   const joinCall = useCallback(async (channelId: string) => {
     const started = await voice.current?.join(channelId)
     if (started) {
+      callSounds.playJoin()
       // A preferencia de microfone atravessa a entrada: quem entrou mudo continua mudo.
       voice.current?.setMuted(voicePrefsRef.current.muted)
       voice.current?.setDeafened(voicePrefsRef.current.deafened)
@@ -550,15 +562,22 @@ export default function App() {
   const startCall = useCallback((userId: UserId, username: string) => {
     setRinging({ userId, username, direction: 'outgoing' })
     connection.current?.send({ t: 'call.start', user_id: userId })
+    callSounds.playCalling()
   }, [])
   const acceptCall = useCallback(() => setRinging((current) => {
-    if (current) connection.current?.send({ t: 'call.accept', user_id: current.userId })
+    if (current) {
+      callSounds.stopLoop()
+      connection.current?.send({ t: 'call.accept', user_id: current.userId })
+    }
     return current
   }), [])
   const dismissCall = useCallback(() => setRinging((current) => {
-    if (current) connection.current?.send(current.direction === 'incoming'
-      ? { t: 'call.decline', user_id: current.userId }
-      : { t: 'call.cancel', user_id: current.userId })
+    if (current) {
+      callSounds.stopLoop()
+      connection.current?.send(current.direction === 'incoming'
+        ? { t: 'call.decline', user_id: current.userId }
+        : { t: 'call.cancel', user_id: current.userId })
+    }
     return null
   }), [])
   /** `null` remove. O token vem do Connection para nao ter duas fontes. */
@@ -584,6 +603,8 @@ export default function App() {
   )
 
   const leaveCall = useCallback(() => {
+    callSounds.stopLoop()
+    callSounds.playLeave()
     voice.current?.leave()
     setCall(null)
     setView((current) => current?.kind === 'voice'
@@ -594,6 +615,7 @@ export default function App() {
   const aplicarVoicePrefs = useCallback((proximo: { muted: boolean; deafened: boolean }) => {
     voicePrefsRef.current = proximo
     setVoicePrefs(proximo)
+    callSounds.setDeafened(proximo.deafened)
     voice.current?.setMuted(proximo.muted)
     voice.current?.setDeafened(proximo.deafened)
     setCall((atual) => atual ? { ...atual, ...proximo } : atual)

@@ -9,6 +9,7 @@ import type {
 } from './VoiceTransport'
 import { loadVoicePreferences, saveVoicePreferences } from './preferences'
 import type { VoicePreferences } from './preferences'
+import { callSounds } from '../net/callSounds'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -110,6 +111,7 @@ export class MeshTransport implements VoiceTransport {
       error: null,
     }
     this.emit()
+    callSounds.playJoin()
     return true
   }
 
@@ -146,6 +148,7 @@ export class MeshTransport implements VoiceTransport {
             ],
           }
           this.emit()
+          callSounds.playJoin()
         }
         break
       case 'voice.left':
@@ -156,6 +159,7 @@ export class MeshTransport implements VoiceTransport {
         }
         this.applyPlaybackState()
         this.emit()
+        callSounds.playLeave()
         break
 
       case 'rtc.signal':
@@ -177,6 +181,7 @@ export class MeshTransport implements VoiceTransport {
 
   setDeafened(deafened: boolean) {
     this.deafened = deafened
+    callSounds.setDeafened(deafened)
     this.applyPlaybackState()
     // Ensurdecer tambem cala o proprio microfone, como no Discord.
     this.applyLocalState()
@@ -187,6 +192,7 @@ export class MeshTransport implements VoiceTransport {
 
   leave() {
     if (!this.channel) return
+    callSounds.playLeave()
     this.options.send({ t: 'voice.leave' })
 
     for (const id of [...this.peers.keys()]) this.dropPeer(id)

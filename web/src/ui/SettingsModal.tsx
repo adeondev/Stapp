@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { avatarUrl } from '../net/avatars'
+import { callSounds } from '../net/callSounds'
 import { notificationSound } from '../net/notifications'
 import { ACCENTS, type AccentName, type Profile } from '../protocol'
 import { DEFAULT_VOICE_PREFERENCES, loadVoicePreferences, resetVoicePreferences, saveVoicePreferences, type VoicePreferences } from '../voice/preferences'
@@ -972,6 +973,7 @@ function NotificationsTab() {
   const handleVolumeChange = (volPercent: number) => {
     setSoundVolume(volPercent)
     notificationSound.setBaseVolume(volPercent / 100)
+    callSounds.setVolume(volPercent / 100)
   }
 
   const handleTestSound = () => {

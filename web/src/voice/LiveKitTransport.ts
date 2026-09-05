@@ -38,6 +38,7 @@ import {
   type ConfigurableAudioProcessor,
   type VoiceProcessorSettings,
 } from './VoiceAudioProcessor'
+import { callSounds } from '../net/callSounds'
 
 type LiveKitModule = typeof import('livekit-client')
 
@@ -157,6 +158,7 @@ export class LiveKitTransport implements VoiceTransport {
   setDeafened(deafened: boolean) {
     this.state = { ...this.state, deafened }
     this.applyPlaybackState()
+    callSounds.setDeafened(deafened)
     void this.resumeAudio()
     void this.applyMicrophoneState()
     this.publishState()
@@ -600,6 +602,7 @@ export class LiveKitTransport implements VoiceTransport {
 
   leave() {
     this.endSession(true)
+    callSounds.playLeave()
     this.state = {
       status: 'idle', channel: null, muted: false, deafened: false,
       cameraEnabled: false, screenSharing: false, screenHasAudio: null,
@@ -678,6 +681,7 @@ export class LiveKitTransport implements VoiceTransport {
       this.state = { ...this.state, status: 'connected', channel, error: null }
       this.options.send({ t: 'voice.connected', channel })
       this.sync()
+      callSounds.playJoin()
     } catch (error) {
       if (!this.isCurrentSession(channel, generation)) {
         if (connectingRoom) await connectingRoom.disconnect(true).catch(() => {})
@@ -699,12 +703,18 @@ export class LiveKitTransport implements VoiceTransport {
 
   private bindEvents(room: Room, sdk: LiveKitModule, generation: number) {
     const current = () => this.room === room && this.sessionGeneration === generation
-    room.on(sdk.RoomEvent.ParticipantConnected, () => { if (current()) this.sync() })
+    room.on(sdk.RoomEvent.ParticipantConnected, () => {
+      if (current()) {
+        this.sync()
+        callSounds.playJoin()
+      }
+    })
     room.on(sdk.RoomEvent.ParticipantDisconnected, (participant: Participant) => {
       if (!current()) return
       this.detachOwnerAudio(participant.identity)
       this.watchedScreenPeers.delete(participant.identity)
       this.sync()
+      callSounds.playLeave()
     })
     room.on(sdk.RoomEvent.TrackPublished, (publication: RemoteTrackPublication, participant: Participant) => {
       if (!current()) return
