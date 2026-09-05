@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import type { Attachment } from '../../protocol'
 import { attachmentContentUrl } from '../../net/mediaUpload'
 import { httpBaseFromWs } from '../../net/auth'
@@ -34,8 +34,36 @@ function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: 
   accessToken?: string | null
   onLightbox(url: string): void
 }) {
-  const [url, setUrl] = useState<string | null>(null)
+  const [url, setUrl] = useState<string | null>(() => {
+    if (attachment.url) return resolveAttachmentUrl(attachment.url, serverUrl)
+    return null
+  })
   const [error, setError] = useState(false)
+  const [retrying, setRetrying] = useState(false)
+  const retryCountRef = useRef(0)
+
+  const renewTicket = useCallback(async () => {
+    if (attachment.url) {
+      const directUrl = resolveAttachmentUrl(attachment.url, serverUrl)
+      setUrl(directUrl)
+      setError(false)
+      return directUrl
+    }
+    if (!serverUrl || !accessToken) return null
+    try {
+      setRetrying(true)
+      const next = await attachmentContentUrl(serverUrl, accessToken, attachment.id)
+      setUrl(next)
+      setError(false)
+      retryCountRef.current = 0
+      return next
+    } catch {
+      setError(true)
+      return null
+    } finally {
+      setRetrying(false)
+    }
+  }, [accessToken, attachment.id, attachment.url, serverUrl])
 
   useEffect(() => {
     if (attachment.url) {
@@ -51,6 +79,7 @@ function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: 
         if (!disposed) {
           setUrl(next)
           setError(false)
+          retryCountRef.current = 0
           timer = window.setTimeout(refresh, 8 * 60 * 1000)
         }
       } catch {
@@ -58,13 +87,54 @@ function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: 
       }
     }
     void refresh()
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !disposed) {
+        void refresh()
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       disposed = true
       window.clearTimeout(timer)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [accessToken, attachment.id, attachment.url, serverUrl])
 
-  if (error) return <div className="stapp-attachment-error" role="alert">Anexo indisponivel</div>
+  const handleMediaError = useCallback(() => {
+    if (retryCountRef.current < 2) {
+      retryCountRef.current += 1
+      void renewTicket()
+    } else {
+      setError(true)
+    }
+  }, [renewTicket])
+
+  const handleOpenLightbox = useCallback(async () => {
+    if (url && !error) {
+      onLightbox(url)
+    } else {
+      const refreshed = await renewTicket()
+      if (refreshed) onLightbox(refreshed)
+    }
+  }, [error, onLightbox, renewTicket, url])
+
+  if (error) {
+    return (
+      <div className="stapp-attachment-error" role="alert">
+        <span>Anexo indisponível</span>
+        <button
+          type="button"
+          className="stapp-attachment-retry-btn"
+          disabled={retrying}
+          onClick={() => void renewTicket()}
+        >
+          {retrying ? 'Tentando...' : 'Tentar novamente'}
+        </button>
+      </div>
+    )
+  }
   if (!url) return <div className="stapp-attachment-loading" role="status">Carregando anexo...</div>
 
   const lowerName = attachment.filename.toLowerCase()
@@ -94,20 +164,20 @@ function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: 
           controls
           preload="metadata"
           playsInline
-          onError={() => setError(true)}
+          onError={handleMediaError}
         />
       </div>
     )
   }
   if (image) {
     return (
-      <button type="button" className="stapp-attachment-image-wrapper" onClick={() => onLightbox(url)}>
+      <button type="button" className="stapp-attachment-image-wrapper" onClick={handleOpenLightbox}>
         <img
           src={url}
           alt={attachment.description || attachment.filename}
           loading="lazy"
           className="stapp-attachment-image"
-          onError={() => setError(true)}
+          onError={handleMediaError}
         />
       </button>
     )

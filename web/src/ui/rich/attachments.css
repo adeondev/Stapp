@@ -17,6 +17,10 @@
 
 .stapp-attachment-loading,
 .stapp-attachment-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   width: min(100%, 380px);
   padding: 10px 12px;
   border-radius: 8px;
@@ -26,6 +30,23 @@
 }
 
 .stapp-attachment-error { color: var(--danger); }
+.stapp-attachment-retry-btn {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.stapp-attachment-retry-btn:hover {
+  text-decoration: underline;
+}
+.stapp-attachment-retry-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .stapp-voice-note-label { margin-bottom: 4px; color: var(--accent); font-size: 11px; font-weight: 650; }
 
 .stapp-attachment-image-wrapper {

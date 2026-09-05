@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { MessageAttachments } from './MessageAttachments'
+
+vi.mock('../../net/mediaUpload', () => ({
+  attachmentContentUrl: vi.fn(),
+}))
 
 describe('MessageAttachments', () => {
   it('renderiza anexo de imagem com tag img', () => {
@@ -66,5 +70,37 @@ describe('MessageAttachments', () => {
     const link = screen.getByRole('link')
     expect(link.getAttribute('href')).toBe('https://stapp.chat/files/documento.pdf')
     expect(link.getAttribute('download')).toBe('documento.pdf')
+  })
+
+  it('exibe botao de tentar novamente quando o anexo falha e permite retry', async () => {
+    const { attachmentContentUrl } = await import('../../net/mediaUpload')
+    const mockContentUrl = vi.mocked(attachmentContentUrl)
+    mockContentUrl.mockRejectedValueOnce(new Error('Network error'))
+
+    render(
+      <MessageAttachments
+        attachments={[
+          {
+            id: 'att-err',
+            filename: 'foto_antiga.png',
+            content_type: 'image/png',
+            size_bytes: 1024 * 50,
+          },
+        ]}
+        serverUrl="ws://localhost:9000"
+        accessToken="token-123"
+      />
+    )
+
+    const errMsg = await screen.findByText('Anexo indisponível')
+    expect(errMsg).toBeTruthy()
+    const retryBtn = screen.getByRole('button', { name: 'Tentar novamente' })
+    expect(retryBtn).toBeTruthy()
+
+    mockContentUrl.mockResolvedValueOnce('https://stapp.chat/files/recovered.png')
+    retryBtn.click()
+
+    const img = await screen.findByRole('img')
+    expect(img.getAttribute('src')).toBe('https://stapp.chat/files/recovered.png')
   })
 })

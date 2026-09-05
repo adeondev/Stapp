@@ -39,16 +39,27 @@ export function MembersPanel({ members, onlineIds, selfUserId, selfUsername, onE
     </button>
   )
 
+  const onlineCount = online.length + (selfUserId ? 1 : 0)
+
   return (
     <aside className="members" aria-label="Membros do servidor">
-      <h2>Online — {online.length + (selfUserId ? 1 : 0)}</h2>
+      <h2 className="members__section-header" aria-label={`${onlineCount} membros ativos`}>
+        <span className="members__status-dot is-online" aria-hidden="true" />
+        <span className="members__count">{onlineCount}</span>
+      </h2>
       {selfUserId && linha(selfUserId, selfUsername, true, true)}
       {online.map((member) => linha(member.user_id, member.username, true, false))}
 
-      {offline.length > 0 && <>
-        <h2>Offline — {offline.length}</h2>
-        {offline.map((member) => linha(member.user_id, member.username, false, false))}
-      </>}
+      {offline.length > 0 && (
+        <>
+          <div className="members__divider" role="separator" />
+          <h2 className="members__section-header is-offline" aria-label={`${offline.length} membros offline`}>
+            <span className="members__status-dot is-offline" aria-hidden="true" />
+            <span className="members__count">{offline.length}</span>
+          </h2>
+          {offline.map((member) => linha(member.user_id, member.username, false, false))}
+        </>
+      )}
     </aside>
   )
 }

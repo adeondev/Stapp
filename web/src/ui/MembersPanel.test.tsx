@@ -32,10 +32,36 @@ describe('painel de membros', () => {
       </ProfileProvider>,
     )
 
-    expect(screen.getByRole('heading', { name: 'Online — 2' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '2 membros ativos' })).toBeTruthy()
+    expect(screen.getByText('2')).toBeTruthy()
+    expect(screen.queryByText(/Online —/i)).toBeNull()
     expect(screen.getByText('Deon vivo')).toBeTruthy()
     expect(screen.getByText('você')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: /Deon vivo/ }))
     expect(edit).toHaveBeenCalledOnce()
+  })
+
+  it('renderiza membros offline com seção separada e sem texto literal Offline', () => {
+    render(
+      <ProfileProvider avatarBase={null} profiles={{}}>
+        <MembersPanel
+          members={[
+            { user_id: 'alice', username: 'Alice', relationship: 'friend', can_start_dm: true, has_conversation: true },
+            { user_id: 'bob', username: 'Bob', relationship: 'friend', can_start_dm: true, has_conversation: true },
+          ]}
+          onlineIds={new Set(['alice'])}
+          selfUserId={null}
+          selfUsername=""
+          onEditSelf={vi.fn()}
+        />
+      </ProfileProvider>,
+    )
+
+    expect(screen.getByRole('heading', { name: '1 membros ativos' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '1 membros offline' })).toBeTruthy()
+    expect(screen.queryByText(/Online —/i)).toBeNull()
+    expect(screen.queryByText(/Offline —/i)).toBeNull()
+    const bobBtn = screen.getByRole('button', { name: /Bob/ })
+    expect(bobBtn.classList.contains('is-offline')).toBe(true)
   })
 })
