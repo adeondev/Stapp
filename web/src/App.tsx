@@ -12,7 +12,6 @@ import { dispatchServerMessage, resetAllStores, useChatStore, usePresenceStore, 
 import { AccountBar } from './ui/AccountBar'
 import { avatarBaseFromWs, comRenovacao, removeAvatar, uploadAvatar } from './net/avatars'
 import { ProfileProvider } from './ui/Avatar'
-import { ProfileEditor } from './ui/ProfileEditor'
 import { CallPanel } from './ui/CallPanel'
 import { Chat } from './ui/Chat'
 import { Connect, type AuthInfo } from './ui/Connect'
@@ -23,7 +22,7 @@ import { Sidebar, sidebarModeFor, type View } from './ui/Sidebar'
 import { VoiceBar } from './ui/VoiceBar'
 import { CallStage } from './ui/CallStage'
 import { CallMiniPip } from './ui/CallMiniPip'
-import { VoiceSettings } from './ui/VoiceSettings'
+import { SettingsModal, type SettingsTab } from './ui/SettingsModal'
 import { UserMenuProvider } from './ui/UserMenu'
 import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
@@ -126,6 +125,8 @@ export default function App() {
   // deixa a citacao saber se e voce sem remontar a conexao a cada render.
   const selfUserIdRef = useRef<UserId | null>(null)
   selfUserIdRef.current = selfUserId
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
   const [_voicePreferences, setVoicePreferences] = useState<VoicePreferences>(loadVoicePreferences)
   const [ringing, setRinging] = useState<Ringing | null>(null)
@@ -155,6 +156,7 @@ export default function App() {
     setAuthenticated(false)
     setView(null)
     previousServerView.current = null
+    setSettingsOpen(false)
     setVoiceSettingsOpen(false)
     setRinging(null)
     setNotice(null)
@@ -701,11 +703,26 @@ export default function App() {
               if (callPartnerId) selectDirect(callPartnerId)
               else if (call?.channel) openServerCallView(call.channel)
             }} />}
-          <AccountBar onOpenProfile={() => setEditingProfile(true)} userId={state.selfUserId}
+          <AccountBar
+            onOpenProfile={() => {
+              setSettingsTab('account')
+              setSettingsOpen(true)
+            }}
+            userId={state.selfUserId}
             username={self?.username ?? attemptedUsername.current}
-            muted={voicePrefs.muted} deafened={voicePrefs.deafened}
-            onToggleMute={toggleMute} onToggleDeafen={toggleDeafen}
-            onOpenVoiceSettings={() => setVoiceSettingsOpen(true)} />
+            muted={voicePrefs.muted}
+            deafened={voicePrefs.deafened}
+            onToggleMute={toggleMute}
+            onToggleDeafen={toggleDeafen}
+            onOpenSettings={() => {
+              setSettingsTab('account')
+              setSettingsOpen(true)
+            }}
+            onOpenVoiceSettings={() => {
+              setSettingsTab('voice')
+              setSettingsOpen(true)
+            }}
+          />
         </div>} />
 
       <main className="main">
@@ -716,7 +733,10 @@ export default function App() {
             snapshot={voiceSnapshot}
             transport={voice.current}
             onLeave={leaveCall}
-            onOpenSettings={() => setVoiceSettingsOpen(true)}
+            onOpenSettings={() => {
+              setSettingsTab('voice')
+              setSettingsOpen(true)
+            }}
             resolveUserId={resolveUserId}
             selfUserId={state.selfUserId}
             variant="fullscreen"
@@ -730,7 +750,10 @@ export default function App() {
                 snapshot={voiceSnapshot}
                 transport={voice.current}
                 onLeave={leaveCall}
-                onOpenSettings={() => setVoiceSettingsOpen(true)}
+                onOpenSettings={() => {
+                  setSettingsTab('voice')
+                  setSettingsOpen(true)
+                }}
                 resolveUserId={resolveUserId}
                 selfUserId={state.selfUserId}
                 variant="embedded"
@@ -818,23 +841,31 @@ export default function App() {
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
         selfUserId={state.selfUserId} selfUsername={self?.username ?? attemptedUsername.current}
-        onEditSelf={() => setEditingProfile(true)} />}
-      <ProfileEditor isOpen={editingProfile} profile={meuPerfil} avatarBase={avatarBase}
-        onClose={() => setEditingProfile(false)}
-        onSave={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
-        onAvatar={enviarAvatar} />
+        onEditSelf={() => {
+          setSettingsTab('account')
+          setSettingsOpen(true)
+        }} />}
+
+      <SettingsModal
+        isOpen={settingsOpen || editingProfile || voiceSettingsOpen}
+        initialTab={voiceSettingsOpen ? 'voice' : settingsTab}
+        onClose={() => {
+          setSettingsOpen(false)
+          setEditingProfile(false)
+          setVoiceSettingsOpen(false)
+        }}
+        profile={meuPerfil}
+        avatarBase={avatarBase}
+        onSaveProfile={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
+        onAvatarChange={enviarAvatar}
+        transport={voice.current}
+        snapshot={voiceSnapshot}
+        voicePreferences={_voicePreferences}
+        onVoicePreferencesChange={setVoicePreferences}
+      />
 
       {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
         onAccept={acceptCall} onDecline={dismissCall} />}
-      {voice.current && (
-        <VoiceSettings
-          open={voiceSettingsOpen}
-          transport={voice.current}
-          snapshot={voiceSnapshot}
-          onClose={() => setVoiceSettingsOpen(false)}
-          onPreferencesChange={setVoicePreferences}
-        />
-      )}
 
       <UpdateModal
         isOpen={updater.isModalOpen}
