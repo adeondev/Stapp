@@ -39,10 +39,8 @@
 
 .stapp-media-preview-bar {
   display: flex;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: var(--bg-raised);
-  border-radius: var(--radius) var(--radius) 0 0;
+  gap: 8px;
+  padding: 12px;
   overflow-x: auto;
 }
 
@@ -56,7 +54,7 @@
   min-height: 68px;
   padding: 8px;
   border-radius: var(--radius-sm);
-  background: var(--bg-canvas);
+  background: var(--bg-app);
   flex-shrink: 0;
 }
 

@@ -41,10 +41,19 @@
   --color-bg-rail: var(--bg-rail);
   --color-bg-sidebar: var(--bg-sidebar);
   --color-bg-app: var(--bg-app);
+  --color-bg-chat: var(--bg-chat);
   --color-bg-raised: var(--bg-raised);
+  --color-bg-floating: var(--bg-floating);
   --color-bg-input: var(--bg-input);
   --color-bg-hover: var(--bg-hover);
   --color-bg-active: var(--bg-active);
+  --color-modifier-hover: var(--modifier-hover);
+  --color-modifier-active: var(--modifier-active);
+  --color-modifier-selected: var(--modifier-selected);
+
+  --color-interactive: var(--interactive);
+  --color-interactive-hover: var(--interactive-hover);
+  --color-interactive-active: var(--interactive-active);
 
   --color-text: var(--text);
   --color-text-soft: var(--text-soft);
@@ -115,28 +124,48 @@
   --accent-cyan: #45c8dc;
   --accent-cyan-ink: #06272d;
 
-  /* Paleta Stapp: cinzas neutros próprios, sem o azulado do acento. */
-  --bg-canvas: #151618;
-  --bg-rail: #151618;
-  --bg-sidebar: #242527;
-  --bg-app: #2d2e31;
-  --bg-raised: #1d1e21;
-  --bg-input: #36373b;
+  /* Escada de superficie. Regra unica: quanto mais para a DIREITA na tela,
+     mais claro o fundo — trilho, sidebar, conversa. Ate aqui era o contrario
+     (a conversa saia mais ESCURA que a sidebar), e era isso que fazia a tela
+     parecer afundada no meio em vez de ter a conversa como palco. Se um painel
+     novo precisar de tom, escolha o degrau, nao invente um hex. */
+  --bg-canvas: #131416;   /* fora de tudo: moldura, letterbox, vazio */
+  --bg-rail: #1a1b1e;     /* trilho de servidores */
+  --bg-sidebar: #232428;  /* lista de canais / DMs / membros */
+  --bg-app: #2b2d31;      /* superficie intermediaria: cabecalho, aba, chip */
+  --bg-chat: #2f3035;     /* o palco: a conversa, a mais clara das tres */
+  --bg-raised: #1d1e21;   /* painel que sobe por cima: player, enquete, code */
+  --bg-floating: #131416; /* menu, popover, tooltip — o mais escuro de todos */
+  --bg-input: #383a40;
   --bg-hover: rgba(255, 255, 255, 0.05);
   --bg-active: rgba(255, 255, 255, 0.1);
 
-  --glass: #242527;
+  /* Estado de item de lista: cinza neutro com alfa, NUNCA o acento. Canal
+     selecionado nao fica azul, fica so mais claro que os vizinhos — pintar a
+     selecao de acento era o que mais denunciava que a lista nao era Discord.
+     Como e alfa, o mesmo token funciona em cima de qualquer degrau acima. */
+  --modifier-hover: rgba(120, 124, 138, 0.22);
+  --modifier-active: rgba(120, 124, 138, 0.34);
+  --modifier-selected: rgba(120, 124, 138, 0.42);
+
+  /* Tinta de elemento interativo nos tres estados. Icone e rotulo de item
+     andam juntos: escurecem no repouso e clareiam ate branco no selecionado. */
+  --interactive: #b5bac1;
+  --interactive-hover: #dbdee1;
+  --interactive-active: #f2f3f5;
+
+  --glass: #232428;
   --glass-strong: #1b1c1f;
   --glass-soft: rgba(0, 0, 0, 0.12);
   --glass-highlight: rgba(255, 255, 255, 0.06);
   --glass-sheen: rgba(255, 255, 255, 0.04);
-  --pill-surface: #2d2f33;
-  --pill-hover: #3a3c41;
-  --pill-active: #18567c;
-  --separator-solid: #3d3f44;
+  --pill-surface: #2b2d31;
+  --pill-hover: var(--modifier-hover);
+  --pill-active: var(--modifier-selected);
+  --separator-solid: #3f4147;
   --scrim: rgba(0, 0, 0, 0.7);
   --scrim-strong: rgba(0, 0, 0, 0.75);
-  --scroll-thumb: rgba(255, 255, 255, 0.12);
+  --scroll-thumb: rgba(0, 0, 0, 0.36);
 
   --text: #f2f3f5;
   --text-soft: #dbdee1;
@@ -169,6 +198,7 @@
   --rail-width: 72px;
   --sidebar-width: 240px;
   --members-width: 240px;
+  --header-height: 48px;
   /* 'Twemoji' entra DEPOIS das fontes de texto e antes das genericas: a
      fonte so tem glifo de emoji, entao letra comum passa direto por ela e
      cai na proxima, enquanto o emoji para nela em vez de cair na do

@@ -1,70 +1,62 @@
+/* Faixa de "voz conectada", encaixada logo acima do painel de conta.
+
+   Ela nao tem mais microfone nem fone: esses dois passaram para o painel de
+   conta, que e onde ficam no Discord e — mais importante — onde continuam
+   alcancaveis mesmo fora de uma call. Aqui sobrou o que so faz sentido
+   estando conectado: onde voce esta e como sair. */
 .voicebar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin: 8px;
-  padding: 10px 12px;
-  border-radius: var(--radius);
+  gap: 4px;
+  padding: 8px 8px 0;
   background: var(--bg-raised);
 }
 
 .voicebar__where {
   display: flex;
-  flex-direction: column;
   flex: 1;
   min-width: 0;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  text-align: left;
 }
+
+.voicebar__where:hover { background: var(--modifier-hover); }
 
 .voicebar__label {
   display: flex;
   align-items: center;
   gap: 5px;
   color: var(--online);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 18px;
 }
 
-.voicebar__signal {
-  color: var(--online);
-}
+.voicebar__signal { flex: 0 0 auto; }
 
 .voicebar__channel {
   overflow: hidden;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: 12px;
+  line-height: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.voicebar__actions {
-  display: flex;
-  gap: 2px;
-}
-
 .voicebar__btn {
   display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  color: var(--text-dim);
+  border-radius: var(--radius-sm);
+  color: var(--interactive);
 }
 
-.voicebar__btn:hover:not(:disabled) {
-  background: var(--bg-input);
-  color: var(--text);
-}
-
-.voicebar__btn.is-off {
-  color: var(--danger);
-}
-
-.voicebar__btn.is-off:hover:not(:disabled) {
-  background: var(--danger-quiet);
-  color: var(--danger);
-}
-
-.voicebar__btn--leave:hover {
+.voicebar__btn:hover {
   background: var(--danger-quiet);
   color: var(--danger);
 }

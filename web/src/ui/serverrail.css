@@ -1,79 +1,94 @@
+/* Trilho de servidores.
+
+   Duas pecas por slot, e as duas importam: o LADRILHO (o icone) e a PILULA
+   (o tracinho branco na borda esquerda). A pilula e quem responde "onde eu
+   estou" — sem ela o trilho vira uma coluna de botoes iguais e a pessoa perde
+   a referencia. Ela nao e decoracao: e o unico indicador de selecao aqui,
+   porque o ladrilho ativo muda de forma, nao de cor. */
 .serverrail {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
   min-height: 0;
-  padding: 12px 0;
+  padding: 12px 0 8px;
   background: var(--bg-rail);
 }
 
 .serverrail__servers {
   display: flex;
+  width: 100%;
   flex: 1;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
   min-height: 0;
   overflow-y: auto;
   scrollbar-width: none;
 }
 
+.serverrail__servers::-webkit-scrollbar { width: 0; }
+
+/* O slot ocupa a largura inteira do trilho para a pilula ter onde nascer,
+   colada na borda esquerda, fora do ladrilho. */
+.serverrail__slot {
+  position: relative;
+  display: grid;
+  width: 100%;
+  place-items: center;
+  padding-block: 4px;
+}
+
+.serverrail__pill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px;
+  height: 0;
+  border-radius: var(--radius-sm);
+  background: var(--text);
+  translate: -4px -50%;
+  transition: height 200ms var(--motion-spring);
+}
+
+.serverrail__slot:hover .serverrail__pill { height: 20px; }
+.serverrail__slot.is-active .serverrail__pill { height: 40px; }
+
 .serverrail__item {
   position: relative;
   display: grid;
-  place-items: center;
+  overflow: hidden;
   width: 48px;
-  height: 40px;
-  flex: 0 0 40px;
+  height: 48px;
+  place-items: center;
+  /* O ladrilho nasce redondo e vira quadrado-arredondado quando e o atual.
+     E a transicao de FORMA que marca o estado; a cor entra so no acento. */
   border-radius: var(--radius-pill);
   background: var(--pill-surface);
-  color: var(--text-soft);
-  font-size: 13px;
+  color: var(--interactive-hover);
+  font-size: 15px;
   font-weight: 600;
+  letter-spacing: -0.02em;
+  transition: border-radius 180ms var(--motion-spring),
+    background 180ms ease, color 180ms ease;
 }
 
-.serverrail__item:hover {
-  background: var(--accent);
-  color: var(--on-accent);
+.serverrail__item:hover,
+.serverrail__slot.is-active .serverrail__item {
+  border-radius: var(--radius-xl);
 }
 
-.serverrail__item.is-active {
-  background: var(--accent);
-  color: var(--on-accent);
-}
-
-.serverrail__home {
-  color: var(--text-soft);
-}
-
-.serverrail__notification {
-  position: absolute;
-  right: -5px;
-  bottom: -5px;
-  display: grid;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  place-items: center;
-  border-radius: var(--radius-pill);
-  background: var(--danger);
-  color: var(--on-accent);
-  font-size: 9px;
-  font-weight: 800;
-}
-
+/* So o Home se pinta de acento. O ladrilho de um SERVIDOR ativo continua do
+   mesmo tom dos outros: quem diz "e este aqui" e a pilula na borda mais a
+   forma que virou quadrado. Pintar o ativo de azul faria o trilho brigar com
+   a selecao da lista de canais, que tambem seria azul, e a tela ficaria com
+   dois "voce esta aqui" competindo. */
 .serverrail__home:hover,
-.serverrail__home.is-active {
+.serverrail__slot.is-active .serverrail__home {
+  background: var(--accent);
   color: var(--on-accent);
 }
 
-.serverrail__separator {
-  width: 32px;
-  height: 2px;
-  margin: 2px 0;
-  border-radius: var(--radius-pill);
-  background: var(--pill-hover);
+.serverrail__slot.is-active .serverrail__item {
+  color: var(--interactive-active);
 }
 
 .serverrail__add {
@@ -83,4 +98,59 @@
 .serverrail__add:hover {
   background: var(--online);
   color: var(--on-accent);
+}
+
+.serverrail__notification {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: grid;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--danger);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  /* O recorte deixa o balao "furar" o ladrilho em vez de flutuar solto — sem
+     ele o numero encosta na borda e some no ladrilho redondo. */
+  outline: 4px solid var(--bg-rail);
+}
+
+/* Dica na lateral. Sem ela o trilho e uma coluna de siglas e nao da para
+   saber qual servidor e qual sem clicar.
+
+   E `fixed` e vive no trilho, nao dentro do slot: a lista de servidores rola,
+   e qualquer coisa desenhada dentro de um container que rola e recortada na
+   borda dele — a dica sairia cortada ao meio. */
+.serverrail__tip {
+  position: fixed;
+  left: calc(var(--rail-width) - 8px);
+  z-index: 60;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-floating);
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.15;
+  pointer-events: none;
+  translate: 0 -50%;
+  white-space: nowrap;
+}
+
+.serverrail__separator {
+  width: 32px;
+  height: 2px;
+  margin: 6px 0 10px;
+  border-radius: var(--radius-pill);
+  background: var(--separator-solid);
+}
+
+@media (max-width: 820px) {
+  .serverrail__item { width: 40px; height: 40px; }
+  .serverrail__slot.is-active .serverrail__pill { height: 32px; }
 }

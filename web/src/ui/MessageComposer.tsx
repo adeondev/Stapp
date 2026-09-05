@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { IconGif, IconMic, IconPlus, IconReaction, IconSend } from './Icons'
 import './messageComposer.css'
 
 interface Props {
@@ -27,6 +28,10 @@ interface Props {
   onPoll(): void
 }
 
+/* Todos os botoes daqui eram caractere de texto: `+`, `☺`, `➤`, `●`. Cada um
+   caia numa fonte diferente conforme o sistema, nenhum alinhava com o outro, e
+   o `➤` chegava a virar quadrado em maquina sem a fonte certa. Agora sao SVG
+   como o resto do app — mesmo traco, mesmo tamanho, mesma cor. */
 export function MessageComposer(props: Props) {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -67,13 +72,17 @@ export function MessageComposer(props: Props) {
       />
       <div className="message-composer__input" role="toolbar" aria-label="Ferramentas da mensagem">
         <div className="message-composer__plus-wrap" ref={menuRef}>
-          <button type="button" className="message-composer__button is-plus" disabled={props.disabled} aria-label="Adicionar" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>+</button>
+          <button type="button" className="message-composer__button is-plus" disabled={props.disabled}
+            aria-label="Adicionar" aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}>
+            <IconPlus size={18} />
+          </button>
           {menuOpen && (
             <div className="message-composer__menu" role="menu">
-              <button type="button" role="menuitem" onClick={chooseFiles}><span>▧</span>Enviar arquivo</button>
-              <button type="button" role="menuitem" onClick={chooseFiles}><span>▧</span>Enviar imagem</button>
-              {props.canPoll && <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); props.onPoll(); focusBack() }}><span>≡</span>Criar enquete</button>}
-              <button type="button" className="is-mobile-action" role="menuitem" onClick={() => { setMenuOpen(false); props.onGif(); focusBack() }}><span>GIF</span>Escolher GIF</button>
+              <button type="button" role="menuitem" onClick={chooseFiles}>Enviar arquivo</button>
+              {props.canPoll && <button type="button" role="menuitem"
+                onClick={() => { setMenuOpen(false); props.onPoll(); focusBack() }}>Criar enquete</button>}
+              <button type="button" className="is-mobile-action" role="menuitem"
+                onClick={() => { setMenuOpen(false); props.onGif(); focusBack() }}>Escolher GIF</button>
             </div>
           )}
         </div>
@@ -90,12 +99,20 @@ export function MessageComposer(props: Props) {
           aria-label="Mensagem"
         />
         <div className="message-composer__actions">
-          <button type="button" className="message-composer__button is-secondary" disabled={props.disabled} onClick={props.onGif} aria-label="Escolher GIF">GIF</button>
-          <button type="button" className="message-composer__button" disabled={props.disabled} onClick={props.onEmoji} aria-label="Escolher emoji">☺</button>
+          <button type="button" className="message-composer__button is-secondary" disabled={props.disabled}
+            onClick={props.onGif} aria-label="Escolher GIF"><IconGif size={22} /></button>
+          <button type="button" className="message-composer__button" disabled={props.disabled}
+            onClick={props.onEmoji} aria-label="Escolher emoji"><IconReaction size={22} /></button>
           {props.hasContent || props.uploading ? (
-            <button type="button" className="message-composer__button is-send" disabled={props.disabled || props.sending || props.overLimit || (!props.hasContent && !props.uploading)} onClick={props.onSubmit} aria-label={props.sending ? 'Confirmando mensagem' : props.uploading ? 'Aguardar anexos e enviar' : 'Enviar mensagem'}>➤</button>
+            <button type="button" className="message-composer__button is-send"
+              disabled={props.disabled || props.sending || props.overLimit || (!props.hasContent && !props.uploading)}
+              onClick={props.onSubmit}
+              aria-label={props.sending ? 'Confirmando mensagem' : props.uploading ? 'Aguardar anexos e enviar' : 'Enviar mensagem'}>
+              <IconSend size={17} />
+            </button>
           ) : (
-            <button type="button" className="message-composer__button" disabled={props.disabled || props.recording} onClick={props.onRecord} aria-label="Gravar mensagem de voz">●</button>
+            <button type="button" className="message-composer__button" disabled={props.disabled || props.recording}
+              onClick={props.onRecord} aria-label="Gravar mensagem de voz"><IconMic size={21} /></button>
           )}
         </div>
         {props.counter && <span className={`message-composer__counter ${props.overLimit ? 'is-over' : ''}`}>{props.counter}</span>}

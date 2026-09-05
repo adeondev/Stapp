@@ -147,12 +147,12 @@ describe('App', () => {
 
     await user.click(screen.getByRole('button', { name: 'Stapp local' }))
     expect(screen.getByRole('button', { name: /geral/ }).className).toContain('is-active')
-    expect(screen.getByRole('heading', { name: /Membros/ })).toBeTruthy()
+    expect(screen.getByRole('complementary', { name: 'Membros do servidor' })).toBeTruthy()
 
     await user.click(screen.getByRole('button', { name: /Sala de voz/ }))
     expect(await screen.findByRole('region', { name: 'Chamada em Sala de voz' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /geral/ }).className).not.toContain('is-active')
-    expect(screen.queryByRole('heading', { name: /Membros/ })).toBeNull()
+    expect(screen.queryByRole('complementary', { name: 'Membros do servidor' })).toBeNull()
 
     await user.click(screen.getByRole('button', { name: /geral/ }))
     expect(screen.queryByRole('region', { name: 'Chamada em Sala de voz' })).toBeNull()
@@ -162,6 +162,6 @@ describe('App', () => {
     const reopened = screen.getByRole('region', { name: 'Chamada em Sala de voz' })
     await user.click(within(reopened).getByRole('button', { name: 'desconectar' }))
     expect(screen.getByRole('button', { name: /geral/ }).className).toContain('is-active')
-    expect(screen.getByRole('heading', { name: /Membros/ })).toBeTruthy()
+    expect(screen.getByRole('complementary', { name: 'Membros do servidor' })).toBeTruthy()
   })
 })

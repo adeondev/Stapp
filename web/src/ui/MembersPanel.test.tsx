@@ -28,15 +28,13 @@ describe('painel de membros', () => {
           selfUserId="self"
           selfUsername="deon"
           onEditSelf={edit}
-          onMessage={vi.fn()}
-          onAction={vi.fn()}
         />
       </ProfileProvider>,
     )
 
-    expect(screen.getByRole('heading', { name: 'Membros — 2' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Online — 2' })).toBeTruthy()
     expect(screen.getByText('Deon vivo')).toBeTruthy()
-    expect(screen.getByText('Você · Online')).toBeTruthy()
+    expect(screen.getByText('você')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: /Deon vivo/ }))
     expect(edit).toHaveBeenCalledOnce()
   })
