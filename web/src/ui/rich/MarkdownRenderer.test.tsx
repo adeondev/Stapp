@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
+import { openExternalLink } from '../../platform/externalLink'
 import { MarkdownRenderer } from './MarkdownRenderer'
+
+vi.mock('../../platform/externalLink', () => ({
+  openExternalLink: vi.fn(),
+}))
 
 describe('MarkdownRenderer', () => {
   it('renderiza formatacoes basicas (negrito, italico, tachado)', () => {
@@ -18,6 +24,14 @@ describe('MarkdownRenderer', () => {
     expect(link.getAttribute('href')).toBe('https://stapp.chat')
     expect(link.getAttribute('target')).toBe('_blank')
     expect(link.getAttribute('rel')).toBe('noopener noreferrer')
+  })
+
+  it('intercepta cliques em links chamando openExternalLink e prevenindo navegacao padrao', async () => {
+    const user = userEvent.setup()
+    render(<MarkdownRenderer content="[Stapp](https://stapp.chat)" />)
+    const link = screen.getByRole('link', { name: 'Stapp' })
+    await user.click(link)
+    expect(openExternalLink).toHaveBeenCalledWith('https://stapp.chat')
   })
 
   it('sanitiza tags perigosas e scripts impedindo XSS', () => {

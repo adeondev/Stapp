@@ -1,8 +1,14 @@
 // @vitest-environment jsdom
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
+import { openExternalLink } from '../../platform/externalLink'
 import { LinkPreviewCard } from './LinkPreviewCard'
+
+vi.mock('../../platform/externalLink', () => ({
+  openExternalLink: vi.fn(),
+}))
 
 describe('LinkPreviewCard', () => {
   it('renderiza os metadados do link', () => {
@@ -23,6 +29,21 @@ describe('LinkPreviewCard', () => {
     expect(screen.getByText('GitHub')).toBeTruthy()
     const link = screen.getByRole('link')
     expect(link.getAttribute('href')).toBe('https://github.com')
+  })
+
+  it('intercepta o clique no card e redireciona para openExternalLink', async () => {
+    const user = userEvent.setup()
+    render(
+      <LinkPreviewCard
+        preview={{
+          url: 'https://github.com',
+          title: 'GitHub: Let’s build from here',
+        }}
+      />
+    )
+    const link = screen.getByRole('link')
+    await user.click(link)
+    expect(openExternalLink).toHaveBeenCalledWith('https://github.com')
   })
 
   it('não renderiza nada se não houver título nem descrição', () => {

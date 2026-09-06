@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import type { UrlPreview } from '../../protocol'
+import { openExternalLink } from '../../platform/externalLink'
 import './linkpreview.css'
 
 interface Props {
@@ -15,6 +16,12 @@ export const LinkPreviewCard = memo(function LinkPreviewCard({ preview }: Props)
       target="_blank"
       rel="noopener noreferrer"
       className="stapp-link-preview"
+      onClick={(event) => {
+        if (preview.url) {
+          event.preventDefault()
+          void openExternalLink(preview.url)
+        }
+      }}
     >
       {preview.image && (
         <div className="stapp-link-preview__image-wrapper">

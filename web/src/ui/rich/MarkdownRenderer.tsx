@@ -2,6 +2,7 @@ import React, { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
+import { openExternalLink } from '../../platform/externalLink'
 import { isOnlyEmojis, parseShortcodesToUnicode } from './twemoji'
 import './markdown.css'
 
@@ -128,6 +129,12 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={(event) => {
+                  if (href) {
+                    event.preventDefault()
+                    void openExternalLink(href)
+                  }
+                }}
                 {...props}
               >
                 {children}
