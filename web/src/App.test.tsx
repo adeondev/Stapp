@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServerMsg } from './protocol'
 import { callSounds } from './net/callSounds'
+import { useAutoUpdater } from './platform/updater/useAutoUpdater'
 import App from './App'
 
 const connectionMock = vi.hoisted(() => ({
@@ -37,6 +38,14 @@ vi.mock('./net/connection', () => ({
 vi.mock('./voice/VoiceTransport', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./voice/VoiceTransport')>()
   return { ...actual, createVoiceTransport: () => voiceMock.transport }
+})
+
+vi.mock('./platform/updater/useAutoUpdater', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./platform/updater/useAutoUpdater')>()
+  return {
+    ...actual,
+    useAutoUpdater: vi.fn(actual.useAutoUpdater),
+  }
 })
 
 describe('App', () => {
@@ -228,6 +237,80 @@ describe('App', () => {
 
     playRingtoneSpy.mockRestore()
     stopLoopSpy.mockRestore()
+  })
+
+  it('exibe a tela de splash no desktop enquanto o bootstrap esta em checking', () => {
+    vi.mocked(useAutoUpdater).mockReturnValueOnce({
+      isDesktop: true,
+      bootPhase: 'checking',
+      currentVersion: '0.1.0',
+      availableUpdate: null,
+      isChecking: true,
+      isDownloading: false,
+      progress: null,
+      isReadyToRelaunch: false,
+      error: null,
+      isModalOpen: false,
+      mandatoryRequirement: null,
+      channel: 'stable',
+      setChannel: vi.fn(),
+      checkForUpdates: vi.fn(async () => null),
+      enforceMandatoryVersion: vi.fn(),
+      startUpdate: vi.fn(async () => {}),
+      relaunch: vi.fn(async () => {}),
+      dismissModal: vi.fn(),
+    })
+
+    render(<App />)
+
+    expect(screen.getByRole('status')).toBeTruthy()
+    expect(screen.getByText('Procurando atualizações...')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Conectar' })).toBeNull()
+  })
+
+  it('exibe UpdateModal sobre a splash quando ha atualizacao pendente sem interagir com tela principal', () => {
+    vi.mocked(useAutoUpdater).mockReturnValueOnce({
+      isDesktop: true,
+      bootPhase: 'checking',
+      currentVersion: '0.1.0',
+      availableUpdate: {
+        version: '0.2.0',
+        currentVersion: '0.1.0',
+        body: 'Nova versão disponível!',
+      },
+      isChecking: false,
+      isDownloading: false,
+      progress: null,
+      isReadyToRelaunch: false,
+      error: null,
+      isModalOpen: true,
+      mandatoryRequirement: null,
+      channel: 'stable',
+      setChannel: vi.fn(),
+      checkForUpdates: vi.fn(async () => null),
+      enforceMandatoryVersion: vi.fn(),
+      startUpdate: vi.fn(async () => {}),
+      relaunch: vi.fn(async () => {}),
+      dismissModal: vi.fn(),
+    })
+
+    render(<App />)
+
+    // Splash screen e UpdateModal estão visíveis
+    expect(screen.getByRole('status')).toBeTruthy()
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByText('Atualização Disponível')).toBeTruthy()
+    // Tela principal não está montada
+    expect(screen.queryByRole('button', { name: 'Conectar' })).toBeNull()
+    expect(screen.queryByRole('region', { name: /chamada/i })).toBeNull()
+  })
+
+  it('abre direto na tela de conexao sem passar pelo splash em ambiente web', () => {
+    render(<App />)
+
+    expect(screen.queryByText('Procurando atualizações...')).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Boas-vindas de volta!' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Cancelar' })).toBeTruthy()
   })
 })
 

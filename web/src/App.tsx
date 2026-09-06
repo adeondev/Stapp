@@ -30,6 +30,7 @@ import { loadVoicePreferences, type VoicePreferences } from './voice/preferences
 import { useAutoUpdater } from './platform/updater/useAutoUpdater'
 import { UpdateModal } from './ui/updater/UpdateModal'
 import { MandatoryUpdateLock } from './ui/updater/MandatoryUpdateLock'
+import { SplashScreen } from './ui/updater/SplashScreen'
 import './ui/app.css'
 
 interface Ringing { userId: UserId; username: string; direction: 'incoming' | 'outgoing' }
@@ -175,6 +176,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (updater.bootPhase !== 'ready') return
     const serverUrl = active?.profile.url
     if (!serverUrl) return
     resetRoom()
@@ -350,7 +352,7 @@ export default function App() {
       if (connection.current === conn) connection.current = null
       if (authApi.current === api) authApi.current = null
     }
-  }, [active?.profile.url, connectionEpoch, resetRoom, updateActiveProfile])
+  }, [active?.profile.url, connectionEpoch, resetRoom, updateActiveProfile, updater.bootPhase])
 
   useEffect(() => {
     if (!notice) return
@@ -635,6 +637,22 @@ export default function App() {
     const dir = state.directory.find((d) => d.username === peerId)
     return dir?.user_id
   }, [state.selfPeerId, state.selfUserId, state.voicePeers, state.users, state.directory])
+
+  if (updater.bootPhase !== 'ready') {
+    return (
+      <SplashScreen
+        isModalOpen={updater.isModalOpen}
+        update={updater.availableUpdate}
+        isDownloading={updater.isDownloading}
+        progress={updater.progress}
+        isReadyToRelaunch={updater.isReadyToRelaunch}
+        error={updater.error}
+        onClose={updater.dismissModal}
+        onStartUpdate={updater.startUpdate}
+        onRelaunch={updater.relaunch}
+      />
+    )
+  }
 
   if (updater.mandatoryRequirement) {
     return (
