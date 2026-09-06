@@ -38,6 +38,9 @@ RUN mkdir src tests && \
 COPY --from=web-builder /build/web/dist /build/web/dist
 
 COPY server/migrations ./migrations
+# `config::DEFAULT_CONFIG_TEMPLATE` faz include_str! deste arquivo: sem ele o
+# build do binario quebra, mesmo com todo o resto no lugar.
+COPY server/stapp.toml ./
 COPY server/src ./src
 COPY server/tests ./tests
 RUN touch src/main.rs src/lib.rs && cargo build --release --bin stapp-server
