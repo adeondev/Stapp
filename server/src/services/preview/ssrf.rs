@@ -34,6 +34,68 @@ pub fn is_safe_url(raw_url: &str) -> bool {
     }
 }
 
+/// Domínios conhecidos e autorizados para renderização de players e embeds interativos em iframe.
+pub const ALLOWED_EMBED_DOMAINS: &[&str] = &[
+    "youtube.com",
+    "www.youtube.com",
+    "youtube-nocookie.com",
+    "www.youtube-nocookie.com",
+    "youtu.be",
+    "vimeo.com",
+    "player.vimeo.com",
+    "twitch.tv",
+    "player.twitch.tv",
+    "soundcloud.com",
+    "w.soundcloud.com",
+    "streamable.com",
+    "dailymotion.com",
+    "www.dailymotion.com",
+];
+
+/// Valida rigorosamente se uma URL de embed é segura para renderização em iframe,
+/// exigindo protocolo HTTPS estrito, porta padrão, ausência de credenciais e host autorizado,
+/// prevenindo ataques de SSRF ou injeção de iframes locais/internos.
+pub fn is_safe_embed_url(raw_url: &str) -> bool {
+    let Ok(parsed) = Url::parse(raw_url) else {
+        return false;
+    };
+
+    if parsed.scheme() != "https" {
+        return false;
+    }
+
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return false;
+    }
+
+    if let Some(port) = parsed.port() {
+        if port != 443 {
+            return false;
+        }
+    }
+
+    let Some(host_str) = parsed.host_str() else {
+        return false;
+    };
+
+    let host_lower = host_str.to_lowercase();
+    if host_lower == "localhost"
+        || host_lower.ends_with(".local")
+        || host_lower.ends_with(".internal")
+        || host_lower.ends_with(".lan")
+    {
+        return false;
+    }
+
+    if !is_safe_url(raw_url) {
+        return false;
+    }
+
+    ALLOWED_EMBED_DOMAINS.iter().any(|&domain| {
+        host_lower == domain || host_lower.ends_with(&format!(".{domain}"))
+    })
+}
+
 /// Retorna false se o IP for loopback, privado (RFC 1918), link-local ou reservado.
 pub fn is_public_ip(ip: &IpAddr) -> bool {
     match ip {

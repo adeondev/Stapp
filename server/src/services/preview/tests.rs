@@ -113,6 +113,10 @@ async fn despacho_de_preview_para_canal_e_conversa_direta() {
         description: Some("Chat seguro e portatil".into()),
         image: None,
         site_name: Some("Stapp".into()),
+        embed_url: None,
+        provider: None,
+        video_width: None,
+        video_height: None,
     };
 
     // 1. Despacho para canal (broadcast)
@@ -163,4 +167,106 @@ async fn despacho_de_preview_para_canal_e_conversa_direta() {
     assert!(targets.contains(&"peer-b"));
 
     server.state.shutdown().await;
+}
+
+#[test]
+fn ssrf_is_safe_embed_url_valida_e_bloqueia_corretamente() {
+    assert!(is_safe_embed_url("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"));
+    assert!(is_safe_embed_url("https://www.youtube.com/embed/dQw4w9WgXcQ"));
+    assert!(is_safe_embed_url("https://player.vimeo.com/video/76979871"));
+    assert!(is_safe_embed_url("https://player.twitch.tv/?channel=stapp"));
+
+    // Bloqueia HTTP inseguro
+    assert!(!is_safe_embed_url("http://www.youtube.com/embed/dQw4w9WgXcQ"));
+
+    // Bloqueia localhost e IPs locais/privados mesmo se passar outro esquema
+    assert!(!is_safe_embed_url("https://localhost/embed/123"));
+    assert!(!is_safe_embed_url("https://127.0.0.1/embed/123"));
+    assert!(!is_safe_embed_url("https://192.168.1.1/embed/123"));
+    assert!(!is_safe_embed_url("https://10.0.0.1/embed/123"));
+    assert!(!is_safe_embed_url("https://169.254.169.254/embed/123"));
+    assert!(!is_safe_embed_url("https://evil.internal/embed/123"));
+
+    // Bloqueia portas arbitrárias que não 443
+    assert!(!is_safe_embed_url("https://www.youtube.com:8443/embed/123"));
+
+    // Bloqueia domínios não autorizados para embed em iframe
+    assert!(!is_safe_embed_url("https://malicious-site.com/embed/evil"));
+}
+
+#[test]
+fn detecta_links_youtube_e_extrai_embed_e_dimensoes() {
+    let watch_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    let (embed, provider, width, height, image, site) =
+        crawler::extract_video_metadata(watch_url, None);
+
+    assert_eq!(
+        embed,
+        Some("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ".to_string())
+    );
+    assert_eq!(provider, Some("YouTube".to_string()));
+    assert_eq!(width, Some(1280));
+    assert_eq!(height, Some(720));
+    assert_eq!(
+        image,
+        Some("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg".to_string())
+    );
+    assert_eq!(site, Some("YouTube".to_string()));
+
+    let short_url = "https://youtu.be/dQw4w9WgXcQ";
+    let (embed_s, provider_s, _, _, _, _) = crawler::extract_video_metadata(short_url, None);
+    assert_eq!(
+        embed_s,
+        Some("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ".to_string())
+    );
+    assert_eq!(provider_s, Some("YouTube".to_string()));
+
+    let shorts_url = "https://www.youtube.com/shorts/dQw4w9WgXcQ";
+    let (embed_sh, _, _, _, _, _) = crawler::extract_video_metadata(shorts_url, None);
+    assert_eq!(
+        embed_sh,
+        Some("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ".to_string())
+    );
+}
+
+#[test]
+fn extrai_opengraph_video_com_validacao_ssrf() {
+    let safe_html = r#"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Video Legal</title>
+            <meta property="og:video:secure_url" content="https://player.vimeo.com/video/12345" />
+            <meta property="og:video:width" content="1920" />
+            <meta property="og:video:height" content="1080" />
+        </head>
+        <body></body>
+        </html>
+    "#;
+
+    let doc = scraper::Html::parse_document(safe_html);
+    let (embed, provider, width, height, _, _) =
+        crawler::extract_video_metadata("https://vimeo.com/12345", Some(&doc));
+
+    assert_eq!(embed, Some("https://player.vimeo.com/video/12345".to_string()));
+    assert_eq!(provider, Some("Vimeo".to_string()));
+    assert_eq!(width, Some(1920));
+    assert_eq!(height, Some(1080));
+
+    // HTML malicioso tentando SSRF para localhost
+    let malicious_html = r#"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta property="og:video:url" content="https://localhost:8443/secret_admin" />
+        </head>
+        <body></body>
+        </html>
+    "#;
+
+    let doc_malicious = scraper::Html::parse_document(malicious_html);
+    let (embed_bad, _, _, _, _, _) =
+        crawler::extract_video_metadata("https://example.com/blog", Some(&doc_malicious));
+
+    assert_eq!(embed_bad, None);
 }
