@@ -1,17 +1,19 @@
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useState } from 'react'
 import type { Attachment } from '../../protocol'
-import { attachmentContentUrl } from '../../net/mediaUpload'
-import { httpBaseFromWs } from '../../net/auth'
 import { AudioPlayer } from './AudioPlayer'
+import { resolveAttachmentUrl, useAttachmentTicket } from '../../net/attachmentTickets'
 import './attachments.css'
+import './mediaGallery.css'
+
+export { resolveAttachmentUrl }
 
 const SAFE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'image/avif'])
-import './mediaGallery.css'
 
 interface Props {
   attachments: Attachment[]
   serverUrl?: string
   accessToken?: string | null
+  onRenewToken?: () => Promise<string | null>
 }
 
 function formatBytes(bytes: number): string {
@@ -21,101 +23,32 @@ function formatBytes(bytes: number): string {
   return `${Number((bytes / Math.pow(1024, index)).toFixed(1))} ${units[index]}`
 }
 
-export function resolveAttachmentUrl(rawUrl: string, serverUrl?: string): string {
-  if (!rawUrl || /^(https?:|blob:|data:)/.test(rawUrl)) return rawUrl
-  if (!serverUrl) return rawUrl
-  const path = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`
-  return `${httpBaseFromWs(serverUrl)}${path}`
-}
-
-function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: {
+function TicketedAttachment({
+  attachment,
+  serverUrl,
+  accessToken,
+  onRenewToken,
+  onLightbox,
+}: {
   attachment: Attachment
   serverUrl?: string
   accessToken?: string | null
+  onRenewToken?: () => Promise<string | null>
   onLightbox(url: string): void
 }) {
-  const [url, setUrl] = useState<string | null>(() => {
-    if (attachment.url) return resolveAttachmentUrl(attachment.url, serverUrl)
-    return null
+  const { url, error, retrying, renewTicket, handleMediaError } = useAttachmentTicket({
+    attachmentId: attachment.id,
+    serverUrl,
+    accessToken,
+    initialUrl: attachment.url,
+    onRenewToken,
   })
-  const [error, setError] = useState(false)
-  const [retrying, setRetrying] = useState(false)
-  const retryCountRef = useRef(0)
-
-  const renewTicket = useCallback(async () => {
-    if (attachment.url) {
-      const directUrl = resolveAttachmentUrl(attachment.url, serverUrl)
-      setUrl(directUrl)
-      setError(false)
-      return directUrl
-    }
-    if (!serverUrl || !accessToken) return null
-    try {
-      setRetrying(true)
-      const next = await attachmentContentUrl(serverUrl, accessToken, attachment.id)
-      setUrl(next)
-      setError(false)
-      retryCountRef.current = 0
-      return next
-    } catch {
-      setError(true)
-      return null
-    } finally {
-      setRetrying(false)
-    }
-  }, [accessToken, attachment.id, attachment.url, serverUrl])
-
-  useEffect(() => {
-    if (attachment.url) {
-      setUrl(resolveAttachmentUrl(attachment.url, serverUrl))
-      return
-    }
-    if (!serverUrl || !accessToken) return
-    let disposed = false
-    let timer = 0
-    const refresh = async () => {
-      try {
-        const next = await attachmentContentUrl(serverUrl, accessToken, attachment.id)
-        if (!disposed) {
-          setUrl(next)
-          setError(false)
-          retryCountRef.current = 0
-          timer = window.setTimeout(refresh, 8 * 60 * 1000)
-        }
-      } catch {
-        if (!disposed) setError(true)
-      }
-    }
-    void refresh()
-
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible' && !disposed) {
-        void refresh()
-      }
-    }
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-
-    return () => {
-      disposed = true
-      window.clearTimeout(timer)
-      document.removeEventListener('visibilitychange', handleVisibilityChange)
-    }
-  }, [accessToken, attachment.id, attachment.url, serverUrl])
-
-  const handleMediaError = useCallback(() => {
-    if (retryCountRef.current < 2) {
-      retryCountRef.current += 1
-      void renewTicket()
-    } else {
-      setError(true)
-    }
-  }, [renewTicket])
 
   const handleOpenLightbox = useCallback(async () => {
     if (url && !error) {
       onLightbox(url)
     } else {
-      const refreshed = await renewTicket()
+      const refreshed = await renewTicket(true)
       if (refreshed) onLightbox(refreshed)
     }
   }, [error, onLightbox, renewTicket, url])
@@ -128,7 +61,7 @@ function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: 
           type="button"
           className="stapp-attachment-retry-btn"
           disabled={retrying}
-          onClick={() => void renewTicket()}
+          onClick={() => void renewTicket(true)}
         >
           {retrying ? 'Tentando...' : 'Tentar novamente'}
         </button>
@@ -193,15 +126,29 @@ function TicketedAttachment({ attachment, serverUrl, accessToken, onLightbox }: 
   )
 }
 
-export const MessageAttachments = memo(function MessageAttachments({ attachments, serverUrl, accessToken }: Props) {
+export const MessageAttachments = memo(function MessageAttachments({
+  attachments,
+  serverUrl,
+  accessToken,
+  onRenewToken,
+}: Props) {
   const [lightboxImage, setLightboxImage] = useState<string | null>(null)
   if (!attachments?.length) return null
 
+  const imageCount = attachments.filter((item) => SAFE_IMAGE_TYPES.has(item.content_type)).length
+
   return (
     <>
-      <div className={`stapp-attachments-container ${attachments.filter((item) => SAFE_IMAGE_TYPES.has(item.content_type)).length > 1 ? 'is-gallery' : ''}`}>
+      <div className={`stapp-attachments-container ${imageCount > 1 ? 'is-gallery' : ''}`}>
         {attachments.map((attachment) => (
-          <TicketedAttachment key={attachment.id} attachment={attachment} serverUrl={serverUrl} accessToken={accessToken} onLightbox={setLightboxImage} />
+          <TicketedAttachment
+            key={attachment.id}
+            attachment={attachment}
+            serverUrl={serverUrl}
+            accessToken={accessToken}
+            onRenewToken={onRenewToken}
+            onLightbox={setLightboxImage}
+          />
         ))}
       </div>
       {lightboxImage && (

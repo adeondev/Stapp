@@ -1,14 +1,19 @@
 // @vitest-environment jsdom
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { MessageAttachments } from './MessageAttachments'
+import { clearAttachmentTicketCache } from '../../net/attachmentTickets'
 
 vi.mock('../../net/mediaUpload', () => ({
   attachmentContentUrl: vi.fn(),
 }))
 
 describe('MessageAttachments', () => {
+  beforeEach(() => {
+    clearAttachmentTicketCache()
+  })
+
   it('renderiza anexo de imagem com tag img', () => {
     render(
       <MessageAttachments
@@ -102,5 +107,75 @@ describe('MessageAttachments', () => {
 
     const img = await screen.findByRole('img')
     expect(img.getAttribute('src')).toBe('https://stapp.chat/files/recovered.png')
+  })
+
+  it('isola erro de um anexo sem impedir a renderização dos demais anexos', async () => {
+    const { attachmentContentUrl } = await import('../../net/mediaUpload')
+    const mockContentUrl = vi.mocked(attachmentContentUrl)
+    mockContentUrl.mockImplementation(async (_server, _token, id) => {
+      if (id === 'att-broken') {
+        throw new Error('404 Not Found')
+      }
+      return 'https://stapp.chat/files/healthy.png'
+    })
+
+    render(
+      <MessageAttachments
+        attachments={[
+          {
+            id: 'att-broken',
+            filename: 'quebrado.png',
+            content_type: 'image/png',
+            size_bytes: 1024,
+          },
+          {
+            id: 'att-healthy',
+            filename: 'saudavel.png',
+            content_type: 'image/png',
+            size_bytes: 2048,
+          },
+        ]}
+        serverUrl="ws://localhost:9000"
+        accessToken="token-123"
+      />
+    )
+
+    const errMsg = await screen.findByText('Anexo indisponível')
+    expect(errMsg).toBeTruthy()
+
+    const img = await screen.findByRole('img')
+    expect(img.getAttribute('src')).toBe('https://stapp.chat/files/healthy.png')
+    expect(img.getAttribute('alt')).toBe('saudavel.png')
+  })
+
+  it('não registra listeners de visibilitychange por anexo individual', () => {
+    const addEventListenerSpy = vi.spyOn(document, 'addEventListener')
+
+    render(
+      <MessageAttachments
+        attachments={[
+          {
+            id: 'att-1',
+            filename: 'f1.png',
+            content_type: 'image/png',
+            size_bytes: 100,
+          },
+          {
+            id: 'att-2',
+            filename: 'f2.png',
+            content_type: 'image/png',
+            size_bytes: 200,
+          },
+        ]}
+        serverUrl="ws://localhost:9000"
+        accessToken="token-123"
+      />
+    )
+
+    const visibilityCalls = addEventListenerSpy.mock.calls.filter(
+      ([event]) => event === 'visibilitychange',
+    )
+    expect(visibilityCalls.length).toBe(0)
+    addEventListenerSpy.mockRestore()
   })
 })
