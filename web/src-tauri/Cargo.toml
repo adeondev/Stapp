@@ -27,6 +27,7 @@ tauri-plugin-log = "2"
 tauri-plugin-global-shortcut = "2.3.1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-opener = "2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 xcap = "0.9.8"
