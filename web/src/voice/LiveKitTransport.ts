@@ -400,7 +400,7 @@ export class LiveKitTransport implements VoiceTransport {
 
   async startMicrophoneTest(onLevel: (level: number) => void) {
     const { startMicrophoneTest } = await import('./testMicrophone')
-    return startMicrophoneTest(this.audioCaptureOptions(), onLevel)
+    return startMicrophoneTest(this.audioCaptureOptions(), onLevel, this.preferences.outputDeviceId || undefined)
   }
 
   async startCameraPreview(element: HTMLVideoElement) {

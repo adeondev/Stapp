@@ -301,7 +301,7 @@ export class MeshTransport implements VoiceTransport {
 
   async startMicrophoneTest(onLevel: (level: number) => void) {
     const { startMicrophoneTest } = await import('./testMicrophone')
-    return startMicrophoneTest(this.audioConstraints(), onLevel)
+    return startMicrophoneTest(this.audioConstraints(), onLevel, this.preferences.outputDeviceId || undefined)
   }
 
   async startCameraPreview(element: HTMLVideoElement) {
