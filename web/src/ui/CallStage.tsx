@@ -105,6 +105,7 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
   }, [preferences.showSelf, preferences.showVideoOffParticipants, snapshot.media, snapshot.participants, resolveUserId, selfUserId])
 
   const [isAppFullscreen, setIsAppFullscreen] = useState(false)
+  const [fullscreenTileId, setFullscreenTileId] = useState<string | null>(null)
   const [isTrayCollapsed, setIsTrayCollapsed] = useState(false)
 
   const viewportRef = useRef<HTMLDivElement | null>(null)
@@ -143,20 +144,37 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
     return () => window.removeEventListener('resize', updateSize)
   }, [])
 
-  const toggleFullscreen = async (targetTileId?: string) => {
+  const [isMouseIdle, setIsMouseIdle] = useState(false)
+  const mouseIdleTimerRef = useRef<number | null>(null)
+
+  const handleMouseMove = () => {
+    setIsMouseIdle(false)
+    if (mouseIdleTimerRef.current !== null) {
+      window.clearTimeout(mouseIdleTimerRef.current)
+    }
+    mouseIdleTimerRef.current = window.setTimeout(() => {
+      setIsMouseIdle(true)
+    }, 2500)
+  }
+
+  useEffect(() => {
+    const onPointerMove = () => {
+      handleMouseMove()
+    }
+    window.addEventListener('pointermove', onPointerMove, { passive: true })
+    window.addEventListener('mousemove', onPointerMove, { passive: true })
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('mousemove', onPointerMove)
+      if (mouseIdleTimerRef.current !== null) {
+        window.clearTimeout(mouseIdleTimerRef.current)
+      }
+    }
+  }, [])
+
+  const toggleFullscreen = async (targetTileId?: string, targetElement?: HTMLElement | null) => {
     if (targetTileId) {
       setFocused(targetTileId)
-    }
-
-    if ('__TAURI_INTERNALS__' in window) {
-      try {
-        const { getCurrentWindow } = await import('@tauri-apps/api/window')
-        const win = getCurrentWindow()
-        const isFs = await win.isFullscreen()
-        await win.setFullscreen(!isFs)
-        setIsAppFullscreen(!isFs)
-        return
-      } catch {}
     }
 
     const doc = document as Document & {
@@ -174,24 +192,42 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
 
     if (!isCurrentlyFs) {
       setIsAppFullscreen(true)
+      let elToFullscreen: HTMLElement | null = targetElement ?? null
+      if (!elToFullscreen && targetTileId) {
+        elToFullscreen = root.current?.querySelector<HTMLElement>(`[data-tile-id="${targetTileId}"]`) ?? null
+      }
+      if (!elToFullscreen && focused) {
+        elToFullscreen = root.current?.querySelector<HTMLElement>(`[data-tile-id="${focused}"]`) ?? null
+      }
+      if (!elToFullscreen) {
+        elToFullscreen = root.current?.querySelector<HTMLElement>('.calltile.is-primary')
+          ?? root.current?.querySelector<HTMLElement>('.calltile--screen')
+          ?? root.current?.querySelector<HTMLElement>('.calltile')
+          ?? root.current
+      }
+
+      setFullscreenTileId(targetTileId ?? elToFullscreen?.getAttribute('data-tile-id') ?? focused ?? null)
+
       try {
-        const docEl = document.documentElement as HTMLElement & {
+        const el = elToFullscreen as (HTMLElement & {
           webkitRequestFullscreen?: () => Promise<void>
           mozRequestFullScreen?: () => Promise<void>
           msRequestFullscreen?: () => Promise<void>
-        }
-        if (docEl.requestFullscreen) {
-          await docEl.requestFullscreen()
-        } else if (docEl.webkitRequestFullscreen) {
-          await docEl.webkitRequestFullscreen()
-        } else if (docEl.mozRequestFullScreen) {
-          await docEl.mozRequestFullScreen()
-        } else if (docEl.msRequestFullscreen) {
-          await docEl.msRequestFullscreen()
+        }) | null
+
+        if (el?.requestFullscreen) {
+          await el.requestFullscreen()
+        } else if (el?.webkitRequestFullscreen) {
+          await el.webkitRequestFullscreen()
+        } else if (el?.mozRequestFullScreen) {
+          await el.mozRequestFullScreen()
+        } else if (el?.msRequestFullscreen) {
+          await el.msRequestFullscreen()
         }
       } catch {}
     } else {
       setIsAppFullscreen(false)
+      setFullscreenTileId(null)
       try {
         if (doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement) {
           if (doc.exitFullscreen) {
@@ -219,6 +255,9 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
         doc.fullscreenElement || doc.webkitFullscreenElement || doc.mozFullScreenElement || doc.msFullscreenElement,
       )
       setIsAppFullscreen(isFs)
+      if (!isFs) {
+        setFullscreenTileId(null)
+      }
     }
     document.addEventListener('fullscreenchange', onFsChange)
     document.addEventListener('webkitfullscreenchange', onFsChange)
@@ -252,11 +291,13 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
         if (doc.fullscreenElement || doc.webkitFullscreenElement) {
           void (doc.exitFullscreen?.() || doc.webkitExitFullscreen?.())?.catch?.(() => {})
           setIsAppFullscreen(false)
+          setFullscreenTileId(null)
           event.stopPropagation()
           return
         }
         if (isAppFullscreen) {
           setIsAppFullscreen(false)
+          setFullscreenTileId(null)
           event.stopPropagation()
           return
         }
@@ -296,8 +337,10 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
   const isSecure = typeof window === 'undefined' || (window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia))
 
   return (
-    <div className={`callstage ${variant === 'embedded' ? 'callstage--embedded' : 'callstage--fullscreen'} ${isAppFullscreen ? 'callstage--app-fullscreen' : ''} ${focused ? 'callstage--focus' : ''} ${isPartyOnly ? 'callstage--party-mode' : ''} ${isTrayCollapsed ? 'callstage--tray-collapsed' : ''}`} ref={root}
+    <div className={`callstage ${variant === 'embedded' ? 'callstage--embedded' : 'callstage--fullscreen'} ${isAppFullscreen ? 'callstage--app-fullscreen' : ''} ${focused ? 'callstage--focus' : ''} ${isPartyOnly ? 'callstage--party-mode' : ''} ${isTrayCollapsed ? 'callstage--tray-collapsed' : ''} ${isMouseIdle ? 'is-mouse-idle' : ''}`} ref={root}
       onPointerDownCapture={() => { void transport.resumeAudio() }}
+      onPointerMove={handleMouseMove}
+      onMouseMove={handleMouseMove}
       role="region" aria-label={`Chamada em ${channelName}`}>
       <header className="callstage__header">
         <div className="callstage__channel-info">
@@ -338,8 +381,10 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
                 {ordered.map((tile) => (
                   <CallTile key={tile.id} tile={tile} primary={false}
                     focused={false} transport={transport}
-                    isFullscreen={isAppFullscreen}
-                    onToggleFullscreen={() => toggleFullscreen(tile.id)}
+                    isFullscreen={isAppFullscreen && (fullscreenTileId === tile.id || (!fullscreenTileId && false))}
+                    isMouseIdle={isMouseIdle}
+                    onToggleFullscreen={(el) => toggleFullscreen(tile.id, el)}
+                    onLeave={onLeave}
                     onFocus={() => {}} />
                 ))}
               </div>
@@ -347,16 +392,20 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
           ) : focused ? (
             <div className={`callstage__focus-layout ${ordered.length === 1 ? 'is-solo' : ''} ${isTrayCollapsed ? 'is-tray-collapsed' : ''}`}>
               <CallTile tile={ordered[0]} primary focused transport={transport}
-                isFullscreen={isAppFullscreen}
-                onToggleFullscreen={() => toggleFullscreen(ordered[0].id)}
+                isFullscreen={isAppFullscreen && (fullscreenTileId === ordered[0].id || !fullscreenTileId)}
+                isMouseIdle={isMouseIdle}
+                onToggleFullscreen={(el) => toggleFullscreen(ordered[0].id, el)}
+                onLeave={onLeave}
                 onFocus={() => setFocused(null)} />
               {ordered.length > 1 && !isTrayCollapsed && (
                 <div className="callstage__focus-tray-wrap">
                   <div className="callstage__focus-tray" aria-label="outros participantes">
                     {ordered.slice(1).map((tile) => (
                       <CallTile key={tile.id} tile={tile} primary={false} focused={false} transport={transport}
-                        isFullscreen={isAppFullscreen}
-                        onToggleFullscreen={() => toggleFullscreen(tile.id)}
+                        isFullscreen={isAppFullscreen && fullscreenTileId === tile.id}
+                        isMouseIdle={isMouseIdle}
+                        onToggleFullscreen={(el) => toggleFullscreen(tile.id, el)}
+                        onLeave={onLeave}
                         onFocus={() => setFocused(tile.id)} />
                     ))}
                   </div>
@@ -374,8 +423,10 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
               {ordered.map((tile) => (
                 <CallTile key={tile.id} tile={tile} primary={false}
                   focused={false} transport={transport}
-                  isFullscreen={isAppFullscreen}
-                  onToggleFullscreen={() => toggleFullscreen(tile.id)}
+                  isFullscreen={isAppFullscreen && (fullscreenTileId === tile.id || (!fullscreenTileId && ordered.length === 1))}
+                  isMouseIdle={isMouseIdle}
+                  onToggleFullscreen={(el) => toggleFullscreen(tile.id, el)}
+                  onLeave={onLeave}
                   onFocus={() => setFocused(tile.id)} />
               ))}
             </div>
@@ -540,11 +591,34 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
   )
 }
 
-function CallTile({ tile, primary, focused, transport, onFocus, isFullscreen, onToggleFullscreen }: {
-  tile: Tile; primary: boolean; focused: boolean; transport: VoiceTransport; onFocus(): void
-  isFullscreen?: boolean; onToggleFullscreen?(): void
+function CallTile({
+  tile,
+  primary,
+  focused,
+  transport,
+  onFocus,
+  isFullscreen,
+  isMouseIdle,
+  onToggleFullscreen,
+  onLeave,
+}: {
+  tile: Tile
+  primary: boolean
+  focused: boolean
+  transport: VoiceTransport
+  onFocus(): void
+  isFullscreen?: boolean
+  isMouseIdle?: boolean
+  onToggleFullscreen?(el?: HTMLElement | null): void
+  onLeave?(): void
 }) {
+  const tileRef = useRef<HTMLElement>(null)
   const userMenu = useUserMenu()
+  const muted = useVoiceStore((s) => s.muted)
+  const deafened = useVoiceStore((s) => s.deafened)
+  const toggleMute = useVoiceStore((s) => s.toggleMute)
+  const toggleDeafen = useVoiceStore((s) => s.toggleDeafen)
+
   const activate = (event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
     if (event.target instanceof Element && event.target.closest('button, input, label, [role="menu"]')) return
     if (tile.kind === 'media' && tile.media.kind === 'screen' && !tile.media.local && !tile.media.subscribed) {
@@ -581,8 +655,50 @@ function CallTile({ tile, primary, focused, transport, onFocus, isFullscreen, on
     },
   }
 
+  const renderFullscreenControls = () => (
+    <div className="calltile__fullscreen-controls" onClick={(e) => e.stopPropagation()}>
+      <button
+        className={`callstage__dock-button ${!muted && !deafened ? 'is-active' : 'is-off'}`}
+        onClick={toggleMute}
+        title={muted || deafened ? 'Ligar microfone' : 'Desligar microfone'}
+        aria-label={muted || deafened ? 'ligar microfone' : 'desligar microfone'}
+      >
+        {muted || deafened ? <IconMicOff size={18} /> : <IconMic size={18} />}
+      </button>
+      <button
+        className={`callstage__dock-button ${!deafened ? 'is-active' : 'is-off'}`}
+        onClick={toggleDeafen}
+        title={deafened ? 'Voltar a ouvir' : 'Ensurdecer'}
+        aria-label={deafened ? 'voltar a ouvir' : 'ensurdecer'}
+      >
+        {deafened ? <IconHeadphonesOff size={18} /> : <IconHeadphones size={18} />}
+      </button>
+      <button
+        className="callstage__dock-button"
+        onClick={() => onToggleFullscreen?.(tileRef.current)}
+        title="Sair da tela cheia (Esc)"
+        aria-label="sair da tela cheia"
+      >
+        <IconMinimize size={18} />
+      </button>
+      {onLeave && (
+        <button
+          className="callstage__dock-button is-danger"
+          onClick={onLeave}
+          title="Desconectar"
+          aria-label="desconectar"
+        >
+          <IconLeave size={18} />
+        </button>
+      )}
+    </div>
+  )
+
   if (tile.kind === 'avatar') return (
-    <article className={`calltile calltile--avatar ${tile.speaking ? 'is-speaking' : ''} ${primary ? 'is-primary' : ''}`}
+    <article
+      ref={tileRef}
+      data-tile-id={tile.id}
+      className={`calltile calltile--avatar ${tile.speaking ? 'is-speaking' : ''} ${primary ? 'is-primary' : ''} ${isMouseIdle ? 'is-mouse-idle' : ''}`}
       role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${tile.name}` : `focar mídia de ${tile.name}`} onClick={activate}
       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activate(event) }}
       onContextMenu={(event) => userMenu.open(event, menuRequest())}>
@@ -599,7 +715,7 @@ function CallTile({ tile, primary, focused, transport, onFocus, isFullscreen, on
             className="calltile__fullscreen-btn"
             onClick={(e) => {
               e.stopPropagation()
-              onToggleFullscreen()
+              onToggleFullscreen(tileRef.current)
             }}
             title={isFullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
             aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${tile.name}`}
@@ -610,6 +726,7 @@ function CallTile({ tile, primary, focused, transport, onFocus, isFullscreen, on
         <button className="calltile__more" {...moreButtonProps} aria-haspopup="menu"
           aria-label={`opções de ${tile.name}`}><IconMore /></button>
       </div>
+      {isFullscreen && renderFullscreenControls()}
     </article>
   )
 
@@ -618,7 +735,10 @@ function CallTile({ tile, primary, focused, transport, onFocus, isFullscreen, on
   const isUnsubscribed = !media.subscribed && !media.local
 
   return (
-    <article className={`calltile ${primary ? 'is-primary' : ''} ${media.kind === 'screen' ? 'calltile--screen' : ''} ${isUnsubscribed ? 'calltile--unsubscribed' : ''}`}
+    <article
+      ref={tileRef}
+      data-tile-id={tile.id}
+      className={`calltile ${primary ? 'is-primary' : ''} ${media.kind === 'screen' ? 'calltile--screen' : ''} ${isUnsubscribed ? 'calltile--unsubscribed' : ''} ${isMouseIdle ? 'is-mouse-idle' : ''}`}
       role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${media.name}` : `focar mídia de ${media.name}`} onClick={activate}
       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activate(event) }}
       onContextMenu={(event) => userMenu.open(event, menuRequest())}>
@@ -641,7 +761,7 @@ function CallTile({ tile, primary, focused, transport, onFocus, isFullscreen, on
             className="calltile__fullscreen-btn"
             onClick={(e) => {
               e.stopPropagation()
-              onToggleFullscreen()
+              onToggleFullscreen(tileRef.current)
             }}
             title={isFullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
             aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${media.name}`}
@@ -652,6 +772,7 @@ function CallTile({ tile, primary, focused, transport, onFocus, isFullscreen, on
         <button className="calltile__more" {...moreButtonProps} aria-haspopup="menu"
           aria-label={`opções de ${media.name}`}><IconMore /></button>
       </div>
+      {isFullscreen && renderFullscreenControls()}
     </article>
   )
 }

@@ -353,4 +353,49 @@ describe('palco da chamada', () => {
     const rows = Number.parseInt(layout.style.getPropertyValue('--callstage-rows'))
     expect(cols * rows).toBeGreaterThanOrEqual(7)
   })
+
+  it('exibe controles flutuantes no tile ao entrar em tela cheia e permite mutar/ensurdecer diretamente por eles', async () => {
+    const user = userEvent.setup()
+    const media = transport()
+    const leave = vi.fn()
+    const { container } = render(
+      <CallStage
+        channelName="Sala"
+        snapshot={snapshot}
+        transport={media}
+        onLeave={leave}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    const fullscreenAlice = screen.getByRole('button', { name: 'tela cheia de Alice' })
+    await user.click(fullscreenAlice)
+
+    const floatingControls = container.querySelector('.calltile__fullscreen-controls')
+    expect(floatingControls).toBeTruthy()
+
+    // O tile possui data-tile-id correspondente
+    const aliceTile = container.querySelector('[data-tile-id="media:screen-alice"]')
+    expect(aliceTile).toBeTruthy()
+    expect(aliceTile?.contains(floatingControls)).toBe(true)
+
+    // Controles flutuantes permitem mutar e ensurdecer
+    const muteBtn = floatingControls?.querySelector('button[title="Desligar microfone"]') as HTMLButtonElement
+    expect(muteBtn).toBeTruthy()
+    await user.click(muteBtn)
+    expect(useVoiceStore.getState().muted).toBe(true)
+
+    // Botão de desconectar no HUD flutuante
+    const leaveBtn = floatingControls?.querySelector('button[title="Desconectar"]') as HTMLButtonElement
+    expect(leaveBtn).toBeTruthy()
+    await user.click(leaveBtn)
+    expect(leave).toHaveBeenCalledTimes(1)
+
+    // Sair de tela cheia
+    const exitBtn = floatingControls?.querySelector('button[title="Sair da tela cheia (Esc)"]') as HTMLButtonElement
+    expect(exitBtn).toBeTruthy()
+    await user.click(exitBtn)
+    expect(container.querySelector('.calltile__fullscreen-controls')).toBeNull()
+  })
 })
+
