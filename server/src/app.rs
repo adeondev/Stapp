@@ -53,6 +53,8 @@ pub async fn build_app(config: Config) -> Result<(Router, Arc<AppState>)> {
         .layer(middleware::from_fn(security_headers))
         .with_state(state.clone());
 
+    crate::http::attachments::start_orphan_cleanup_task(state.clone());
+
     Ok((router, state))
 }
 
