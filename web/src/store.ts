@@ -172,9 +172,16 @@ export function reduce(state: StappState, msg: StappAction): StappState {
       const channelMsgs = state.messages[msg.channel]
       if (!channelMsgs) return state
 
-      const newChannelMsgs = channelMsgs.map((m) =>
-        m.id === msg.poll.message_id ? { ...m, poll: msg.poll } : m
-      )
+      const newChannelMsgs = channelMsgs.map((m) => {
+        if (m.id !== msg.poll.message_id) return m
+        const prevOptions = m.poll?.options
+        const mergedOptions = msg.poll.options.map((opt) => {
+          if (opt.voted_by_me !== undefined) return opt
+          const prevOpt = prevOptions?.find((p) => p.id === opt.id)
+          return prevOpt ? { ...opt, voted_by_me: prevOpt.voted_by_me } : opt
+        })
+        return { ...m, poll: { ...msg.poll, options: mergedOptions } }
+      })
 
       return {
         ...state,

@@ -13,8 +13,7 @@ interface Props {
 }
 
 /**
- * O telefone tocando. Sem som de proposito — a decisao foi so visual; se
- * mudarmos de ideia, o toque entra aqui e em lugar nenhum mais.
+ * Painel de chamada entrante ou sainte (toque e discagem gerenciados por callSounds).
  */
 export function CallPanel({ userId, username, direction, onAccept, onDecline }: Props) {
   const perfil = useProfile(userId, username)

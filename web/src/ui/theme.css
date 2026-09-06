@@ -35,12 +35,15 @@
   --color-accent-quiet: var(--accent-quiet);
   --color-accent-glass: var(--accent-glass);
   --color-accent-glow: var(--accent-glow);
+  --color-accent-brand: var(--accent-brand);
+  --color-accent-brand-hover: var(--accent-brand-hover);
   --color-on-accent: var(--on-accent);
 
   --color-bg-canvas: var(--bg-canvas);
   --color-bg-rail: var(--bg-rail);
   --color-bg-sidebar: var(--bg-sidebar);
   --color-bg-app: var(--bg-app);
+  --color-bg-surface: var(--bg-surface);
   --color-bg-chat: var(--bg-chat);
   --color-bg-raised: var(--bg-raised);
   --color-bg-floating: var(--bg-floating);
@@ -56,14 +59,18 @@
   --color-interactive-active: var(--interactive-active);
 
   --color-text: var(--text);
+  --color-text-normal: var(--text-normal);
   --color-text-soft: var(--text-soft);
   --color-text-dim: var(--text-dim);
+  --color-text-muted: var(--text-muted);
   --color-text-faint: var(--text-faint);
 
   --color-danger: var(--danger);
   --color-danger-quiet: var(--danger-quiet);
   --color-online: var(--online);
   --color-online-quiet: var(--online-quiet);
+  --color-status-online: var(--status-online);
+  --color-status-offline: var(--status-offline);
   --color-warning: var(--warning);
 
   --radius-sm: var(--radius-sm);
@@ -85,6 +92,27 @@
 
 /* Toda cor do Stapp vive neste arquivo. Grafite liquido com acento azul. */
 :root {
+  /* ==========================================================================
+     Tokens Semânticos de Tema (Design System do Stapp)
+     ========================================================================== */
+
+  /* Personalização futura de servidor (fallback para acento padrão) */
+  --server-accent: initial;
+
+  /* Destaques e Status */
+  --accent-brand: var(--server-accent, var(--accent, #209cee));
+  --accent-brand-hover: var(--accent-hover, #1686cf);
+  --status-online: var(--online, #23a55a);
+  --status-offline: var(--text-faint, #80848e);
+  --status-card-offline-opacity: 0.35;
+
+  /* Superfícies Semânticas */
+  --bg-surface: var(--bg-app, #2b2d31);
+
+  /* Textos Semânticos */
+  --text-normal: var(--text, #f2f3f5);
+  --text-muted: var(--text-dim, #949ba4);
+
   --accent: #209cee;
   --accent-hover: #1686cf;
   --accent-quiet: rgba(32, 156, 238, 0.15);

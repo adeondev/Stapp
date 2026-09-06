@@ -4,6 +4,7 @@ import { act, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServerMsg } from './protocol'
+import { callSounds } from './net/callSounds'
 import App from './App'
 
 const connectionMock = vi.hoisted(() => ({
@@ -164,4 +165,69 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: /geral/ }).className).toContain('is-active')
     expect(screen.getByRole('complementary', { name: 'Membros do servidor' })).toBeTruthy()
   })
+
+  it('abre a central de configuracoes pelo botao de engrenagem da conta', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+    act(() => connectionMock.onMessage?.({
+      t: 'welcome', self_peer_id: 'peer-deon', self_user_id: 'user-deon', server_name: 'Stapp local',
+      channels: [
+        { id: 'geral', name: 'geral', kind: 'text' },
+      ],
+      users: [{ user_id: 'user-deon', username: 'deon' }],
+      directory: [{ user_id: 'user-deon', username: 'deon' }],
+      profiles: [{
+        user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
+        bio: 'Dev do Stapp', has_avatar: false, updated_at: 1,
+      }],
+      voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
+    }))
+
+    const gearBtn = screen.getByRole('button', { name: 'Configurações' })
+    await user.click(gearBtn)
+
+    expect(screen.getByText('Stapp Desktop v0.1.0-beta.5')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Minha Conta/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Voz & Vídeo/i })).toBeTruthy()
+  })
+
+  it('dispara ringtone ao receber chamada entrante e interrompe som ao encerrar', async () => {
+    const playRingtoneSpy = vi.spyOn(callSounds, 'playRingtone')
+    const stopLoopSpy = vi.spyOn(callSounds, 'stopLoop')
+
+    render(<App />)
+    act(() => connectionMock.onMessage?.({
+      t: 'welcome', self_peer_id: 'peer-deon', self_user_id: 'user-deon', server_name: 'Stapp local',
+      channels: [{ id: 'geral', name: 'geral', kind: 'text' }],
+      users: [{ user_id: 'user-deon', username: 'deon' }],
+      directory: [{ user_id: 'user-deon', username: 'deon' }],
+      profiles: [],
+      voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
+    }))
+
+    act(() => connectionMock.onMessage?.({
+      t: 'call.incoming',
+      user_id: 'user-alice',
+      username: 'Alice',
+    }))
+
+    expect(playRingtoneSpy).toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog', { name: 'chamada' })).toBeTruthy()
+    expect(screen.getByText('esta ligando')).toBeTruthy()
+
+    act(() => connectionMock.onMessage?.({
+      t: 'call.ended',
+      user_id: 'user-alice',
+      reason: 'declined',
+    }))
+
+    expect(stopLoopSpy).toHaveBeenCalled()
+    expect(screen.queryByRole('alertdialog', { name: 'chamada' })).toBeNull()
+
+    playRingtoneSpy.mockRestore()
+    stopLoopSpy.mockRestore()
+  })
 })
+

@@ -10,12 +10,13 @@ interface Props {
   deafened: boolean
   onToggleMute(): void
   onToggleDeafen(): void
-  onOpenVoiceSettings(): void
+  onOpenVoiceSettings?(): void
+  onOpenSettings?(): void
   onOpenProfile(): void
 }
 
 export function AccountBar({ userId, username, muted, deafened, onToggleMute, onToggleDeafen,
-  onOpenVoiceSettings, onOpenProfile }: Props) {
+  onOpenVoiceSettings, onOpenSettings, onOpenProfile }: Props) {
   const perfil = useProfile(userId, username)
   const userMenu = useUserMenu()
   // Ensurdecer tambem corta o microfone, entao o botao de mudo reflete os dois.
@@ -49,8 +50,8 @@ export function AccountBar({ userId, username, muted, deafened, onToggleMute, on
           {deafened ? <IconHeadphonesOff size={18} /> : <IconHeadphones size={18} />}
         </button>
 
-        <button className="accountbar__btn" type="button" onClick={onOpenVoiceSettings}
-          title="Configurações de voz" aria-label="Configurações de voz">
+        <button className="accountbar__btn" type="button" onClick={onOpenSettings ?? onOpenVoiceSettings}
+          title="Configurações" aria-label="Configurações">
           <IconSettings size={18} className="accountbar__gear" />
         </button>
       </div>

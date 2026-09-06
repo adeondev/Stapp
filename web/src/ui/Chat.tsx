@@ -125,7 +125,7 @@ export function Chat({
   sendResults: propSendResults,
   typingUsers: propTypingUsers,
   readReceiptId,
-  channelReadReceipts = {},
+  channelReadReceipts: _channelReadReceipts = {},
   onTyping,
   onRead,
 }: Props) {
@@ -156,11 +156,9 @@ export function Chat({
   }, [])
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([])
   const [optimistic, setOptimistic] = useState<OptimisticSend[]>([])
-  const [composerSend, setComposerSend] = useState<OptimisticSend | null>(null)
   const [voicePendingNonce, setVoicePendingNonce] = useState<string | null>(null)
   const [newWhileScrolled, setNewWhileScrolled] = useState(0)
   const [unreadAnchor, setUnreadAnchor] = useState<string | null>(null)
-  const [readersOpen, setReadersOpen] = useState<string | null>(null)
   /** A mensagem que o rascunho esta respondendo. */
   const [respondendo, setRespondendo] = useState<ChatEntry | null>(null)
   /** Id da mensagem em edicao no lugar, e o texto que esta sendo editado. */
@@ -340,7 +338,6 @@ export function Chat({
       localStorage.removeItem(outboxStorageKey)
       setOptimistic([])
     }
-    setComposerSend(null)
     setDraft(savedDraft)
     setPendingUploads(ready.map((item) => ({
       id: item.attachmentId,
@@ -395,22 +392,7 @@ export function Chat({
       setVoicePreview(null)
       setVoicePendingNonce(null)
     }
-    if (composerSend) {
-      const result = sendResults[composerSend.nonce]
-      if (result?.messageId) {
-        setDraft((current) => current.trim() === composerSend.text ? '' : current)
-        setRespondendo((current) => current?.id === composerSend.replyTo ? null : current)
-        setPendingUploads((current) => current.filter((item) => {
-          const sent = Boolean(item.attachmentId && composerSend.attachmentIds?.includes(item.attachmentId))
-          if (sent && item.previewUrl) URL.revokeObjectURL(item.previewUrl)
-          return !sent
-        }))
-        setComposerSend(null)
-      } else if (result?.error) {
-        setComposerSend(null)
-      }
-    }
-  }, [composerSend, sendResults, voicePendingNonce])
+  }, [sendResults, voicePendingNonce])
 
   useEffect(() => {
     const next = voicePreview ? URL.createObjectURL(voicePreview.file) : null
@@ -554,29 +536,41 @@ export function Chat({
       .map((p) => p.attachmentId)
       .filter((id): id is string => Boolean(id))
 
-    if ((!text && readyAttachments.length === 0) || !canSend || composerSend) return
+    if ((!text && readyAttachments.length === 0) || !canSend) return
     if (contarCaracteres(text) > limits.max_text_chars) return
 
     const nonce = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+    const replyToId = respondendo?.id
     const pending: OptimisticSend = {
       nonce,
       text,
       attachmentIds: readyAttachments.length > 0 ? readyAttachments : undefined,
-      replyTo: respondendo?.id,
+      replyTo: replyToId,
       status: 'sending',
     }
     setOptimistic((current) => [...current, pending])
-    setComposerSend(pending)
+
+    // Limpa imediatamente o input e estado do composer para destravar disparos rápidos contínuos
+    setDraft('')
+    setRespondendo(null)
+    if (readyAttachments.length > 0) {
+      setPendingUploads((current) => current.filter((item) => {
+        const sent = Boolean(item.attachmentId && readyAttachments.includes(item.attachmentId))
+        if (sent && item.previewUrl) URL.revokeObjectURL(item.previewUrl)
+        return !sent
+      }))
+    }
+
     onSend(
       text,
       readyAttachments.length > 0 ? readyAttachments : undefined,
-      respondendo?.id,
+      replyToId,
       nonce,
     )
   }
 
   function submit() {
-    if (!canSend || passouDoTexto || composerSend) return
+    if (!canSend || passouDoTexto) return
     // Anexo ainda subindo: antes disso o id nao existia na hora do envio e o
     // anexo era descartado calado — a mensagem saia so com texto, ou nem saia
     // quando nao havia texto. Agora a intencao fica guardada.
@@ -632,7 +626,6 @@ export function Chat({
 
   function retrySend(item: OptimisticSend) {
     setOptimistic((current) => current.map((entry) => entry.nonce === item.nonce ? { ...entry, status: 'sending', error: undefined } : entry))
-    setComposerSend({ ...item, status: 'sending', error: undefined })
     onSend(item.text, item.attachmentIds, item.replyTo, item.nonce)
   }
 
@@ -767,7 +760,6 @@ export function Chat({
             Boolean(msg.mentions_everyone)
           const previousDay = previous ? new Date(previous.ts).toDateString() : null
           const currentDay = new Date(msg.ts).toDateString()
-          const readers = channelReadReceipts[msg.id] ?? []
 
           return (
             <Fragment key={msg.id}>
@@ -858,24 +850,6 @@ export function Chat({
                   />
                 )}
                 {kind === 'direct' && souEu && readReceiptId === msg.id && <span className="chat__seen">Visto</span>}
-                {kind === 'channel' && readers.length > 0 && (
-                  <button
-                    type="button"
-                    className="chat__readers"
-                    title={`Lido por ${readers.length}`}
-                    aria-expanded={readersOpen === msg.id}
-                    onClick={() => setReadersOpen((current) => current === msg.id ? null : msg.id)}
-                  >
-                    {readers.slice(0, 3).map((userId) => <Avatar key={userId} userId={userId} className="chat__reader-avatar" fallbackName="" />)}
-                    {readers.length > 3 && <span>+{readers.length - 3}</span>}
-                    {readersOpen === msg.id && (
-                      <span className="chat__reader-list" role="status">
-                        <strong>Lido por</strong>
-                        {readers.map((userId) => <span key={userId}><Avatar userId={userId} fallbackName="" /><ProfileName userId={userId} fallbackName="Usuario" /></span>)}
-                      </span>
-                    )}
-                  </button>
-                )}
               </div>
 
               {canSend && !emEdicao && (
@@ -1093,7 +1067,7 @@ export function Chat({
           overLimit={passouDoTexto}
           counter={mostrarContador ? `${caracteres}/${limits.max_text_chars}` : undefined}
           recording={isRecordingAudio}
-          sending={Boolean(composerSend)}
+          sending={false}
           canPoll={kind === 'channel'}
           onChange={aoMudarRascunho}
           onKeyDown={onKeyDown}

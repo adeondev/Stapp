@@ -146,6 +146,15 @@ pub(super) async fn insert_on(
 
 impl Db {
     pub async fn history(&self, channel: &str, limit: usize) -> Result<Vec<Message>> {
+        self.history_for_user(channel, limit, None).await
+    }
+
+    pub async fn history_for_user(
+        &self,
+        channel: &str,
+        limit: usize,
+        user_id: Option<&UserId>,
+    ) -> Result<Vec<Message>> {
         let query = format!(
             "SELECT {COLUNAS} FROM messages
               WHERE channel = $1
@@ -159,7 +168,7 @@ impl Db {
             .await?;
 
         let mut msgs: Vec<Message> = rows.into_iter().map(Into::into).collect();
-        hidratar(&self.pool, &mut msgs).await?;
+        hidratar_for_user(&self.pool, &mut msgs, user_id).await?;
         msgs.reverse();
         Ok(msgs)
     }
@@ -207,11 +216,19 @@ impl Db {
 }
 
 pub(super) async fn hidratar(pool: &SqlitePool, msgs: &mut [Message]) -> Result<()> {
+    hidratar_for_user(pool, msgs, None).await
+}
+
+pub(super) async fn hidratar_for_user(
+    pool: &SqlitePool,
+    msgs: &mut [Message],
+    user_id: Option<&UserId>,
+) -> Result<()> {
     for msg in msgs.iter_mut() {
         if let Ok(atts) = super::attachments::list_for_message(pool, &msg.id, None).await {
             msg.attachments = atts;
         }
-        if let Ok(poll) = super::polls::get_poll_by_message(pool, &msg.id, None).await {
+        if let Ok(poll) = super::polls::get_poll_by_message(pool, &msg.id, user_id).await {
             msg.poll = poll;
         }
     }

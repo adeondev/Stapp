@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isTauriRuntime, thumbnailDataUrl, type ScreenSource } from '../platform/screenCapture'
 import type { VoiceTransport } from '../voice/VoiceTransport'
 import type { ScreenPreset } from '../voice/preferences'
@@ -28,30 +28,46 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
   const [includeAudio, setIncludeAudio] = useState(() => transport.getPreferences().shareAudio)
   const [tab, setTab] = useState<'screen' | 'window'>('screen')
   const [loading, setLoading] = useState(native)
+  const [refreshing, setRefreshing] = useState(false)
   const [sharing, setSharing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    let active = true
-    if (!native) return () => { active = false }
-    void transport.listScreenSources()
-      .then((available) => {
-        if (!active) return
-        setSources(available)
-        if (!available.some((source) => source.kind === 'screen')) setTab('window')
-        setLoading(false)
-        return Promise.all(available.map(async (source) => {
-          const thumbnail = await transport.captureScreenSourceThumbnail(source.id)
-          if (active) setThumbnails((current) => ({ ...current, [source.id]: thumbnail }))
-        }))
-      })
-      .catch((reason: unknown) => {
-        if (!active) return
-        setLoading(false)
-        setError(reason instanceof Error ? reason.message : 'Não consegui listar as telas e janelas.')
-      })
-    return () => { active = false }
+  const refreshSources = useCallback(async (showLoading = false) => {
+    if (!native) return
+    if (showLoading) setLoading(true)
+    setRefreshing(true)
+    try {
+      const available = await transport.listScreenSources()
+      setSources(available)
+      setSelected((prev) => (prev && available.some((s) => s.id === prev) ? prev : null))
+      if (!available.some((source) => source.kind === 'screen')) {
+        setTab((current) => current === 'screen' ? 'window' : current)
+      }
+      setLoading(false)
+      await Promise.all(available.map(async (source) => {
+        const thumbnail = await transport.captureScreenSourceThumbnail(source.id)
+        setThumbnails((current) => ({ ...current, [source.id]: thumbnail }))
+      }))
+    } catch (reason: unknown) {
+      setLoading(false)
+      setError(reason instanceof Error ? reason.message : 'Não consegui listar as telas e janelas.')
+    } finally {
+      setRefreshing(false)
+    }
   }, [native, transport])
+
+  useEffect(() => {
+    if (!native) return
+    let active = true
+    void refreshSources(true)
+    const timer = window.setInterval(() => {
+      if (active) void refreshSources(false)
+    }, 2000)
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [native, refreshSources])
 
   const visible = useMemo(() => sources.filter((source) => source.kind === tab), [sources, tab])
 
@@ -83,6 +99,16 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
             <div className="screenpicker__tabs" role="tablist" aria-label="tipo de fonte">
               <button role="tab" aria-selected={tab === 'screen'} onClick={() => setTab('screen')}>Telas</button>
               <button role="tab" aria-selected={tab === 'window'} onClick={() => setTab('window')}>Janelas</button>
+              <button
+                type="button"
+                className="screenpicker__refresh"
+                title="Atualizar telas e janelas"
+                aria-label="Atualizar telas e janelas"
+                disabled={refreshing}
+                onClick={() => void refreshSources(false)}
+              >
+                {refreshing ? 'Atualizando…' : 'Atualizar'}
+              </button>
             </div>
             <div className="screenpicker__sources" aria-busy={loading}>
               {loading && <div className="screenpicker__empty">Procurando telas e janelas…</div>}

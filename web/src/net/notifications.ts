@@ -19,8 +19,31 @@ export class NotificationSound {
   private ringing: ReturnType<typeof setInterval> | null = null
   private attenuation = 0
   private attenuated = false
+  private baseVolume = 0.65
 
-  constructor(private readonly source = notificationSoundUrl) {}
+  constructor(private readonly source = notificationSoundUrl) {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('stapp:sound_volume')
+      if (saved) {
+        const parsed = parseFloat(saved)
+        if (!isNaN(parsed) && parsed >= 0 && parsed <= 1) {
+          this.baseVolume = parsed
+        }
+      }
+    }
+  }
+
+  setBaseVolume(vol: number): void {
+    this.baseVolume = Math.min(1, Math.max(0, vol))
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('stapp:sound_volume', this.baseVolume.toString())
+    }
+    if (this.audio) this.audio.volume = this.volume()
+  }
+
+  getBaseVolume(): number {
+    return this.baseVolume
+  }
 
   play(): void {
     try {
@@ -57,7 +80,7 @@ export class NotificationSound {
   }
 
   private volume() {
-    return 0.65 * (this.attenuated ? 1 - this.attenuation / 100 : 1)
+    return this.baseVolume * (this.attenuated ? 1 - this.attenuation / 100 : 1)
   }
 }
 

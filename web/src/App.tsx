@@ -3,6 +3,7 @@ import stappLogo from '../assets/imgs/svg/stapp_logo.svg'
 import { AuthApi, AuthApiError } from './net/auth'
 import { Connection, type ConnectionStatus } from './net/connection'
 import { IncomingRequestTracker, notificationSound } from './net/notifications'
+import { callSounds } from './net/callSounds'
 import { hasPendingLogout, lastServer, loadServers, markLogoutPending, normalizeServerUrl,
   removeServer, saveServer, setPendingLogout, type SavedServer } from './net/servers'
 import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
@@ -12,7 +13,6 @@ import { dispatchServerMessage, resetAllStores, useChatStore, usePresenceStore, 
 import { AccountBar } from './ui/AccountBar'
 import { avatarBaseFromWs, comRenovacao, removeAvatar, uploadAvatar } from './net/avatars'
 import { ProfileProvider } from './ui/Avatar'
-import { ProfileEditor } from './ui/ProfileEditor'
 import { CallPanel } from './ui/CallPanel'
 import { Chat } from './ui/Chat'
 import { Connect, type AuthInfo } from './ui/Connect'
@@ -23,7 +23,7 @@ import { Sidebar, sidebarModeFor, type View } from './ui/Sidebar'
 import { VoiceBar } from './ui/VoiceBar'
 import { CallStage } from './ui/CallStage'
 import { CallMiniPip } from './ui/CallMiniPip'
-import { VoiceSettings } from './ui/VoiceSettings'
+import { SettingsModal, type SettingsTab } from './ui/SettingsModal'
 import { UserMenuProvider } from './ui/UserMenu'
 import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
@@ -126,6 +126,8 @@ export default function App() {
   // deixa a citacao saber se e voce sem remontar a conexao a cada render.
   const selfUserIdRef = useRef<UserId | null>(null)
   selfUserIdRef.current = selfUserId
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
   const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
   const [_voicePreferences, setVoicePreferences] = useState<VoicePreferences>(loadVoicePreferences)
   const [ringing, setRinging] = useState<Ringing | null>(null)
@@ -147,6 +149,7 @@ export default function App() {
   }, [])
 
   const resetRoom = useCallback(() => {
+    callSounds.stopAll()
     voice.current?.destroy()
     voice.current = null
     unsubscribeVoice.current?.()
@@ -155,6 +158,7 @@ export default function App() {
     setAuthenticated(false)
     setView(null)
     previousServerView.current = null
+    setSettingsOpen(false)
     setVoiceSettingsOpen(false)
     setRinging(null)
     setNotice(null)
@@ -252,32 +256,40 @@ export default function App() {
         }
 
         if (msg.t === 'welcome') {
-          voice.current?.destroy()
-          unsubscribeVoice.current?.()
-          setCall(null)
-          setRinging(null)
           setAuthBusy(false)
           setAuthError(null)
           setAuthenticated(true)
           updateActiveProfile({ username: attemptedUsername.current, lastUsed: Date.now(), logoutPending: undefined })
-          const transport = createVoiceTransport(msg.voice, {
-            selfPeerId: msg.self_peer_id,
-            send: (out) => connection.current?.send(out),
-            onSpeaking(peerId, isSpeaking) {
-              useVoiceStore.getState().setSpeaking(peerId, isSpeaking)
-            },
-            onError: setNotice,
-          })
-          voice.current = transport
-          unsubscribeVoice.current = transport.subscribe((snapshot) => {
-            setVoiceSnapshot(snapshot)
-            if (snapshot.status === 'idle' && !snapshot.channel) {
-              setCall(null)
-              setView((current) => current?.kind === 'voice'
-                ? (previousServerView.current ?? { kind: 'home' })
-                : current)
-            }
-          })
+
+          const currentCall = useVoiceStore.getState().call
+          const activeVoiceChannel = currentCall?.channel ?? voice.current?.snapshot().channel
+
+          if (voice.current && activeVoiceChannel) {
+            voice.current.updateSession?.(msg.self_peer_id, (out) => connection.current?.send(out))
+          } else {
+            voice.current?.destroy()
+            unsubscribeVoice.current?.()
+            setCall(null)
+            setRinging(null)
+            const transport = createVoiceTransport(msg.voice, {
+              selfPeerId: msg.self_peer_id,
+              send: (out) => connection.current?.send(out),
+              onSpeaking(peerId, isSpeaking) {
+                useVoiceStore.getState().setSpeaking(peerId, isSpeaking)
+              },
+              onError: setNotice,
+            })
+            voice.current = transport
+            unsubscribeVoice.current = transport.subscribe((snapshot) => {
+              setVoiceSnapshot(snapshot)
+              if (snapshot.status === 'idle' && !snapshot.channel) {
+                setCall(null)
+                setView((current) => current?.kind === 'voice'
+                  ? (previousServerView.current ?? { kind: 'home' })
+                  : current)
+              }
+            })
+          }
           setView((current) => current ?? { kind: 'home' })
         }
 
@@ -297,18 +309,27 @@ export default function App() {
           if (msg.unread > 0 && msg.msg.kind === 'text') notificationSound.play()
         }
         if (msg.t === 'dm.denied') setNotice('Essa pessoa aceita novas conversas apenas de amigos.')
-        if (msg.t === 'call.incoming') setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
+        if (msg.t === 'call.incoming') {
+          setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
+          callSounds.playRingtone()
+        }
         if (msg.t === 'call.accepted') {
+          callSounds.stopLoop()
           setRinging(null)
           void voice.current?.join(msg.channel).then((started) => {
             if (started) {
+              callSounds.playJoin()
               voice.current?.setMuted(voicePrefsRef.current.muted)
               voice.current?.setDeafened(voicePrefsRef.current.deafened)
               setCall({ channel: msg.channel, ...voicePrefsRef.current })
             }
           })
         }
-        if (msg.t === 'call.ended') { setRinging(null); setNotice(CALL_REASON[msg.reason]) }
+        if (msg.t === 'call.ended') {
+          callSounds.stopLoop()
+          setRinging(null)
+          setNotice(CALL_REASON[msg.reason])
+        }
         if (msg.t === 'error') setNotice(msg.message)
         dispatchServerMessage(msg)
         voice.current?.handleServerMessage(msg)
@@ -519,6 +540,7 @@ export default function App() {
   const joinCall = useCallback(async (channelId: string) => {
     const started = await voice.current?.join(channelId)
     if (started) {
+      callSounds.playJoin()
       // A preferencia de microfone atravessa a entrada: quem entrou mudo continua mudo.
       voice.current?.setMuted(voicePrefsRef.current.muted)
       voice.current?.setDeafened(voicePrefsRef.current.deafened)
@@ -539,15 +561,22 @@ export default function App() {
   const startCall = useCallback((userId: UserId, username: string) => {
     setRinging({ userId, username, direction: 'outgoing' })
     connection.current?.send({ t: 'call.start', user_id: userId })
+    callSounds.playCalling()
   }, [])
   const acceptCall = useCallback(() => setRinging((current) => {
-    if (current) connection.current?.send({ t: 'call.accept', user_id: current.userId })
+    if (current) {
+      callSounds.stopLoop()
+      connection.current?.send({ t: 'call.accept', user_id: current.userId })
+    }
     return current
   }), [])
   const dismissCall = useCallback(() => setRinging((current) => {
-    if (current) connection.current?.send(current.direction === 'incoming'
-      ? { t: 'call.decline', user_id: current.userId }
-      : { t: 'call.cancel', user_id: current.userId })
+    if (current) {
+      callSounds.stopLoop()
+      connection.current?.send(current.direction === 'incoming'
+        ? { t: 'call.decline', user_id: current.userId }
+        : { t: 'call.cancel', user_id: current.userId })
+    }
     return null
   }), [])
   /** `null` remove. O token vem do Connection para nao ter duas fontes. */
@@ -573,6 +602,8 @@ export default function App() {
   )
 
   const leaveCall = useCallback(() => {
+    callSounds.stopLoop()
+    callSounds.playLeave()
     voice.current?.leave()
     setCall(null)
     setView((current) => current?.kind === 'voice'
@@ -583,6 +614,7 @@ export default function App() {
   const aplicarVoicePrefs = useCallback((proximo: { muted: boolean; deafened: boolean }) => {
     voicePrefsRef.current = proximo
     setVoicePrefs(proximo)
+    callSounds.setDeafened(proximo.deafened)
     voice.current?.setMuted(proximo.muted)
     voice.current?.setDeafened(proximo.deafened)
     setCall((atual) => atual ? { ...atual, ...proximo } : atual)
@@ -687,16 +719,31 @@ export default function App() {
         callChannel={call?.channel ?? null} onJoinCall={handleJoinCall}
         onLogout={logout} onRemoveServer={() => removeSaved(active.profile.url)}
         footer={<div className="sidebar__footer-stack">
-          {call && <VoiceBar channelName={callName} onLeave={leaveCall}
+          {call && <VoiceBar channelName={callName} status={voiceSnapshot.status} onLeave={leaveCall}
             onOpen={() => {
               if (callPartnerId) selectDirect(callPartnerId)
               else if (call?.channel) openServerCallView(call.channel)
             }} />}
-          <AccountBar onOpenProfile={() => setEditingProfile(true)} userId={state.selfUserId}
+          <AccountBar
+            onOpenProfile={() => {
+              setSettingsTab('account')
+              setSettingsOpen(true)
+            }}
+            userId={state.selfUserId}
             username={self?.username ?? attemptedUsername.current}
-            muted={voicePrefs.muted} deafened={voicePrefs.deafened}
-            onToggleMute={toggleMute} onToggleDeafen={toggleDeafen}
-            onOpenVoiceSettings={() => setVoiceSettingsOpen(true)} />
+            muted={voicePrefs.muted}
+            deafened={voicePrefs.deafened}
+            onToggleMute={toggleMute}
+            onToggleDeafen={toggleDeafen}
+            onOpenSettings={() => {
+              setSettingsTab('account')
+              setSettingsOpen(true)
+            }}
+            onOpenVoiceSettings={() => {
+              setSettingsTab('voice')
+              setSettingsOpen(true)
+            }}
+          />
         </div>} />
 
       <main className="main">
@@ -707,7 +754,10 @@ export default function App() {
             snapshot={voiceSnapshot}
             transport={voice.current}
             onLeave={leaveCall}
-            onOpenSettings={() => setVoiceSettingsOpen(true)}
+            onOpenSettings={() => {
+              setSettingsTab('voice')
+              setSettingsOpen(true)
+            }}
             resolveUserId={resolveUserId}
             selfUserId={state.selfUserId}
             variant="fullscreen"
@@ -721,7 +771,10 @@ export default function App() {
                 snapshot={voiceSnapshot}
                 transport={voice.current}
                 onLeave={leaveCall}
-                onOpenSettings={() => setVoiceSettingsOpen(true)}
+                onOpenSettings={() => {
+                  setSettingsTab('voice')
+                  setSettingsOpen(true)
+                }}
                 resolveUserId={resolveUserId}
                 selfUserId={state.selfUserId}
                 variant="embedded"
@@ -809,23 +862,31 @@ export default function App() {
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
         selfUserId={state.selfUserId} selfUsername={self?.username ?? attemptedUsername.current}
-        onEditSelf={() => setEditingProfile(true)} />}
-      <ProfileEditor isOpen={editingProfile} profile={meuPerfil} avatarBase={avatarBase}
-        onClose={() => setEditingProfile(false)}
-        onSave={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
-        onAvatar={enviarAvatar} />
+        onEditSelf={() => {
+          setSettingsTab('account')
+          setSettingsOpen(true)
+        }} />}
+
+      <SettingsModal
+        isOpen={settingsOpen || editingProfile || voiceSettingsOpen}
+        initialTab={voiceSettingsOpen ? 'voice' : settingsTab}
+        onClose={() => {
+          setSettingsOpen(false)
+          setEditingProfile(false)
+          setVoiceSettingsOpen(false)
+        }}
+        profile={meuPerfil}
+        avatarBase={avatarBase}
+        onSaveProfile={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
+        onAvatarChange={enviarAvatar}
+        transport={voice.current}
+        snapshot={voiceSnapshot}
+        voicePreferences={_voicePreferences}
+        onVoicePreferencesChange={setVoicePreferences}
+      />
 
       {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
         onAccept={acceptCall} onDecline={dismissCall} />}
-      {voice.current && (
-        <VoiceSettings
-          open={voiceSettingsOpen}
-          transport={voice.current}
-          snapshot={voiceSnapshot}
-          onClose={() => setVoiceSettingsOpen(false)}
-          onPreferencesChange={setVoicePreferences}
-        />
-      )}
 
       <UpdateModal
         isOpen={updater.isModalOpen}

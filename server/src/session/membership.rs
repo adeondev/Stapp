@@ -4,6 +4,7 @@
 
 use super::{AppState, SessionEntry};
 use crate::protocol::{PeerId, VoicePeer};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -19,6 +20,13 @@ pub(super) struct VoiceMembership {
 pub(super) struct VoiceReservation {
     pub channel: String,
     pub expires_at: Instant,
+}
+
+#[derive(Debug, Clone)]
+pub struct VoiceTakeover {
+    pub old_peer_id: PeerId,
+    pub channel: String,
+    pub published: bool,
 }
 
 pub struct VoiceJoin {
@@ -50,6 +58,14 @@ impl AppState {
             .collect()
     }
 
+    /// Verifica se uma sessão possui filiação de voz ativa ou reserva pendente.
+    pub async fn is_in_voice(&self, peer_id: &PeerId) -> bool {
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(peer_id)
+            .is_some_and(|entry| entry.voice.is_some() || entry.pending_voice.is_some())
+    }
+
     /// Inclui reservas ainda nao publicadas. E usado para revogar grants de
     /// uma chamada direta imediatamente quando amizade/bloqueio muda.
     pub async fn voice_sessions_including_reservations(&self, channel: &str) -> Vec<PeerId> {
@@ -75,7 +91,7 @@ impl AppState {
         peer_id: &PeerId,
         channel: &str,
         max_peers: usize,
-    ) -> Result<VoiceJoin, VoiceJoinError> {
+    ) -> Result<(VoiceJoin, Vec<VoiceTakeover>), VoiceJoinError> {
         let mut sessions = self.sessions.write().await;
 
         let user_id = sessions
@@ -83,18 +99,12 @@ impl AppState {
             .map(|entry| entry.user_id.clone())
             .ok_or(VoiceJoinError::PeerNotFound)?;
 
-        // PROTOTYPE: so uma sessao da conta participa de voz. FUTURE: remova apenas
-        // esta guarda para permitir peers por sessao; o protocolo ja leva os dois IDs.
-        if sessions
-            .iter()
-            .any(|(id, entry)| id != peer_id && entry.user_id == user_id && entry.voice.is_some())
-        {
-            return Err(VoiceJoinError::AccountAlreadyInVoice);
-        }
+        // Se a mesma conta ja tiver sessao em voz, executa takeover desalojando as anteriores
+        let takeovers = dislodge_account(&mut sessions, peer_id, &user_id);
 
         let occupied = sessions
-            .values()
-            .filter(|entry| entry.is_in(channel))
+            .iter()
+            .filter(|(id, entry)| *id != peer_id && entry.is_in(channel))
             .count();
         if occupied >= max_peers {
             return Err(VoiceJoinError::Full);
@@ -119,7 +129,7 @@ impl AppState {
         });
         let peer = voice_peer(peer_id, entry).expect("membership acabou de ser criada");
 
-        Ok(VoiceJoin { roster, peer })
+        Ok((VoiceJoin { roster, peer }, takeovers))
     }
 
     /// Reserva uma vaga enquanto o cliente abre a conexao com o SFU. A pessoa
@@ -131,7 +141,7 @@ impl AppState {
         channel: &str,
         max_peers: usize,
         ttl: Duration,
-    ) -> Result<(), VoiceJoinError> {
+    ) -> Result<Vec<VoiceTakeover>, VoiceJoinError> {
         let mut sessions = self.sessions.write().await;
         let now = Instant::now();
         for entry in sessions.values_mut() {
@@ -148,22 +158,19 @@ impl AppState {
             .get(peer_id)
             .map(|entry| entry.user_id.clone())
             .ok_or(VoiceJoinError::PeerNotFound)?;
-        if sessions.iter().any(|(id, entry)| {
-            id != peer_id
-                && entry.user_id == user_id
-                && (entry.voice.is_some() || entry.pending_voice.is_some())
-        }) {
-            return Err(VoiceJoinError::AccountAlreadyInVoice);
-        }
+
+        // Takeover: se a mesma conta ja tiver sessao em voz ou reserva pendente, desaloja as anteriores
+        let takeovers = dislodge_account(&mut sessions, peer_id, &user_id);
 
         let occupied = sessions
-            .values()
-            .filter(|entry| {
-                entry.is_in(channel)
-                    || entry
-                        .pending_voice
-                        .as_ref()
-                        .is_some_and(|pending| pending.channel == channel)
+            .iter()
+            .filter(|(id, entry)| {
+                *id != peer_id
+                    && (entry.is_in(channel)
+                        || entry
+                            .pending_voice
+                            .as_ref()
+                            .is_some_and(|pending| pending.channel == channel))
             })
             .count();
         if occupied >= max_peers {
@@ -177,7 +184,7 @@ impl AppState {
             channel: channel.to_string(),
             expires_at: now + ttl,
         });
-        Ok(())
+        Ok(takeovers)
     }
 
     pub async fn confirm_voice(
@@ -290,6 +297,47 @@ impl SessionEntry {
             .as_ref()
             .is_some_and(|voice| voice.channel == channel)
     }
+}
+
+/// Tira da voz **todas** as sessoes da mesma conta menos a que esta chegando.
+///
+/// Parar na primeira nao basta: um flapping de rede (Wi-Fi -> 4G -> VPN) dentro
+/// dos 20s de grace period deixa varias sessoes da conta ainda segurando vaga.
+/// A que sobrasse continuaria contando em `occupied` e devolveria `ChannelFull`
+/// falso numa conversa 1:1, ejetando quem so estava reconectando.
+///
+/// A vaga sai aqui; quem avisa os outros e `services::voice::handle_takeover`,
+/// um evento por sessao desalojada. A conexao e a presenca de chat dessas
+/// sessoes continuam de pe — takeover devolve microfone, nao encerra sessao.
+fn dislodge_account(
+    sessions: &mut HashMap<PeerId, SessionEntry>,
+    peer_id: &PeerId,
+    user_id: &str,
+) -> Vec<VoiceTakeover> {
+    let mut takeovers = Vec::new();
+    for (id, entry) in sessions.iter_mut() {
+        if id == peer_id || entry.user_id != user_id {
+            continue;
+        }
+        // Os dois slots sao limpos mesmo quando so um vira evento: uma reserva
+        // pendente esquecida ao lado de uma filiacao ativa voltaria a contar.
+        let voice = entry.voice.take();
+        let pending = entry.pending_voice.take();
+        if let Some(voice) = voice {
+            takeovers.push(VoiceTakeover {
+                old_peer_id: id.clone(),
+                channel: voice.channel,
+                published: true,
+            });
+        } else if let Some(pending) = pending {
+            takeovers.push(VoiceTakeover {
+                old_peer_id: id.clone(),
+                channel: pending.channel,
+                published: false,
+            });
+        }
+    }
+    takeovers
 }
 
 fn voice_peer(peer_id: &PeerId, session: &SessionEntry) -> Option<VoicePeer> {

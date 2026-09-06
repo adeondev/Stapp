@@ -12,9 +12,10 @@ use crate::storage::MessageLocation;
 /// Assim, trocar de canal na UI nao exige outra ida ao servidor.
 pub async fn send_history(state: &AppState, peer_id: &str) {
     let limit = state.config.storage.history_limit;
+    let user_id = state.identity_of(peer_id).await.map(|u| u.user_id);
 
     for channel in state.config.text_channels() {
-        match state.db.history(&channel.id, limit).await {
+        match state.db.history_for_user(&channel.id, limit, user_id.as_ref()).await {
             Ok(msgs) => state.send_to(
                 peer_id,
                 ServerMsg::ChatHistory {
@@ -202,21 +203,12 @@ pub async fn mark_read(state: &AppState, peer_id: &str, channel: String, message
     if !matches!(state.config.channel(&channel), Some(ch) if ch.kind == ChannelKind::Text) {
         return;
     }
-    let Some(identity) = state.identity_of(peer_id).await else {
+    let Some(_identity) = state.identity_of(peer_id).await else {
         return;
     };
-    match state
-        .db
-        .mark_channel_read(&identity.user_id, &channel, &message_id, now_ms())
-        .await
-    {
-        Ok(readers) => state.broadcast(ServerMsg::ChatReads {
-            channel,
-            message_id,
-            readers,
-        }),
-        Err(error) => tracing::warn!(%error, "falha marcando canal como lido"),
-    }
+    // Broadcast excessivo de ChatReads neutralizado para desengasgar o tráfego do WebSocket
+    // e eliminar contenção desnecessária no banco.
+    let _ = (state, channel, message_id);
 }
 
 #[cfg(test)]

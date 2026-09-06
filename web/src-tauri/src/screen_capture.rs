@@ -1,5 +1,4 @@
 use crate::screen_sources::{parse_source_id, scale_to_fit, SourceLocator};
-use base64::Engine;
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -20,7 +19,25 @@ use wasapi::{
 };
 
 static NEXT_CAPTURE_ID: AtomicU32 = AtomicU32::new(1);
+static WEBVIEW_PROCESS_ID: AtomicU32 = AtomicU32::new(0);
 static CAPTURES: OnceLock<Mutex<HashMap<u32, CaptureSession>>> = OnceLock::new();
+
+pub fn register_webview_process_id(pid: u32) {
+    WEBVIEW_PROCESS_ID.store(pid, Ordering::Relaxed);
+}
+
+pub fn webview_process_id() -> u32 {
+    WEBVIEW_PROCESS_ID.load(Ordering::Relaxed)
+}
+
+pub fn get_exclusion_process_id() -> u32 {
+    let webview_pid = webview_process_id();
+    if webview_pid > 0 {
+        webview_pid
+    } else {
+        std::process::id()
+    }
+}
 
 fn captures() -> &'static Mutex<HashMap<u32, CaptureSession>> {
     CAPTURES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -44,7 +61,8 @@ pub enum CaptureEvent {
         capture_id: u32,
         width: u32,
         height: u32,
-        jpeg_base64: String,
+        #[serde(with = "serde_bytes")]
+        frame: Vec<u8>,
     },
     AudioFormat {
         capture_id: u32,
@@ -53,7 +71,8 @@ pub enum CaptureEvent {
     },
     AudioChunk {
         capture_id: u32,
-        pcm_base64: String,
+        #[serde(with = "serde_bytes")]
+        pcm: Vec<u8>,
     },
     AudioUnavailable {
         capture_id: u32,
@@ -89,7 +108,7 @@ pub struct AudioExclusionValidation {
 pub fn validate_screen_audio_exclusion(
     channel: Channel<AudioValidationEvent>,
 ) -> AudioExclusionValidation {
-    let process_id = std::process::id();
+    let process_id = get_exclusion_process_id();
     let thread_channel = channel.clone();
     let join_handle = thread::Builder::new()
         .name("stapp-validate-audio-exclusion".to_string())
@@ -151,7 +170,7 @@ pub fn validate_screen_audio_exclusion(
     });
     AudioExclusionValidation {
         safe: false,
-        process_id: std::process::id(),
+        process_id: get_exclusion_process_id(),
         windows_build: None,
         include_level: 0.0,
         exclude_level: 0.0,
@@ -261,6 +280,10 @@ fn capture_loop(
     channel: Channel<CaptureEvent>,
     stop: Arc<AtomicBool>,
 ) {
+    let window_id = match locator {
+        SourceLocator::Window(id) => Some(id),
+        SourceLocator::Screen(_) => None,
+    };
     let Some(source) = resolve_source(locator) else {
         let _ = channel.send(CaptureEvent::Ended {
             capture_id,
@@ -273,6 +296,15 @@ fn capture_loop(
     let mut consecutive_failures = 0;
 
     while !stop.load(Ordering::Relaxed) {
+        if let Some(win_id) = window_id {
+            if !is_window_valid(win_id) {
+                let _ = channel.send(CaptureEvent::Ended {
+                    capture_id,
+                    reason: "a janela foi fechada".to_string(),
+                });
+                break;
+            }
+        }
         let started = Instant::now();
         let image = match &source {
             CaptureSource::Screen(screen) => screen.capture_image(),
@@ -284,6 +316,15 @@ fn capture_loop(
                 image
             }
             Err(_) => {
+                if let Some(win_id) = window_id {
+                    if !is_window_valid(win_id) {
+                        let _ = channel.send(CaptureEvent::Ended {
+                            capture_id,
+                            reason: "a janela foi fechada".to_string(),
+                        });
+                        break;
+                    }
+                }
                 consecutive_failures += 1;
                 if consecutive_failures >= maximum_failures {
                     let _ = channel.send(CaptureEvent::Ended {
@@ -306,7 +347,7 @@ fn capture_loop(
                 &image,
                 target_width,
                 target_height,
-                image::imageops::FilterType::Triangle,
+                image::imageops::FilterType::Nearest,
             )
         };
         let rgb = image::DynamicImage::ImageRgba8(image).into_rgb8();
@@ -328,7 +369,7 @@ fn capture_loop(
                 capture_id,
                 width: target_width,
                 height: target_height,
-                jpeg_base64: base64::engine::general_purpose::STANDARD.encode(jpeg),
+                frame: jpeg,
             })
             .is_err()
         {
@@ -364,7 +405,7 @@ fn audio_target(locator: SourceLocator) -> Result<AudioTarget, String> {
                 .ok_or_else(|| "a janela selecionada desapareceu".to_string())?,
         ),
     };
-    make_audio_target(locator, selected_process_id, std::process::id())
+    make_audio_target(locator, selected_process_id, get_exclusion_process_id())
 }
 
 #[cfg(windows)]
@@ -374,7 +415,7 @@ fn make_audio_target(
     own_process_id: u32,
 ) -> Result<AudioTarget, String> {
     match locator {
-        // Excluir a arvore do Stapp evita reenviar as vozes da propria call.
+        // Excluir a arvore do Stapp/WebView2 evita reenviar as vozes da propria call.
         SourceLocator::Screen(_) => Ok(AudioTarget {
             process_id: own_process_id,
             include_tree: false,
@@ -382,7 +423,12 @@ fn make_audio_target(
         SourceLocator::Window(_) => {
             let process_id = selected_process_id
                 .ok_or_else(|| "a janela selecionada desapareceu".to_string())?;
-            if process_id == own_process_id {
+            let current_pid = std::process::id();
+            let webview_pid = webview_process_id();
+            if process_id == own_process_id
+                || process_id == current_pid
+                || (webview_pid > 0 && process_id == webview_pid)
+            {
                 return Err("o audio da janela do Stapp nao pode ser compartilhado".to_string());
             }
             Ok(AudioTarget {
@@ -475,7 +521,7 @@ fn capture_process_audio(
             if channel
                 .send(CaptureEvent::AudioChunk {
                     capture_id,
-                    pcm_base64: base64::engine::general_purpose::STANDARD.encode(chunk),
+                    pcm: chunk,
                 })
                 .is_err()
             {
@@ -637,6 +683,22 @@ fn windows_build_number() -> Option<u32> {
     // SAFETY: RtlGetVersion receives a valid, correctly sized writable struct
     // and does not retain its pointer after returning.
     (unsafe { RtlGetVersion(&mut info) } >= 0).then_some(info.build)
+}
+
+#[cfg(windows)]
+fn is_window_valid(window_id: u32) -> bool {
+    #[link(name = "user32")]
+    extern "system" {
+        fn IsWindow(hwnd: *mut std::ffi::c_void) -> i32;
+    }
+    // SAFETY: IsWindow receives an HWND pointer-sized value and returns 0 if invalid.
+    // Em Windows 64-bit, handles HWND de 32-bit precisam de sign-extension (i32 -> isize).
+    unsafe { IsWindow(window_id as i32 as isize as *mut std::ffi::c_void) != 0 }
+}
+
+#[cfg(not(windows))]
+fn is_window_valid(_window_id: u32) -> bool {
+    true
 }
 
 #[cfg(all(test, windows))]

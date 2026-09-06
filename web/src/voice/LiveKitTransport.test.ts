@@ -494,6 +494,47 @@ describe('LiveKitTransport', () => {
     expect(transport.getScreenShareVolume(remote.identity)).toBe(100)
   })
 
+  it('deafen muta apenas audio do microfone e preserva som da tela compartilhada', async () => {
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn(),
+    })
+    await transport.join('sala')
+    transport.handleServerMessage({
+      t: 'voice.grant', channel: 'sala', url: 'ws://sfu', token: 'jwt', expires_at: Date.now() + 60_000,
+    })
+    await vi.waitFor(() => expect(transport.snapshot().status).toBe('connected'))
+
+    const sdk = await import('livekit-client') as unknown as {
+      Room: { instances: Array<any> }; Participant: new (id: string, name: string) => any
+      Publication: new (id: string, source: string, kind?: string) => any; RoomEvent: Record<string, string>; Track: any
+    }
+    const room = sdk.Room.instances[0]
+    const remote = new sdk.Participant('peer-deafen', 'DeafenTest')
+    const microphone = new sdk.Publication('mic-deafen', sdk.Track.Source.Microphone, sdk.Track.Kind.Audio)
+    const screenAudio = new sdk.Publication('screen-deafen', sdk.Track.Source.ScreenShareAudio, sdk.Track.Kind.Audio)
+    remote.trackPublications.set(microphone.trackSid, microphone)
+    remote.trackPublications.set(screenAudio.trackSid, screenAudio)
+    room.remoteParticipants.set(remote.identity, remote)
+    room.emit(sdk.RoomEvent.TrackSubscribed, microphone.audioTrack, microphone, remote)
+    room.emit(sdk.RoomEvent.TrackSubscribed, screenAudio.audioTrack, screenAudio, remote)
+
+    const micAudio = document.querySelector<HTMLAudioElement>('audio[data-stapp-voice="mic-deafen"]')
+    const screenAudioEl = document.querySelector<HTMLAudioElement>('audio[data-stapp-voice="screen-deafen"]')
+    expect(micAudio?.muted).toBe(false)
+    expect(screenAudioEl?.muted).toBe(false)
+
+    transport.setDeafened(true)
+    expect(micAudio?.muted).toBe(true)
+    expect(screenAudioEl?.muted).toBe(false)
+
+    transport.setDeafened(false)
+    expect(micAudio?.muted).toBe(false)
+    expect(screenAudioEl?.muted).toBe(false)
+
+    transport.leave()
+    transport.destroy()
+  })
+
   it('substitui microfone republicado sem tocar duas copias e limpa ao desconectar', async () => {
     const transport = new LiveKitTransport(config, {
       selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn(),
@@ -701,6 +742,75 @@ describe('LiveKitTransport', () => {
     expect(started).toBe(false)
     expect(errors).toContain('O microfone exige uma conexão segura (HTTPS) ou o aplicativo Desktop. Em conexões HTTP remotas, o navegador bloqueia a captura de mídia.')
     expect(transport.snapshot().status).toBe('idle')
+  })
+
+  it('ao desconectar inesperadamente, transiciona para reconnecting sem ejetar o canal e tenta reobter grant', async () => {
+    const sent: ClientMsg[] = []
+    const sdk = await import('livekit-client') as unknown as {
+      Room: { instances: Array<{ emit(event: string, ...args: unknown[]): void }> }
+      RoomEvent: { Disconnected: string }
+    }
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer',
+      send: (msg) => { sent.push(msg) },
+      onSpeaking: vi.fn(),
+      onError: vi.fn(),
+    })
+    await transport.join('geral')
+    transport.handleServerMessage({
+      t: 'voice.grant',
+      channel: 'geral',
+      url: 'ws://sfu:7880',
+      token: 'jwt-1',
+      expires_at: Date.now() + 60_000,
+    })
+
+    await new Promise((r) => setTimeout(r, 10))
+    expect(transport.snapshot().status).toBe('connected')
+    expect(transport.snapshot().channel).toBe('geral')
+
+    // Simula queda abrupta na conexao LiveKit
+    const room = sdk.Room.instances[sdk.Room.instances.length - 1]
+    room.emit(sdk.RoomEvent.Disconnected)
+
+    // O status deve ser reconnecting e o canal deve ser preservado
+    expect(transport.snapshot().status).toBe('reconnecting')
+    expect(transport.snapshot().channel).toBe('geral')
+
+    // Deve solicitar novo grant
+    expect(sent).toContainEqual({ t: 'voice.join', channel: 'geral' })
+
+    // Servidor responde com grant novo
+    transport.handleServerMessage({
+      t: 'voice.grant',
+      channel: 'geral',
+      url: 'ws://sfu:7880',
+      token: 'jwt-2',
+      expires_at: Date.now() + 60_000,
+    })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(transport.snapshot().status).toBe('connected')
+    expect(transport.snapshot().channel).toBe('geral')
+
+    transport.destroy()
+  })
+
+  it('updateSession atualiza o peer e o callback send durante a chamada', async () => {
+    const sentV1: ClientMsg[] = []
+    const sentV2: ClientMsg[] = []
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'peer-old',
+      send: (msg) => { sentV1.push(msg) },
+      onSpeaking: vi.fn(),
+      onError: vi.fn(),
+    })
+    await transport.join('geral')
+    expect(sentV1).toEqual([{ t: 'voice.join', channel: 'geral' }])
+
+    transport.updateSession('peer-new', (msg) => { sentV2.push(msg) })
+    expect(transport.snapshot().channel).toBe('geral')
+
+    transport.destroy()
   })
 
   describe('mediaUrlForThisDevice', () => {

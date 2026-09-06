@@ -19,6 +19,11 @@ pub fn install(window: &tauri::WebviewWindow) -> tauri::Result<()> {
             }
         };
 
+        let mut pid = 0u32;
+        if unsafe { webview.BrowserProcessId(&mut pid) }.is_ok() && pid > 0 {
+            crate::screen_capture::register_webview_process_id(pid);
+        }
+
         let handler = PermissionRequestedEventHandler::create(Box::new(|_, args| {
             let Some(args) = args else {
                 return Ok(());

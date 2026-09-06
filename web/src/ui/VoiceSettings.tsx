@@ -42,18 +42,27 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
 
   useEffect(() => {
     if (!testing) return
+    let disposed = false
     let stop: (() => void) | undefined
     setTestError(null)
     void transport.startMicrophoneTest(setLevel).then((cleanup) => {
-      stop = cleanup
+      if (disposed) {
+        cleanup()
+      } else {
+        stop = cleanup
+      }
     }).catch((err) => {
+      if (disposed) return
       setTesting(false)
       const msg = err instanceof DOMException && err.name === 'NotAllowedError'
         ? 'Permissão de microfone negada pelo navegador.'
         : (err instanceof Error ? err.message : 'Não foi possível iniciar o teste de microfone.')
       setTestError(msg)
     })
-    return () => stop?.()
+    return () => {
+      disposed = true
+      stop?.()
+    }
   }, [testing, transport])
 
   useEffect(() => {

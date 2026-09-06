@@ -1,4 +1,4 @@
-import type { PeerId, RtcPayload, ServerMsg, VoiceConfig } from '../protocol'
+import type { ClientMsg, PeerId, RtcPayload, ServerMsg, VoiceConfig } from '../protocol'
 import type {
   DiagnosticReport,
   MediaDeviceLists,
@@ -9,6 +9,7 @@ import type {
 } from './VoiceTransport'
 import { loadVoicePreferences, saveVoicePreferences } from './preferences'
 import type { VoicePreferences } from './preferences'
+import { callSounds } from '../net/callSounds'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -64,8 +65,12 @@ export class MeshTransport implements VoiceTransport {
 
   constructor(
     private readonly config: Extract<VoiceConfig, { backend: 'mesh' }>,
-    private readonly options: VoiceTransportOptions,
+    private options: VoiceTransportOptions,
   ) {}
+
+  updateSession(selfPeerId: PeerId, send: (msg: ClientMsg) => boolean | void) {
+    this.options = { ...this.options, selfPeerId, send: (msg) => { send(msg) } }
+  }
 
   async join(channel: string): Promise<boolean> {
     if (this.channel) this.leave()
@@ -106,6 +111,7 @@ export class MeshTransport implements VoiceTransport {
       error: null,
     }
     this.emit()
+    callSounds.playJoin()
     return true
   }
 
@@ -142,6 +148,7 @@ export class MeshTransport implements VoiceTransport {
             ],
           }
           this.emit()
+          callSounds.playJoin()
         }
         break
       case 'voice.left':
@@ -152,6 +159,7 @@ export class MeshTransport implements VoiceTransport {
         }
         this.applyPlaybackState()
         this.emit()
+        callSounds.playLeave()
         break
 
       case 'rtc.signal':
@@ -173,6 +181,7 @@ export class MeshTransport implements VoiceTransport {
 
   setDeafened(deafened: boolean) {
     this.deafened = deafened
+    callSounds.setDeafened(deafened)
     this.applyPlaybackState()
     // Ensurdecer tambem cala o proprio microfone, como no Discord.
     this.applyLocalState()
@@ -183,6 +192,7 @@ export class MeshTransport implements VoiceTransport {
 
   leave() {
     if (!this.channel) return
+    callSounds.playLeave()
     this.options.send({ t: 'voice.leave' })
 
     for (const id of [...this.peers.keys()]) this.dropPeer(id)

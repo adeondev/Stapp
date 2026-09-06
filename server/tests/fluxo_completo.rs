@@ -787,9 +787,80 @@ async fn fluxo_e2e_enquetes_no_canal() {
 
     let update = alice.wait_for("chat.poll_update").await;
     assert_eq!(update["poll"]["total_votes"], 1);
+    assert_eq!(update["poll"]["options"][0]["voted_by_me"], true);
+
+    // Daniel recebe o broadcast público da enquete: total_votes subiu para 1,
+    // mas o voted_by_me da Alice NÃO vaza para Daniel (é None / omitido no JSON).
+    let update_daniel = daniel.wait_for("chat.poll_update").await;
+    assert_eq!(update_daniel["poll"]["total_votes"], 1);
+    assert!(update_daniel["poll"]["options"][0].get("voted_by_me").is_none());
+
+    // Daniel vota na segunda opção
+    let opt_id_2 = nova_msg["msg"]["poll"]["options"][1]["id"]
+        .as_str()
+        .unwrap();
+    daniel
+        .send(json!({
+            "t": "poll.vote",
+            "poll_id": poll_id,
+            "option_id": opt_id_2
+        }))
+        .await;
+
+    // Daniel recebe a confirmação personalizada: total_votes 2 e voted_by_me true na sua opção
+    let update_daniel_pos = daniel.wait_for("chat.poll_update").await;
+    assert_eq!(update_daniel_pos["poll"]["total_votes"], 2);
+    assert_eq!(update_daniel_pos["poll"]["options"][1]["voted_by_me"], true);
+    assert_eq!(update_daniel_pos["poll"]["options"][0]["voted_by_me"], false);
+
+    // Alice recebe o broadcast público com total_votes 2, sem vazar o voted_by_me de Daniel
+    let update_alice_pos = alice.wait_for("chat.poll_update").await;
+    assert_eq!(update_alice_pos["poll"]["total_votes"], 2);
+    assert!(update_alice_pos["poll"]["options"][1].get("voted_by_me").is_none());
 
     daniel.close().await;
     alice.close().await;
+}
+
+#[tokio::test]
+async fn takeover_de_voz_em_conexoes_concorrentes_da_mesma_conta() {
+    let dir = common::TestDir::new();
+    let addr = common::start(common::config(dir.database(), true)).await;
+
+    let sessao = common::auth(addr, "register", "daniel", SENHA, true).await;
+    let token = sessao.body["access_token"].as_str().unwrap();
+
+    // Primeira conexão do Daniel entra na sala de voz
+    let mut daniel1 = common::Client::connect(addr).await;
+    daniel1.wait_for("auth.required").await;
+    daniel1.authenticate(token).await;
+    daniel1.wait_for("welcome").await;
+
+    daniel1
+        .send(json!({ "t": "voice.join", "channel": "sala" }))
+        .await;
+    let roster1 = daniel1.wait_for("voice.roster").await;
+    assert!(roster1["peers"].as_array().unwrap().is_empty());
+
+    // Segunda conexão do Daniel (ex: reconexão após queda de rede/VPN)
+    let mut daniel2 = common::Client::connect(addr).await;
+    daniel2.wait_for("auth.required").await;
+    daniel2.authenticate(token).await;
+    daniel2.wait_for("welcome").await;
+
+    // Daniel2 entra na mesma sala de voz: o servidor realiza o takeover da sessão anterior
+    daniel2
+        .send(json!({ "t": "voice.join", "channel": "sala" }))
+        .await;
+    let roster2 = daniel2.wait_for("voice.roster").await;
+    assert_eq!(roster2["channel"], "sala");
+
+    // Daniel1 recebe notificação de saída de voz da sua sessão antiga
+    let saiu = daniel1.wait_for("voice.left").await;
+    assert!(saiu["peer_id"].is_string());
+
+    daniel1.close().await;
+    daniel2.close().await;
 }
 
 #[tokio::test]
