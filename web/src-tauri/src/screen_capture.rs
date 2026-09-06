@@ -194,11 +194,11 @@ pub fn start_screen_capture(
     let width = max_width.clamp(320, 3840);
     let height = max_height.clamp(180, 2160);
     // PROTOTYPE: JPEG por IPC mantem a captura dentro da casca Tauri e
-    // elimina o seletor do navegador, mas fica limitado a 30 FPS. O
-    // invariante e nunca abrir o picker do WebView2 no executavel.
+    // elimina o seletor do navegador. A taxa e limitada pelo preset (ate 60 FPS no modo fluido).
+    // O invariante e nunca abrir o picker do WebView2 no executavel.
     // FUTURE: trocar somente este produtor por frames nativos/WebCodecs;
     // a interface MediaStream consumida pelo VoiceTransport permanece.
-    let frames_per_second = fps.clamp(5, 30);
+    let frames_per_second = fps.clamp(5, 60);
 
     let video_channel = channel.clone();
     let video_frame_channel = frame_channel.clone();

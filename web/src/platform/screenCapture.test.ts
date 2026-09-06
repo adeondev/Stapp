@@ -5,6 +5,7 @@ import {
   browserAudioExclusionIsSafe,
   resetAudioExclusionValidationCache,
   startBrowserScreenCapture,
+  startNativeScreenCapture,
   validateAudioExclusion,
 } from './screenCapture'
 
@@ -126,6 +127,22 @@ describe('validacao nativa de exclusao de audio', () => {
       invokeSecond as unknown as typeof import('@tauri-apps/api/core')['invoke'],
     )
     expect(invokeSecond).toHaveBeenCalledOnce()
+  })
+})
+
+describe('captura nativa de tela no desktop', () => {
+  beforeEach(() => {
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+  })
+
+  it('exige runtime Tauri para iniciar', async () => {
+    await expect(startNativeScreenCapture({
+      sourceId: 'screen:0',
+      maxWidth: 1280,
+      maxHeight: 720,
+      fps: 60,
+      includeAudio: false,
+    })).rejects.toThrow('captura nativa disponivel somente no aplicativo')
   })
 })
 
