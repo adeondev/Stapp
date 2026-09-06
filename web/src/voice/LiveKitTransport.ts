@@ -683,7 +683,9 @@ export class LiveKitTransport implements VoiceTransport {
         [...this.audioElements.values()].map((audio) => audio.play().then(() => true).catch(() => false)),
       )
       this.applyPlaybackState()
-      const ready = room.canPlaybackAudio && played.every(Boolean)
+      const ready = room.canPlaybackAudio
+        && played.every(Boolean)
+        && !this.playbackGraph.hasSuspendedContext()
       if (ready) this.audioPlaybackWarningShown = false
       return ready
     } catch {
@@ -1252,15 +1254,19 @@ export class LiveKitTransport implements VoiceTransport {
     const audio = document.createElement('audio')
     audio.autoplay = true
     const isScreenAudio = Boolean(sdk && publication.source === sdk.Track.Source.ScreenShareAudio)
-    audio.muted = isScreenAudio ? false : this.state.deafened
     audio.dataset.stappVoice = publication.trackSid
     audio.hidden = true
     document.body.append(audio)
     track.attach(audio)
     const mediaStreamTrack = (track as { mediaStreamTrack?: MediaStreamTrack }).mediaStreamTrack
-    if (mediaStreamTrack) {
-      this.playbackGraph.attach(publication.trackSid, mediaStreamTrack)
-    }
+    // O grafo Web Audio e o elemento tocam a MESMA fonte. Se os dois ficarem
+    // audiveis, sao duas saidas com relogios independentes: eco metalico e
+    // ganho dobrado. O elemento so continua no caminho de audio quando o grafo
+    // nao nasceu (AudioContext indisponivel).
+    const graphNodes = mediaStreamTrack
+      ? this.playbackGraph.attach(publication.trackSid, mediaStreamTrack)
+      : null
+    audio.muted = graphNodes !== null || (isScreenAudio ? false : this.state.deafened)
     this.audioElements.set(publication.trackSid, audio)
     this.publicationOwners.set(publication.trackSid, owner)
     this.audioSources.set(publication.trackSid, String(publication.source))
@@ -1269,6 +1275,12 @@ export class LiveKitTransport implements VoiceTransport {
     void audio.play()
       .then(() => this.applyPlaybackState(publication.trackSid))
       .catch(() => this.warnAudioPlaybackBlocked())
+    // Elemento mudo nunca e barrado pelo autoplay, entao a rejeicao do play()
+    // deixa de denunciar audio bloqueado: com o grafo no caminho quem denuncia
+    // e o AudioContext suspenso.
+    if (graphNodes && graphNodes.context.state === 'suspended') {
+      this.warnAudioPlaybackBlocked()
+    }
   }
 
   private detachAudio(publicationId: string) {
@@ -1302,7 +1314,12 @@ export class LiveKitTransport implements VoiceTransport {
     const isScreenAudio = Boolean(sdk && source === sdk.Track.Source.ScreenShareAudio)
     const isMuted = isScreenAudio ? false : this.state.deafened
 
-    if (audio) {
+    // Com o grafo vivo o elemento fica mudo de forma incondicional: ele
+    // permanece so como ancora de autoplay e de setSinkId. Volume, mudo e
+    // atenuacao sao responsabilidade exclusiva do PlaybackGraph.
+    if (audio && this.playbackGraph.has(publicationId)) {
+      audio.muted = true
+    } else if (audio) {
       audio.muted = isMuted || this.playbackAttenuated
       audio.volume = this.playbackAttenuated ? 0 : clamp((trackVolume / 100) * (master / 100), 0, 1)
     }

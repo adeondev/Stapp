@@ -18,11 +18,20 @@ class FakeGainNode extends FakeAudioNode {
   gain = { value: 1 }
 }
 
+class FakeCompressorNode extends FakeAudioNode {
+  threshold = { value: 0 }
+  knee = { value: 0 }
+  ratio = { value: 0 }
+  attack = { value: 0 }
+  release = { value: 0 }
+}
+
 class FakeAudioContext {
   state: AudioContextState = 'suspended'
   destination = new FakeAudioNode()
   createMediaStreamSource = vi.fn((_stream: MediaStream) => new FakeAudioNode() as unknown as MediaStreamAudioSourceNode)
   createGain = vi.fn(() => new FakeGainNode() as unknown as GainNode)
+  createDynamicsCompressor = vi.fn(() => new FakeCompressorNode() as unknown as DynamicsCompressorNode)
   resume = vi.fn(async () => {
     this.state = 'running'
   })
@@ -55,7 +64,7 @@ describe('PlaybackGraph', () => {
     })
   })
 
-  it('cria grafo Web Audio conectando source -> gainNode -> destination e retem referencias', () => {
+  it('cria grafo Web Audio conectando source -> gainNode -> limiter -> destination e retem referencias', () => {
     const graph = new PlaybackGraph()
     const track = { kind: 'audio', id: 'track-1', stop: vi.fn() } as unknown as MediaStreamTrack
 
@@ -65,15 +74,66 @@ describe('PlaybackGraph', () => {
     expect(nodes?.context).toBeInstanceOf(FakeAudioContext)
     expect(nodes?.source).toBeDefined()
     expect(nodes?.gainNode).toBeDefined()
+    expect(nodes?.limiter).toBeDefined()
     expect(nodes?.stream).toBeInstanceOf(MediaStream)
 
-    // Verifica conexões do grafo
+    // Verifica conexões do grafo: o limiter fica entre o ganho e a saída, para
+    // pegar o sinal depois de toda amplificação.
     expect(nodes?.source.connect).toHaveBeenCalledWith(nodes?.gainNode)
-    expect(nodes?.gainNode.connect).toHaveBeenCalledWith(nodes?.context.destination)
+    expect(nodes?.gainNode.connect).toHaveBeenCalledWith(nodes?.limiter)
+    expect(nodes?.limiter?.connect).toHaveBeenCalledWith(nodes?.context.destination)
+    expect(nodes?.gainNode.connect).not.toHaveBeenCalledWith(nodes?.context.destination)
 
     // Referências ativas mantidas na instância para blindagem contra GC
     expect(graph.has('pub-1')).toBe(true)
     expect(graph.getTrack('pub-1')).toBe(nodes)
+  })
+
+  it('configura o compressor como limiter e nao como compressor musical', () => {
+    const graph = new PlaybackGraph()
+    const track = { kind: 'audio', id: 'track-limiter', stop: vi.fn() } as unknown as MediaStreamTrack
+    const nodes = graph.attach('pub-limiter', track)!
+
+    // Joelho rigido e razao alta caracterizam um limiter: sem isso o ganho de
+    // 200% entrega distorcao digital dura em vez de teto de amplitude.
+    expect(nodes.limiter?.threshold.value).toBe(-3)
+    expect(nodes.limiter?.knee.value).toBe(0)
+    expect(nodes.limiter?.ratio.value).toBe(20)
+    expect(nodes.limiter?.attack.value).toBeCloseTo(0.003, 4)
+    expect(nodes.limiter?.release.value).toBeCloseTo(0.25, 4)
+  })
+
+  it('liga o ganho direto ao destination onde o motor nao expoe compressor', () => {
+    class ContextSemCompressor extends FakeAudioContext {
+      createDynamicsCompressor = undefined as unknown as FakeAudioContext['createDynamicsCompressor']
+    }
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: ContextSemCompressor,
+    })
+
+    const graph = new PlaybackGraph()
+    const track = { kind: 'audio', id: 'track-sem-limiter', stop: vi.fn() } as unknown as MediaStreamTrack
+    const nodes = graph.attach('pub-sem-limiter', track)!
+
+    // Sem limiter e melhor do que sem audio: o grafo continua completo.
+    expect(nodes.limiter).toBeNull()
+    expect(nodes.gainNode.connect).toHaveBeenCalledWith(nodes.context.destination)
+    expect(graph.has('pub-sem-limiter')).toBe(true)
+  })
+
+  it('denuncia contexto suspenso pela politica de autoplay', () => {
+    const graph = new PlaybackGraph()
+    const track = { kind: 'audio', id: 'track-autoplay', stop: vi.fn() } as unknown as MediaStreamTrack
+    const nodes = graph.attach('pub-autoplay', track)!
+
+    ;(nodes.context as any).state = 'running'
+    expect(graph.hasSuspendedContext()).toBe(false)
+
+    // Com o elemento <audio> mudo, o contexto suspenso e o unico sintoma de
+    // audio bloqueado que sobra para avisar o usuario.
+    ;(nodes.context as any).state = 'suspended'
+    expect(graph.hasSuspendedContext()).toBe(true)
   })
 
   it('permite amplificacao real ate 200% (ganho 2.0) superando limite do HTML5 audio', () => {

@@ -3,21 +3,39 @@
  *
  * Abstração de grafo de reprodução via Web Audio API.
  * Para cada track de áudio recebida, cria um AudioContext contendo um
- * MediaStreamAudioSourceNode conectado a um GainNode, este ligado ao destination.
+ * MediaStreamAudioSourceNode conectado a um GainNode, este ligado a um
+ * DynamicsCompressorNode em modo limiter e só então ao destination.
  *
  * Elementos <audio> do HTML5 limitam estritamente a propriedade .volume a 1.0.
  * O GainNode viabiliza multiplicadores de ganho de até 2.0 (200%), suportando
  * o boost real configurado nos sliders de participantes e volume master.
  *
+ * O limiter existe porque ganho acima de 1.0 satura a saída: sem ele, uma voz
+ * já alta amplificada a 200% estoura em distorção digital dura. Ele é o último
+ * nó antes do destination para pegar o sinal depois de toda amplificação.
+ *
  * Todas as referências aos nós criados são retidas em memória para impedir
  * coleta indevida de lixo pelo garbage collector do motor V8.
  */
+
+/** Limiar em dB a partir do qual o limiter começa a segurar o sinal. */
+const LIMITER_THRESHOLD_DB = -3
+/** Joelho rígido: queremos limiter, não compressão musical suave. */
+const LIMITER_KNEE_DB = 0
+/** Razão alta o bastante para o nó agir como limiter e não como compressor. */
+const LIMITER_RATIO = 20
+/** Ataque curto para capturar transientes de voz sem deixar passar o pico. */
+const LIMITER_ATTACK_S = 0.003
+/** Release moderado para não bombear o volume entre sílabas. */
+const LIMITER_RELEASE_S = 0.25
 
 export interface PlaybackTrackNodes {
   readonly id: string
   readonly context: AudioContext
   readonly source: MediaStreamAudioSourceNode
   readonly gainNode: GainNode
+  /** Ausente apenas onde o motor não expõe createDynamicsCompressor. */
+  readonly limiter: DynamicsCompressorNode | null
   readonly stream: MediaStream
 }
 
@@ -42,8 +60,21 @@ export class PlaybackGraph {
   }
 
   /**
+   * Informa se algum contexto ativo está suspenso pela política de autoplay.
+   * Com o elemento <audio> mudo, o contexto suspenso passa a ser o único
+   * sintoma de áudio bloqueado — quem chama usa isto para avisar o usuário.
+   */
+  hasSuspendedContext(): boolean {
+    for (const nodes of this.tracks.values()) {
+      if (nodes.context.state === 'suspended') return true
+    }
+    return false
+  }
+
+  /**
    * Conecta uma track ou stream de áudio ao grafo de reprodução Web Audio API.
-   * Cria um AudioContext dedicado com MediaStreamAudioSourceNode e GainNode conectado ao destination.
+   * Cria um AudioContext dedicado com MediaStreamAudioSourceNode, GainNode e
+   * limiter encadeados até o destination.
    */
   attach(id: string, trackOrStream: MediaStreamTrack | MediaStream): PlaybackTrackNodes | null {
     this.detach(id)
@@ -65,9 +96,15 @@ export class PlaybackGraph {
       const context = new AudioContext()
       const source = context.createMediaStreamSource(stream)
       const gainNode = context.createGain()
+      const limiter = this.createLimiter(context)
 
       source.connect(gainNode)
-      gainNode.connect(context.destination)
+      if (limiter) {
+        gainNode.connect(limiter)
+        limiter.connect(context.destination)
+      } else {
+        gainNode.connect(context.destination)
+      }
 
       if (this.outputDeviceId && 'setSinkId' in context) {
         void (context as AudioContext & { setSinkId(id: string): Promise<void> })
@@ -84,6 +121,7 @@ export class PlaybackGraph {
         context,
         source,
         gainNode,
+        limiter,
         stream,
       }
 
@@ -107,6 +145,7 @@ export class PlaybackGraph {
     try {
       nodes.source.disconnect()
       nodes.gainNode.disconnect()
+      nodes.limiter?.disconnect()
       void nodes.context.close().catch(() => {})
     } catch {
       // Ignora erros de teardown em nós já encerrados
@@ -195,6 +234,26 @@ export class PlaybackGraph {
   destroy(): void {
     for (const id of [...this.tracks.keys()]) {
       this.detach(id)
+    }
+  }
+
+  /**
+   * Monta o limiter da saída. Devolve null onde o motor não expõe o nó — nesse
+   * caso o grafo segue funcionando ligado direto ao destination, sem proteção
+   * contra clipping, que é melhor do que ficar sem áudio.
+   */
+  private createLimiter(context: AudioContext): DynamicsCompressorNode | null {
+    if (typeof context.createDynamicsCompressor !== 'function') return null
+    try {
+      const limiter = context.createDynamicsCompressor()
+      limiter.threshold.value = LIMITER_THRESHOLD_DB
+      limiter.knee.value = LIMITER_KNEE_DB
+      limiter.ratio.value = LIMITER_RATIO
+      limiter.attack.value = LIMITER_ATTACK_S
+      limiter.release.value = LIMITER_RELEASE_S
+      return limiter
+    } catch {
+      return null
     }
   }
 

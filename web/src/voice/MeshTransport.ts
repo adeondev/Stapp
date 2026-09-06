@@ -235,7 +235,9 @@ export class MeshTransport implements VoiceTransport {
         .catch(() => false)),
     )
     this.applyPlaybackState()
-    return results.every(Boolean)
+    // Elemento mudo sempre resolve o play(); com o grafo no caminho, quem
+    // denuncia bloqueio de autoplay e o AudioContext suspenso.
+    return results.every(Boolean) && !this.playbackGraph.hasSuspendedContext()
   }
 
   async setCameraEnabled(_enabled: boolean) {
@@ -425,7 +427,12 @@ export class MeshTransport implements VoiceTransport {
       const stream = event.streams[0]
       if (!stream) return
       audio.srcObject = stream
-      this.playbackGraph.attach(peerId, stream)
+      // O grafo Web Audio e o elemento tocam a MESMA fonte. Se os dois ficarem
+      // audiveis, sao duas saidas com relogios independentes: eco metalico e
+      // ganho dobrado. O elemento so continua no caminho de audio quando o
+      // grafo nao nasceu (AudioContext indisponivel).
+      const graphAttached = this.playbackGraph.attach(peerId, stream) !== null
+      audio.muted = graphAttached || this.deafened || this.playbackAttenuated
       this.applyPlaybackState(audio, peerId)
       void audio.play().then(() => this.applyPlaybackState(audio, peerId)).catch(() => {})
       this.watch(peerId, stream)
@@ -595,6 +602,13 @@ export class MeshTransport implements VoiceTransport {
       this.playbackGraph.setMuted(peerId, this.deafened)
 
       if (!audio) return
+      // Com o grafo vivo o elemento fica mudo de forma incondicional: ele
+      // permanece so como ancora de autoplay e de setSinkId. Volume, mudo e
+      // atenuacao sao responsabilidade exclusiva do PlaybackGraph.
+      if (this.playbackGraph.has(peerId)) {
+        audio.muted = true
+        return
+      }
       audio.muted = this.deafened || this.playbackAttenuated
       audio.volume = this.playbackAttenuated
         ? 0
