@@ -125,7 +125,7 @@ class StappRnnoiseProcessor extends AudioWorkletProcessor {
     this.gate += (desired - this.gate) * (desired > this.gate ? 0.45 : 0.08)
     const gain = Math.max(0, Math.min(2, this.settings.inputVolume / 100)) * this.gate
     for (let index = 0; index < target.length; index += 1) {
-      target[index] = Math.max(-1, Math.min(1, target[index] * gain))
+      target[index] = softLimit(target[index] * gain)
     }
     return true
   }
@@ -146,6 +146,20 @@ class StappRnnoiseProcessor extends AudioWorkletProcessor {
       message: error instanceof Error ? error.message : String(error),
     })
   }
-}
-
 registerProcessor('stapp-rnnoise', StappRnnoiseProcessor)
+
+/**
+ * Soft-knee limiter suave para evitar clipping rígido metálico.
+ * Mantém o sinal estritamente linear até o joelho (threshold = 0.75) e comprime
+ * suavemente em direção assintótica a ±1.0 usando tanh além do joelho.
+ */
+function softLimit(sample: number): number {
+  const threshold = 0.75
+  if (sample > threshold) {
+    return threshold + (1 - threshold) * Math.tanh((sample - threshold) / (1 - threshold))
+  }
+  if (sample < -threshold) {
+    return -threshold + (1 - threshold) * Math.tanh((sample + threshold) / (1 - threshold))
+  }
+  return sample
+}
