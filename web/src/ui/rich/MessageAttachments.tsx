@@ -53,6 +53,17 @@ function TicketedAttachment({
     }
   }, [error, onLightbox, renewTicket, url])
 
+  const lowerName = attachment.filename.toLowerCase()
+  const image = SAFE_IMAGE_TYPES.has(attachment.content_type)
+  const video = attachment.content_type.startsWith('video/') || /\.(mp4|mov|mkv)$/.test(lowerName)
+  const voice = lowerName.startsWith('voice-note-')
+  const audio = !video && (attachment.content_type.startsWith('audio/') || /\.(webm|ogg|mp3|wav|m4a)$/.test(lowerName))
+
+  const mediaAspectRatio =
+    attachment.width && attachment.height && attachment.width > 0 && attachment.height > 0
+      ? `${attachment.width} / ${attachment.height}`
+      : '16 / 9'
+
   if (error) {
     return (
       <div className="stapp-attachment-error" role="alert">
@@ -68,13 +79,33 @@ function TicketedAttachment({
       </div>
     )
   }
-  if (!url) return <div className="stapp-attachment-loading" role="status">Carregando anexo...</div>
-
-  const lowerName = attachment.filename.toLowerCase()
-  const image = SAFE_IMAGE_TYPES.has(attachment.content_type)
-  const video = attachment.content_type.startsWith('video/') || /\.(mp4|mov|mkv)$/.test(lowerName)
-  const voice = lowerName.startsWith('voice-note-')
-  const audio = !video && (attachment.content_type.startsWith('audio/') || /\.(webm|ogg|mp3|wav|m4a)$/.test(lowerName))
+  if (!url) {
+    if (image) {
+      return (
+        <div
+          className="stapp-attachment-image-wrapper stapp-attachment-image-skeleton"
+          style={{ aspectRatio: mediaAspectRatio }}
+          role="status"
+          aria-label="Carregando imagem..."
+        >
+          <span className="stapp-attachment-loading">Carregando anexo...</span>
+        </div>
+      )
+    }
+    if (video) {
+      return (
+        <div
+          className="stapp-attachment-video-wrapper stapp-attachment-video-skeleton"
+          style={{ aspectRatio: mediaAspectRatio }}
+          role="status"
+          aria-label="Carregando vídeo..."
+        >
+          <span className="stapp-attachment-loading">Carregando anexo...</span>
+        </div>
+      )
+    }
+    return <div className="stapp-attachment-loading" role="status">Carregando anexo...</div>
+  }
 
   if (audio) {
     return (
@@ -90,7 +121,7 @@ function TicketedAttachment({
   }
   if (video) {
     return (
-      <div className="stapp-attachment-video-wrapper">
+      <div className="stapp-attachment-video-wrapper" style={{ aspectRatio: mediaAspectRatio }}>
         <video
           className="stapp-attachment-video"
           src={url}
@@ -104,7 +135,12 @@ function TicketedAttachment({
   }
   if (image) {
     return (
-      <button type="button" className="stapp-attachment-image-wrapper" onClick={handleOpenLightbox}>
+      <button
+        type="button"
+        className="stapp-attachment-image-wrapper"
+        style={{ aspectRatio: mediaAspectRatio }}
+        onClick={handleOpenLightbox}
+      >
         <img
           src={url}
           alt={attachment.description || attachment.filename}

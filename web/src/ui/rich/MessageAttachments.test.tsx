@@ -34,6 +34,48 @@ describe('MessageAttachments', () => {
     expect(img.getAttribute('alt')).toBe('foto.png')
   })
 
+  it('reserva espaco por proporcao de aspecto da imagem', () => {
+    const { container } = render(
+      <MessageAttachments
+        attachments={[
+          {
+            id: 'att-aspect',
+            filename: 'foto.png',
+            content_type: 'image/png',
+            size_bytes: 1024 * 50,
+            width: 1200,
+            height: 800,
+            url: 'https://stapp.chat/files/foto.png',
+          },
+        ]}
+      />
+    )
+
+    const wrapper = container.querySelector('.stapp-attachment-image-wrapper') as HTMLElement
+    expect(wrapper).toBeTruthy()
+    expect(wrapper.style.aspectRatio).toBe('1200 / 800')
+  })
+
+  it('aplica proporcao padrao 16 / 9 quando nao ha metadados de dimensao', () => {
+    const { container } = render(
+      <MessageAttachments
+        attachments={[
+          {
+            id: 'att-no-dim',
+            filename: 'foto.png',
+            content_type: 'image/png',
+            size_bytes: 1024 * 50,
+            url: 'https://stapp.chat/files/foto.png',
+          },
+        ]}
+      />
+    )
+
+    const wrapper = container.querySelector('.stapp-attachment-image-wrapper') as HTMLElement
+    expect(wrapper).toBeTruthy()
+    expect(wrapper.style.aspectRatio).toBe('16 / 9')
+  })
+
   it('renderiza anexo de vídeo com player, e não como arquivo para baixar', () => {
     const { container } = render(
       <MessageAttachments
