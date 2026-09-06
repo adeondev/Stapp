@@ -63,6 +63,44 @@ describe('Zustand Atomic Stores', () => {
     expect(Object.keys(useChatStore.getState().messages)).toHaveLength(0)
   })
 
+  it('centraliza mudo e ensurdecer garantindo que ensurdecer forca mutar e preserva preferencias', () => {
+    const store = useVoiceStore.getState()
+    expect(store.muted).toBe(false)
+    expect(store.deafened).toBe(false)
+
+    // Alternar mudo
+    store.toggleMute()
+    expect(useVoiceStore.getState().muted).toBe(true)
+    expect(useVoiceStore.getState().deafened).toBe(false)
+
+    store.toggleMute()
+    expect(useVoiceStore.getState().muted).toBe(false)
+    expect(useVoiceStore.getState().deafened).toBe(false)
+
+    // Ensurdecer forca mudo
+    store.toggleDeafen()
+    expect(useVoiceStore.getState().deafened).toBe(true)
+    expect(useVoiceStore.getState().muted).toBe(true)
+
+    // Desmutar desfaz o ensurdecimento
+    store.toggleMute()
+    expect(useVoiceStore.getState().muted).toBe(false)
+    expect(useVoiceStore.getState().deafened).toBe(false)
+
+    // Sincroniza com chamada ativa quando existente
+    useVoiceStore.getState().setCall({ channel: 'c-voz', muted: false, deafened: false })
+    expect(useVoiceStore.getState().call?.muted).toBe(false)
+
+    useVoiceStore.getState().toggleMute()
+    expect(useVoiceStore.getState().muted).toBe(true)
+    expect(useVoiceStore.getState().call?.muted).toBe(true)
+
+    // resetVoice limpa dados da chamada mas mantem preferencias de mudo
+    useVoiceStore.getState().resetVoice()
+    expect(useVoiceStore.getState().call).toBeNull()
+    expect(useVoiceStore.getState().muted).toBe(true)
+  })
+
   it('gerencia chat e mensagens diretas no chatStore', () => {
     dispatchServerMessage({
       t: 'chat.history',

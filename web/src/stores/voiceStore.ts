@@ -11,11 +11,17 @@ export interface CallState {
 
 export interface VoiceState {
   call: CallState | null
+  muted: boolean
+  deafened: boolean
   voiceSnapshot: VoiceSnapshot
   voiceConfig: VoiceConfig | null
   voicePeers: VoicePeer[]
   speakingPeers: ReadonlySet<PeerId>
 
+  toggleMute: () => void
+  toggleDeafen: () => void
+  setMuted: (muted: boolean) => void
+  setDeafened: (deafened: boolean) => void
   setSpeaking: (peerId: PeerId, isSpeaking: boolean) => void
   setCall: (callOrUpdater: CallState | null | ((prev: CallState | null) => CallState | null)) => void
   setVoiceSnapshot: (snapshot: VoiceSnapshot) => void
@@ -27,6 +33,8 @@ export interface VoiceState {
 
 const initialVoiceState = {
   call: null,
+  muted: false,
+  deafened: false,
   voiceSnapshot: emptySnapshot(),
   voiceConfig: null,
   voicePeers: [],
@@ -35,6 +43,54 @@ const initialVoiceState = {
 
 export const useVoiceStore = create<VoiceState>((set, get) => ({
   ...initialVoiceState,
+
+  toggleMute: () => {
+    set((state) => {
+      const nextMuted = !state.muted
+      // Desmutar enquanto ensurdecido tambem desfaz o ensurdecimento
+      const nextDeafened = nextMuted ? state.deafened : false
+      return {
+        muted: nextMuted,
+        deafened: nextDeafened,
+        call: state.call ? { ...state.call, muted: nextMuted, deafened: nextDeafened } : null,
+      }
+    })
+  },
+
+  toggleDeafen: () => {
+    set((state) => {
+      const nextDeafened = !state.deafened
+      // Invariante: ensurdecer forca mutar o microfone automaticamente
+      const nextMuted = nextDeafened ? true : state.muted
+      return {
+        deafened: nextDeafened,
+        muted: nextMuted,
+        call: state.call ? { ...state.call, deafened: nextDeafened, muted: nextMuted } : null,
+      }
+    })
+  },
+
+  setMuted: (muted) => {
+    set((state) => {
+      const nextDeafened = muted ? state.deafened : false
+      return {
+        muted,
+        deafened: nextDeafened,
+        call: state.call ? { ...state.call, muted, deafened: nextDeafened } : null,
+      }
+    })
+  },
+
+  setDeafened: (deafened) => {
+    set((state) => {
+      const nextMuted = deafened ? true : state.muted
+      return {
+        deafened,
+        muted: nextMuted,
+        call: state.call ? { ...state.call, deafened, muted: nextMuted } : null,
+      }
+    })
+  },
 
   setSpeaking: (peerId, isSpeaking) => {
     const current = get().speakingPeers
@@ -49,9 +105,14 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
   },
 
   setCall: (callOrUpdater) => {
-    set((state) => ({
-      call: typeof callOrUpdater === 'function' ? callOrUpdater(state.call) : callOrUpdater,
-    }))
+    set((state) => {
+      const nextCall = typeof callOrUpdater === 'function' ? callOrUpdater(state.call) : callOrUpdater
+      return {
+        call: nextCall,
+        muted: nextCall ? nextCall.muted : state.muted,
+        deafened: nextCall ? nextCall.deafened : state.deafened,
+      }
+    })
   },
 
   setVoiceSnapshot: (voiceSnapshot) => set({ voiceSnapshot }),
@@ -129,5 +190,10 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
     }
   },
 
-  resetVoice: () => set(initialVoiceState),
+  resetVoice: () =>
+    set((state) => ({
+      ...initialVoiceState,
+      muted: state.muted,
+      deafened: state.deafened,
+    })),
 }))
