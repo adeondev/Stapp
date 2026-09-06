@@ -692,7 +692,8 @@ fn is_window_valid(window_id: u32) -> bool {
         fn IsWindow(hwnd: *mut std::ffi::c_void) -> i32;
     }
     // SAFETY: IsWindow receives an HWND pointer-sized value and returns 0 if invalid.
-    unsafe { IsWindow(window_id as usize as *mut std::ffi::c_void) != 0 }
+    // Em Windows 64-bit, handles HWND de 32-bit precisam de sign-extension (i32 -> isize).
+    unsafe { IsWindow(window_id as i32 as isize as *mut std::ffi::c_void) != 0 }
 }
 
 #[cfg(not(windows))]
