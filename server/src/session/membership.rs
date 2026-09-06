@@ -4,6 +4,7 @@
 
 use super::{AppState, SessionEntry};
 use crate::protocol::{PeerId, VoicePeer};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -90,7 +91,7 @@ impl AppState {
         peer_id: &PeerId,
         channel: &str,
         max_peers: usize,
-    ) -> Result<(VoiceJoin, Option<VoiceTakeover>), VoiceJoinError> {
+    ) -> Result<(VoiceJoin, Vec<VoiceTakeover>), VoiceJoinError> {
         let mut sessions = self.sessions.write().await;
 
         let user_id = sessions
@@ -98,27 +99,8 @@ impl AppState {
             .map(|entry| entry.user_id.clone())
             .ok_or(VoiceJoinError::PeerNotFound)?;
 
-        // Se a mesma conta ja tiver sessao em voz, executa takeover desalojando a anterior
-        let mut takeover = None;
-        for (id, entry) in sessions.iter_mut() {
-            if id != peer_id && entry.user_id == user_id {
-                if let Some(voice) = entry.voice.take() {
-                    takeover = Some(VoiceTakeover {
-                        old_peer_id: id.clone(),
-                        channel: voice.channel,
-                        published: true,
-                    });
-                    break;
-                } else if let Some(pending) = entry.pending_voice.take() {
-                    takeover = Some(VoiceTakeover {
-                        old_peer_id: id.clone(),
-                        channel: pending.channel,
-                        published: false,
-                    });
-                    break;
-                }
-            }
-        }
+        // Se a mesma conta ja tiver sessao em voz, executa takeover desalojando as anteriores
+        let takeovers = dislodge_account(&mut sessions, peer_id, &user_id);
 
         let occupied = sessions
             .iter()
@@ -147,7 +129,7 @@ impl AppState {
         });
         let peer = voice_peer(peer_id, entry).expect("membership acabou de ser criada");
 
-        Ok((VoiceJoin { roster, peer }, takeover))
+        Ok((VoiceJoin { roster, peer }, takeovers))
     }
 
     /// Reserva uma vaga enquanto o cliente abre a conexao com o SFU. A pessoa
@@ -159,7 +141,7 @@ impl AppState {
         channel: &str,
         max_peers: usize,
         ttl: Duration,
-    ) -> Result<Option<VoiceTakeover>, VoiceJoinError> {
+    ) -> Result<Vec<VoiceTakeover>, VoiceJoinError> {
         let mut sessions = self.sessions.write().await;
         let now = Instant::now();
         for entry in sessions.values_mut() {
@@ -177,27 +159,8 @@ impl AppState {
             .map(|entry| entry.user_id.clone())
             .ok_or(VoiceJoinError::PeerNotFound)?;
 
-        // Takeover: se a mesma conta ja tiver sessao em voz ou reserva pendente, desaloja a anterior
-        let mut takeover = None;
-        for (id, entry) in sessions.iter_mut() {
-            if id != peer_id && entry.user_id == user_id {
-                if let Some(voice) = entry.voice.take() {
-                    takeover = Some(VoiceTakeover {
-                        old_peer_id: id.clone(),
-                        channel: voice.channel,
-                        published: true,
-                    });
-                    break;
-                } else if let Some(pending) = entry.pending_voice.take() {
-                    takeover = Some(VoiceTakeover {
-                        old_peer_id: id.clone(),
-                        channel: pending.channel,
-                        published: false,
-                    });
-                    break;
-                }
-            }
-        }
+        // Takeover: se a mesma conta ja tiver sessao em voz ou reserva pendente, desaloja as anteriores
+        let takeovers = dislodge_account(&mut sessions, peer_id, &user_id);
 
         let occupied = sessions
             .iter()
@@ -221,7 +184,7 @@ impl AppState {
             channel: channel.to_string(),
             expires_at: now + ttl,
         });
-        Ok(takeover)
+        Ok(takeovers)
     }
 
     pub async fn confirm_voice(
@@ -334,6 +297,47 @@ impl SessionEntry {
             .as_ref()
             .is_some_and(|voice| voice.channel == channel)
     }
+}
+
+/// Tira da voz **todas** as sessoes da mesma conta menos a que esta chegando.
+///
+/// Parar na primeira nao basta: um flapping de rede (Wi-Fi -> 4G -> VPN) dentro
+/// dos 20s de grace period deixa varias sessoes da conta ainda segurando vaga.
+/// A que sobrasse continuaria contando em `occupied` e devolveria `ChannelFull`
+/// falso numa conversa 1:1, ejetando quem so estava reconectando.
+///
+/// A vaga sai aqui; quem avisa os outros e `services::voice::handle_takeover`,
+/// um evento por sessao desalojada. A conexao e a presenca de chat dessas
+/// sessoes continuam de pe — takeover devolve microfone, nao encerra sessao.
+fn dislodge_account(
+    sessions: &mut HashMap<PeerId, SessionEntry>,
+    peer_id: &PeerId,
+    user_id: &str,
+) -> Vec<VoiceTakeover> {
+    let mut takeovers = Vec::new();
+    for (id, entry) in sessions.iter_mut() {
+        if id == peer_id || entry.user_id != user_id {
+            continue;
+        }
+        // Os dois slots sao limpos mesmo quando so um vira evento: uma reserva
+        // pendente esquecida ao lado de uma filiacao ativa voltaria a contar.
+        let voice = entry.voice.take();
+        let pending = entry.pending_voice.take();
+        if let Some(voice) = voice {
+            takeovers.push(VoiceTakeover {
+                old_peer_id: id.clone(),
+                channel: voice.channel,
+                published: true,
+            });
+        } else if let Some(pending) = pending {
+            takeovers.push(VoiceTakeover {
+                old_peer_id: id.clone(),
+                channel: pending.channel,
+                published: false,
+            });
+        }
+    }
+    takeovers
 }
 
 fn voice_peer(peer_id: &PeerId, session: &SessionEntry) -> Option<VoicePeer> {

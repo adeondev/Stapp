@@ -98,9 +98,9 @@ pub async fn join(state: &AppState, peer_id: &PeerId, channel: &str) {
     }
 
     match state.join_voice(peer_id, channel, max_peers).await {
-        Ok((joined, takeover)) => {
-            if let Some(takeover) = takeover {
-                handle_takeover(state, &takeover).await;
+        Ok((joined, takeovers)) => {
+            for takeover in &takeovers {
+                handle_takeover(state, takeover).await;
             }
             publish_join(state, peer_id, channel, joined).await;
         }
@@ -191,7 +191,7 @@ async fn join_livekit(state: &AppState, peer_id: &PeerId, channel: &str, max_pee
         return;
     }
 
-    let takeover = match state
+    let takeovers = match state
         .reserve_voice(peer_id, channel, max_peers, livekit::RESERVATION_TTL)
         .await
     {
@@ -199,8 +199,8 @@ async fn join_livekit(state: &AppState, peer_id: &PeerId, channel: &str, max_pee
         Err(error) => return deny_join_error(state, peer_id, channel, max_peers, error),
     };
 
-    if let Some(takeover) = takeover {
-        handle_takeover(state, &takeover).await;
+    for takeover in &takeovers {
+        handle_takeover(state, takeover).await;
     }
 
     match livekit::issue_grant(state, peer_id, channel).await {

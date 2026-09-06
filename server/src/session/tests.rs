@@ -80,8 +80,8 @@ async fn keeps_one_voice_session_per_account() {
         .await
         .unwrap();
     assert_eq!(segundo.peer.peer_id, "two");
-    assert!(takeover.is_some());
-    let t = takeover.unwrap();
+    assert_eq!(takeover.len(), 1);
+    let t = &takeover[0];
     assert_eq!(t.old_peer_id, "one");
     assert_eq!(t.channel, "voz-a");
     assert!(t.published);
@@ -266,8 +266,8 @@ async fn reserve_voice_executa_takeover_de_sessao_fantasma() {
         )
         .await
         .unwrap();
-    assert!(takeover.is_some());
-    let t = takeover.unwrap();
+    assert_eq!(takeover.len(), 1);
+    let t = &takeover[0];
     assert_eq!(t.old_peer_id, "zombie");
     assert_eq!(t.channel, "voz-geral");
     assert!(t.published);
@@ -359,3 +359,48 @@ async fn sessoes_desconectadas_nao_impedem_reconexao_por_limite_de_sessoes() {
     assert!(server.state.identity_of("sess3").await.is_some());
 }
 
+
+#[tokio::test]
+async fn reconexoes_em_sequencia_nunca_deixam_duas_vagas_para_a_mesma_conta() {
+    use std::time::Duration;
+    // Canal 1:1: duas vagas, do jeito que `DIRECT_MAX_PEERS` trata uma conversa.
+    let server = TestServer::new(10, 2).await;
+    let daniel = server.account("Daniel").await;
+    let alice = server.account("Alice").await;
+
+    server.state.register_session("alice", &alice).await.unwrap();
+    server.state.join_voice(&"alice".into(), "dm:a:b", 2).await.unwrap();
+
+    // Flapping de rede: Wi-Fi -> 4G -> VPN. Cada queda deixa para tras uma sessao
+    // que ainda segura a vaga, e a reconexao chega com peer_id novo.
+    let mut anterior: Option<String> = None;
+    for peer in ["wifi", "quatro_g", "vpn"] {
+        let peer = peer.to_string();
+        server.state.register_session(&peer, &daniel).await.unwrap();
+        let takeovers = server
+            .state
+            .reserve_voice(&peer, "dm:a:b", 2, Duration::from_secs(15))
+            .await
+            .expect("reconexao da propria conta nao pode ser recusada com ChannelFull");
+        server.state.confirm_voice(&peer, "dm:a:b").await.unwrap();
+
+        match &anterior {
+            // A primeira entrada nao desaloja ninguem.
+            None => assert!(takeovers.is_empty()),
+            // Cada reconexao seguinte desaloja a zumbi anterior — e so ela.
+            Some(zumbi) => {
+                assert_eq!(takeovers.len(), 1);
+                assert_eq!(&takeovers[0].old_peer_id, zumbi);
+                assert!(takeovers[0].published);
+            }
+        }
+
+        // O canal nunca passa de duas vagas: Alice e a sessao viva do Daniel.
+        let mut na_call = server.state.peers_in_voice("dm:a:b").await;
+        na_call.sort();
+        assert_eq!(na_call, vec!["alice".to_string(), peer.clone()]);
+
+        server.state.mark_session_disconnected(&peer).await;
+        anterior = Some(peer);
+    }
+}
