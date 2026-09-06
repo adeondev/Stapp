@@ -45,6 +45,7 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
     let disposed = false
     let stop: (() => void) | undefined
     setTestError(null)
+    transport.setPlaybackAttenuated?.(true)
     void transport.startMicrophoneTest(setLevel).then((cleanup) => {
       if (disposed) {
         cleanup()
@@ -54,6 +55,7 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
     }).catch((err) => {
       if (disposed) return
       setTesting(false)
+      transport.setPlaybackAttenuated?.(false)
       const msg = err instanceof DOMException && err.name === 'NotAllowedError'
         ? 'Permissão de microfone negada pelo navegador.'
         : (err instanceof Error ? err.message : 'Não foi possível iniciar o teste de microfone.')
@@ -62,6 +64,7 @@ export function VoiceSettings({ open, transport, snapshot, onClose, onPreference
     return () => {
       disposed = true
       stop?.()
+      transport.setPlaybackAttenuated?.(false)
     }
   }, [testing, transport])
 

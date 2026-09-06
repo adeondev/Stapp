@@ -1,6 +1,6 @@
 [package]
 name = "stapp-desktop"
-version = "0.1.0-beta.5"
+version = "0.1.0-beta.6"
 description = "Cliente desktop privado do Stapp"
 authors = ["Stapp"]
 license = ""
@@ -27,12 +27,20 @@ tauri-plugin-log = "2"
 tauri-plugin-global-shortcut = "2.3.1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-opener = "2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 xcap = "0.9.8"
 url = "2"
 time = "0.3"
+rayon = "1.10"
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "0.38.2"
 wasapi = "0.23"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+] }
+

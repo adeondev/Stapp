@@ -11,7 +11,8 @@ use std::{
 };
 #[cfg(any(windows, test))]
 use std::collections::VecDeque;
-use tauri::ipc::Channel;
+use tauri::ipc::{Channel, Response};
+
 
 #[cfg(windows)]
 use wasapi::{
@@ -57,13 +58,6 @@ enum CaptureSource {
 #[derive(Serialize, Clone)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum CaptureEvent {
-    Frame {
-        capture_id: u32,
-        width: u32,
-        height: u32,
-        #[serde(with = "serde_bytes")]
-        frame: Vec<u8>,
-    },
     AudioFormat {
         capture_id: u32,
         sample_rate: u32,
@@ -186,6 +180,7 @@ pub fn start_screen_capture(
     fps: u32,
     include_audio: bool,
     channel: Channel<CaptureEvent>,
+    frame_channel: Channel<Response>,
 ) -> Result<u32, String> {
     let _ = include_audio;
     let locator = parse_source_id(&source_id)?;
@@ -199,13 +194,14 @@ pub fn start_screen_capture(
     let width = max_width.clamp(320, 3840);
     let height = max_height.clamp(180, 2160);
     // PROTOTYPE: JPEG por IPC mantem a captura dentro da casca Tauri e
-    // elimina o seletor do navegador, mas fica limitado a 30 FPS. O
-    // invariante e nunca abrir o picker do WebView2 no executavel.
+    // elimina o seletor do navegador. A taxa e limitada pelo preset (ate 60 FPS no modo fluido).
+    // O invariante e nunca abrir o picker do WebView2 no executavel.
     // FUTURE: trocar somente este produtor por frames nativos/WebCodecs;
     // a interface MediaStream consumida pelo VoiceTransport permanece.
-    let frames_per_second = fps.clamp(5, 30);
+    let frames_per_second = fps.clamp(5, 60);
 
     let video_channel = channel.clone();
+    let video_frame_channel = frame_channel.clone();
     let worker = thread::Builder::new()
         .name(format!("stapp-screen-capture-{capture_id}"))
         .spawn(move || {
@@ -216,6 +212,7 @@ pub fn start_screen_capture(
                 height,
                 frames_per_second,
                 video_channel,
+                video_frame_channel,
                 worker_stop,
             )
         })
@@ -278,6 +275,7 @@ fn capture_loop(
     max_height: u32,
     fps: u32,
     channel: Channel<CaptureEvent>,
+    frame_channel: Channel<Response>,
     stop: Arc<AtomicBool>,
 ) {
     let window_id = match locator {
@@ -305,12 +303,16 @@ fn capture_loop(
                 break;
             }
         }
+        let (origin_x, origin_y) = match &source {
+            CaptureSource::Screen(screen) => (screen.x().unwrap_or(0), screen.y().unwrap_or(0)),
+            CaptureSource::Window(window) => (window.x().unwrap_or(0), window.y().unwrap_or(0)),
+        };
         let started = Instant::now();
         let image = match &source {
             CaptureSource::Screen(screen) => screen.capture_image(),
             CaptureSource::Window(window) => window.capture_image(),
         };
-        let image = match image {
+        let mut image = match image {
             Ok(image) => {
                 consecutive_failures = 0;
                 image
@@ -338,41 +340,27 @@ fn capture_loop(
             }
         };
 
+        overlay_mouse_cursor(&mut image, origin_x, origin_y);
+
         let (width, height) = image.dimensions();
         let (target_width, target_height) = scale_to_fit(width, height, max_width, max_height);
         let image = if (width, height) == (target_width, target_height) {
             image
         } else {
-            image::imageops::resize(
-                &image,
-                target_width,
-                target_height,
-                image::imageops::FilterType::Nearest,
-            )
+            parallel_resize_rgba(&image, target_width, target_height)
         };
-        let rgb = image::DynamicImage::ImageRgba8(image).into_rgb8();
-        let mut jpeg = Vec::with_capacity((target_width * target_height) as usize);
-        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 72)
-            .encode(
-                rgb.as_raw(),
-                target_width,
-                target_height,
-                image::ExtendedColorType::Rgb8,
-            )
+        let mut packet = Vec::with_capacity(12 + (target_width * target_height) as usize);
+        packet.extend_from_slice(&target_width.to_le_bytes());
+        packet.extend_from_slice(&target_height.to_le_bytes());
+        packet.extend_from_slice(&capture_id.to_le_bytes());
+        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut packet, 72)
+            .encode_image(&image)
             .is_err()
         {
             continue;
         }
 
-        if channel
-            .send(CaptureEvent::Frame {
-                capture_id,
-                width: target_width,
-                height: target_height,
-                frame: jpeg,
-            })
-            .is_err()
-        {
+        if frame_channel.send(Response::new(packet)).is_err() {
             break;
         }
 
@@ -384,6 +372,334 @@ fn capture_loop(
         }
     }
 }
+
+fn parallel_resize_rgba(
+    src: &image::RgbaImage,
+    target_width: u32,
+    target_height: u32,
+) -> image::RgbaImage {
+    use rayon::prelude::*;
+
+    let (src_width, src_height) = src.dimensions();
+    if target_width == 0 || target_height == 0 || src_width == 0 || src_height == 0 {
+        return image::RgbaImage::new(target_width, target_height);
+    }
+    let src_raw = src.as_raw();
+    let mut dest_raw = vec![0u8; (target_width as usize) * (target_height as usize) * 4];
+
+    dest_raw
+        .par_chunks_exact_mut((target_width as usize) * 4)
+        .enumerate()
+        .for_each(|(target_y, row)| {
+            let src_y = ((target_y as u64 * src_height as u64) / target_height as u64) as u32;
+            let src_row_offset = (src_y as usize) * (src_width as usize) * 4;
+            let src_row = &src_raw[src_row_offset..src_row_offset + (src_width as usize) * 4];
+
+            for target_x in 0..target_width {
+                let src_x = ((target_x as u64 * src_width as u64) / target_width as u64) as usize;
+                let src_idx = src_x * 4;
+                let dst_idx = (target_x as usize) * 4;
+                row[dst_idx..dst_idx + 4].copy_from_slice(&src_row[src_idx..src_idx + 4]);
+            }
+        });
+
+    image::RgbaImage::from_raw(target_width, target_height, dest_raw)
+        .unwrap_or_else(|| image::RgbaImage::new(target_width, target_height))
+}
+
+#[cfg(windows)]
+fn overlay_mouse_cursor(image: &mut image::RgbaImage, origin_x: i32, origin_y: i32) {
+    use windows::Win32::{
+        Graphics::Gdi::{
+            CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDIBits, GetObjectW,
+            SelectObject, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC,
+            HGDIOBJ,
+        },
+        UI::WindowsAndMessaging::{
+            DrawIconEx, GetCursorInfo, GetIconInfo, GetSystemMetrics, CURSORINFO, CURSOR_SHOWING,
+            DI_NORMAL, HICON, ICONINFO, SM_CXCURSOR, SM_CYCURSOR,
+        },
+    };
+
+    let mut ci = CURSORINFO {
+        cbSize: std::mem::size_of::<CURSORINFO>() as u32,
+        ..Default::default()
+    };
+    if unsafe { GetCursorInfo(&mut ci) }.is_err() {
+        return;
+    }
+    if (ci.flags.0 & CURSOR_SHOWING.0) == 0 || ci.hCursor.is_invalid() {
+        return;
+    }
+
+    let mut ii = ICONINFO::default();
+    if unsafe { GetIconInfo(HICON(ci.hCursor.0), &mut ii) }.is_err() {
+        return;
+    }
+
+    struct IconInfoGuard(ICONINFO);
+    impl Drop for IconInfoGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if !self.0.hbmMask.is_invalid() {
+                    let _ = DeleteObject(HGDIOBJ(self.0.hbmMask.0));
+                }
+                if !self.0.hbmColor.is_invalid() {
+                    let _ = DeleteObject(HGDIOBJ(self.0.hbmColor.0));
+                }
+            }
+        }
+    }
+    let _guard = IconInfoGuard(ii);
+
+    let hotspot_x = ii.xHotspot as i32;
+    let hotspot_y = ii.yHotspot as i32;
+
+    let mut cursor_width = unsafe { GetSystemMetrics(SM_CXCURSOR) }.max(32);
+    let mut cursor_height = unsafe { GetSystemMetrics(SM_CYCURSOR) }.max(32);
+
+    if !ii.hbmColor.is_invalid() {
+        let mut bm = BITMAP::default();
+        if unsafe {
+            GetObjectW(
+                HGDIOBJ(ii.hbmColor.0),
+                std::mem::size_of::<BITMAP>() as i32,
+                Some(&mut bm as *mut _ as *mut _),
+            )
+        } > 0
+        {
+            if bm.bmWidth > 0 && bm.bmHeight > 0 {
+                cursor_width = bm.bmWidth;
+                cursor_height = bm.bmHeight;
+            }
+        }
+    } else if !ii.hbmMask.is_invalid() {
+        let mut bm = BITMAP::default();
+        if unsafe {
+            GetObjectW(
+                HGDIOBJ(ii.hbmMask.0),
+                std::mem::size_of::<BITMAP>() as i32,
+                Some(&mut bm as *mut _ as *mut _),
+            )
+        } > 0
+        {
+            if bm.bmWidth > 0 && bm.bmHeight > 0 {
+                cursor_width = bm.bmWidth;
+                cursor_height = bm.bmHeight / 2;
+            }
+        }
+    }
+
+    let image_width = image.width() as i32;
+    let image_height = image.height() as i32;
+
+    let cursor_x = ci.ptScreenPos.x - origin_x;
+    let cursor_y = ci.ptScreenPos.y - origin_y;
+
+    let draw_x = cursor_x - hotspot_x;
+    let draw_y = cursor_y - hotspot_y;
+
+    if draw_x + cursor_width <= 0
+        || draw_x >= image_width
+        || draw_y + cursor_height <= 0
+        || draw_y >= image_height
+    {
+        return;
+    }
+
+    let hdc = unsafe { CreateCompatibleDC(None) };
+    if hdc.is_invalid() {
+        return;
+    }
+
+    struct DcGuard(HDC);
+    impl Drop for DcGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = DeleteDC(self.0);
+            }
+        }
+    }
+    let _dc_guard = DcGuard(hdc);
+
+    let bmi = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: cursor_width,
+            biHeight: -cursor_height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+
+    let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
+    let hbitmap = unsafe {
+        CreateDIBSection(
+            Some(hdc),
+            &bmi,
+            DIB_RGB_COLORS,
+            &mut bits_ptr,
+            None,
+            0,
+        )
+    };
+
+    let hbitmap = match hbitmap {
+        Ok(bm) if !bm.is_invalid() => bm,
+        _ => return,
+    };
+
+    struct BitmapGuard(HDC, HBITMAP, HGDIOBJ);
+    impl Drop for BitmapGuard {
+        fn drop(&mut self) {
+            unsafe {
+                let _ = SelectObject(self.0, self.2);
+                let _ = DeleteObject(HGDIOBJ(self.1.0));
+            }
+        }
+    }
+
+    let old_obj = unsafe { SelectObject(hdc, HGDIOBJ(hbitmap.0)) };
+    let _bm_guard = BitmapGuard(hdc, hbitmap, old_obj);
+
+    if bits_ptr.is_null() {
+        return;
+    }
+
+    let num_pixels = (cursor_width as usize) * (cursor_height as usize);
+    unsafe {
+        std::ptr::write_bytes(bits_ptr as *mut u8, 0, num_pixels * 4);
+    }
+
+    let drawn = unsafe {
+        DrawIconEx(
+            hdc,
+            0,
+            0,
+            HICON(ci.hCursor.0),
+            cursor_width,
+            cursor_height,
+            0,
+            None,
+            DI_NORMAL,
+        )
+    };
+    if drawn.is_err() {
+        return;
+    }
+
+    let dib_slice = unsafe { std::slice::from_raw_parts(bits_ptr as *const u8, num_pixels * 4) };
+
+    // Check if alpha channel was written
+    let mut has_alpha = false;
+    for i in 0..num_pixels {
+        if dib_slice[i * 4 + 3] > 0 {
+            has_alpha = true;
+            break;
+        }
+    }
+
+    // If no alpha was written (e.g. monochrome or legacy color cursor), use hbmMask as alpha/transparency guide
+    let mask_bits = if !has_alpha && !ii.hbmMask.is_invalid() {
+        let mut mask_data = vec![0u8; num_pixels * 4];
+        let mut mask_bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: cursor_width,
+                biHeight: -cursor_height,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let lines = unsafe {
+            GetDIBits(
+                hdc,
+                ii.hbmMask,
+                0,
+                cursor_height as u32,
+                Some(mask_data.as_mut_ptr() as *mut _),
+                &mut mask_bmi,
+                DIB_RGB_COLORS,
+            )
+        };
+        if lines > 0 {
+            Some(mask_data)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    for cy in 0..cursor_height {
+        let dst_y = draw_y + cy;
+        if dst_y < 0 || dst_y >= image_height {
+            continue;
+        }
+
+        for cx in 0..cursor_width {
+            let dst_x = draw_x + cx;
+            if dst_x < 0 || dst_x >= image_width {
+                continue;
+            }
+
+            let p_idx = ((cy as usize) * (cursor_width as usize) + (cx as usize)) * 4;
+            let b = dib_slice[p_idx];
+            let g = dib_slice[p_idx + 1];
+            let r = dib_slice[p_idx + 2];
+            let mut a = dib_slice[p_idx + 3];
+
+            let mut is_xor = false;
+
+            if !has_alpha {
+                if let Some(ref mask) = mask_bits {
+                    let mask_val = mask[p_idx];
+                    if mask_val == 0 {
+                        // AND mask is 0 -> pixel is opaque
+                        a = 255;
+                    } else if r > 0 || g > 0 || b > 0 {
+                        // AND mask is 1 and color is non-zero -> XOR pixel (inverting cursor)
+                        is_xor = true;
+                        a = 0;
+                    } else {
+                        // AND mask is 1 and color is 0 -> transparent
+                        a = 0;
+                    }
+                } else if r > 0 || g > 0 || b > 0 {
+                    a = 255;
+                }
+            }
+
+            if is_xor {
+                let pixel = image.get_pixel_mut(dst_x as u32, dst_y as u32);
+                pixel[0] ^= 255;
+                pixel[1] ^= 255;
+                pixel[2] ^= 255;
+            } else if a == 255 {
+                let pixel = image.get_pixel_mut(dst_x as u32, dst_y as u32);
+                pixel[0] = r;
+                pixel[1] = g;
+                pixel[2] = b;
+            } else if a > 0 {
+                let pixel = image.get_pixel_mut(dst_x as u32, dst_y as u32);
+                let alpha = a as u32;
+                let inv_alpha = 255 - alpha;
+                pixel[0] = ((r as u32 * alpha + pixel[0] as u32 * inv_alpha) / 255) as u8;
+                pixel[1] = ((g as u32 * alpha + pixel[1] as u32 * inv_alpha) / 255) as u8;
+                pixel[2] = ((b as u32 * alpha + pixel[2] as u32 * inv_alpha) / 255) as u8;
+            }
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn overlay_mouse_cursor(_image: &mut image::RgbaImage, _origin_x: i32, _origin_y: i32) {}
 
 #[cfg(windows)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

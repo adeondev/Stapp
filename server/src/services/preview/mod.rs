@@ -26,6 +26,8 @@ pub async fn scrape_metadata(target_url: &str) -> Option<UrlPreview> {
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
         .user_agent("StappBot/1.0 (+https://stapp.chat)")
+        // Mesma politica do cliente do crawler: cada salto passa por validacao.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .ok()?;
     scrape_metadata_with_client(&client, target_url).await
@@ -37,13 +39,39 @@ pub async fn scrape_metadata_with_client(client: &Client, target_url: &str) -> O
         return None;
     }
 
-    let response = client.get(target_url).send().await.ok()?;
-    if !response.status().is_success() {
+    let (
+        initial_embed_url,
+        initial_provider,
+        initial_width,
+        initial_height,
+        initial_image,
+        initial_site_name,
+    ) = crawler::extract_video_metadata(target_url, None);
+
+    let response = fetch_validating_each_hop(client, target_url).await;
+    let is_ok = response.as_ref().map(|r| r.status().is_success()).unwrap_or(false);
+
+    if !is_ok {
+        // Se a requisição HTTP falhou (ex: bot protection ou redirecionamento restrito),
+        // mas detectamos um embed direto e seguro (como YouTube), entregamos o preview:
+        if let Some(embed_url) = initial_embed_url {
+            return Some(UrlPreview {
+                url: target_url.to_string(),
+                title: Some(initial_provider.clone().unwrap_or_else(|| "Vídeo".to_string())),
+                description: None,
+                image: initial_image,
+                site_name: initial_site_name,
+                embed_url: Some(embed_url),
+                provider: initial_provider,
+                video_width: initial_width,
+                video_height: initial_height,
+            });
+        }
         return None;
     }
 
     // Limita o corpo do HTML lido em 512KB para proteção contra zip-bombs/excesso de memória
-    let bytes = response.bytes().await.ok()?;
+    let bytes = response.unwrap().bytes().await.ok()?;
     let slice = if bytes.len() > 512 * 1024 {
         &bytes[..512 * 1024]
     } else {
@@ -53,20 +81,43 @@ pub async fn scrape_metadata_with_client(client: &Client, target_url: &str) -> O
 
     let document = Html::parse_document(&html_text);
 
+    let (
+        doc_embed_url,
+        doc_provider,
+        doc_width,
+        doc_height,
+        _,
+        _,
+    ) = crawler::extract_video_metadata(target_url, Some(&document));
+
+    let embed_url = doc_embed_url.or(initial_embed_url);
+    let provider = doc_provider.or(initial_provider);
+    let video_width = doc_width.or(initial_width);
+    let video_height = doc_height.or(initial_height);
+
     let title = extract_tag(&document, "meta[property='og:title']", "content")
         .or_else(|| extract_tag(&document, "meta[name='twitter:title']", "content"))
-        .or_else(|| extract_text(&document, "title"));
+        .or_else(|| extract_text(&document, "title"))
+        .or_else(|| {
+            if embed_url.is_some() {
+                Some(provider.clone().unwrap_or_else(|| "Vídeo".to_string()))
+            } else {
+                None
+            }
+        });
 
     let description = extract_tag(&document, "meta[property='og:description']", "content")
         .or_else(|| extract_tag(&document, "meta[name='description']", "content"))
         .or_else(|| extract_tag(&document, "meta[name='twitter:description']", "content"));
 
     let image = extract_tag(&document, "meta[property='og:image']", "content")
-        .or_else(|| extract_tag(&document, "meta[name='twitter:image']", "content"));
+        .or_else(|| extract_tag(&document, "meta[name='twitter:image']", "content"))
+        .or(initial_image);
 
-    let site_name = extract_tag(&document, "meta[property='og:site_name']", "content");
+    let site_name = extract_tag(&document, "meta[property='og:site_name']", "content")
+        .or(initial_site_name);
 
-    if title.is_none() && description.is_none() {
+    if title.is_none() && description.is_none() && embed_url.is_none() {
         return None;
     }
 
@@ -76,7 +127,50 @@ pub async fn scrape_metadata_with_client(client: &Client, target_url: &str) -> O
         description,
         image,
         site_name,
+        embed_url,
+        provider,
+        video_width,
+        video_height,
     })
+}
+
+/// Quantos redirecionamentos o crawler acompanha antes de desistir.
+const MAX_REDIRECTS: usize = 5;
+
+/// Busca a URL seguindo redirecionamentos **na mão**, revalidando cada salto.
+///
+/// O cliente do crawler é construído com `Policy::none()` justamente para que
+/// nenhum salto escape daqui: seguir redirect automaticamente devolvia o
+/// controle do destino para a página remota, e `https://encurtador/x` apontando
+/// para `http://169.254.169.254/latest/meta-data/` alcançava a rede interna
+/// sem passar por checagem nenhuma. Encurtadores são comuns demais para
+/// simplesmente recusar redirecionamento.
+async fn fetch_validating_each_hop(
+    client: &Client,
+    target_url: &str,
+) -> Option<reqwest::Response> {
+    let mut current = target_url.to_string();
+
+    for _ in 0..=MAX_REDIRECTS {
+        if !ssrf::is_safe_url(&current) || !ssrf::resolves_to_public_ip_only(&current).await {
+            tracing::debug!(url = %current, "salto de redirecionamento recusado pela politica de SSRF");
+            return None;
+        }
+
+        let response = client.get(&current).send().await.ok()?;
+        if !response.status().is_redirection() {
+            return Some(response);
+        }
+
+        let location = response.headers().get(reqwest::header::LOCATION)?;
+        let location = location.to_str().ok()?;
+        // Location relativo é legítimo e precisa ser resolvido contra o salto atual.
+        let next = url::Url::parse(&current).ok()?.join(location).ok()?;
+        current = next.to_string();
+    }
+
+    tracing::debug!(url = %target_url, "cadeia de redirecionamentos longa demais, desistindo");
+    None
 }
 
 fn extract_tag(document: &Html, selector_str: &str, attr: &str) -> Option<String> {

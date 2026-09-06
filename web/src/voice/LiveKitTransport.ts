@@ -39,6 +39,7 @@ import {
   type VoiceProcessorSettings,
 } from './VoiceAudioProcessor'
 import { callSounds } from '../net/callSounds'
+import { PlaybackGraph } from './PlaybackGraph'
 
 type LiveKitModule = typeof import('livekit-client')
 
@@ -60,6 +61,23 @@ const SCREEN_PRESETS = {
   original: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 8_000_000 },
 } as const
 
+async function applySenderDegradationPreference(
+  publication: TrackPublication | undefined,
+  preference: RTCDegradationPreference,
+) {
+  const sender = (publication?.track as unknown as { sender?: RTCRtpSender })?.sender
+  if (!sender?.setParameters || !sender?.getParameters) return
+  try {
+    const params = sender.getParameters()
+    if (params.degradationPreference !== preference) {
+      params.degradationPreference = preference
+      await sender.setParameters(params)
+    }
+  } catch {
+    // Non-fatal if degradationPreference is unsupported by the platform/mock
+  }
+}
+
 export class LiveKitTransport implements VoiceTransport {
   private room: Room | null = null
   private sdk: LiveKitModule | null = null
@@ -76,6 +94,8 @@ export class LiveKitTransport implements VoiceTransport {
   private screenAudioDiagnostic: NativeScreenCapture['audioValidation'] | null = null
   private browserScreenAudioDiagnostic: BrowserScreenCapture['audioValidation'] | null = null
   private readonly listeners = new Set<(snapshot: VoiceSnapshot) => void>()
+  private readonly playbackGraph = new PlaybackGraph()
+  private playbackAttenuated = false
   private readonly audioElements = new Map<string, HTMLAudioElement>()
   private readonly publicationOwners = new Map<string, PeerId>()
   private readonly audioSources = new Map<string, string>()
@@ -106,7 +126,7 @@ export class LiveKitTransport implements VoiceTransport {
 
   updateSession(selfPeerId: PeerId, send: (msg: ClientMsg) => boolean | void) {
     this.options = { ...this.options, selfPeerId, send: (msg) => { send(msg) } }
-    if (this.requestedChannel && (this.state.status === 'reconnecting' || this.state.status === 'requesting')) {
+    if (this.requestedChannel && (this.state.status === 'reconnecting' || this.state.status === 'requesting' || this.state.status === 'connected')) {
       this.options.send({ t: 'voice.join', channel: this.requestedChannel })
     }
   }
@@ -215,6 +235,11 @@ export class LiveKitTransport implements VoiceTransport {
       }
 
       const quality = SCREEN_PRESETS[preset]
+      const contentHint = preset === 'fluid' ? 'motion' : 'detail'
+      const degradationPreference: RTCDegradationPreference = preset === 'fluid'
+        ? 'maintain-framerate'
+        : 'maintain-resolution'
+
       if (isTauriRuntime()) {
         if (!sourceId) {
           this.fail('Escolha uma tela ou janela no seletor do Stapp.')
@@ -226,13 +251,15 @@ export class LiveKitTransport implements VoiceTransport {
           maxHeight: quality.height,
           fps: quality.frameRate,
           includeAudio: includeAudio && this.config.screen_audio,
+          contentHint,
         })
         this.nativeScreenCapture = capture
         this.screenAudioDiagnostic = capture.audioValidation ?? null
         this.browserScreenAudioDiagnostic = null
         const streamName = `stapp-screen-${capture.track.id || 'native'}`
+        let screenPublication: TrackPublication | undefined
         try {
-          await room.localParticipant.publishTrack(capture.track, {
+          screenPublication = await room.localParticipant.publishTrack(capture.track, {
             source: sdk.Track.Source.ScreenShare,
             name: 'stapp-screen',
             stream: streamName,
@@ -249,6 +276,7 @@ export class LiveKitTransport implements VoiceTransport {
           await capture.stop()
           throw error
         }
+        await applySenderDegradationPreference(screenPublication, degradationPreference)
         let hasAudio = false
         if (capture.audioTrack) {
           try {
@@ -288,14 +316,15 @@ export class LiveKitTransport implements VoiceTransport {
         maxHeight: quality.height,
         fps: quality.frameRate,
         includeAudio: includeAudio && this.config.screen_audio,
-        contentHint: preset === 'fluid' ? 'motion' : 'detail',
+        contentHint,
       })
       this.browserScreenCapture = capture
       this.browserScreenAudioDiagnostic = capture.audioValidation ?? null
       this.screenAudioDiagnostic = null
       const streamName = `stapp-screen-${capture.stream.id || capture.track.id || 'web'}`
+      let screenPublication: TrackPublication | undefined
       try {
-        await room.localParticipant.publishTrack(capture.track, {
+        screenPublication = await room.localParticipant.publishTrack(capture.track, {
           source: sdk.Track.Source.ScreenShare,
           name: 'stapp-screen',
           stream: streamName,
@@ -312,6 +341,7 @@ export class LiveKitTransport implements VoiceTransport {
         await capture.stop()
         throw error
       }
+      await applySenderDegradationPreference(screenPublication, degradationPreference)
       let hasAudio = false
       if (capture.audioTrack) {
         try {
@@ -372,6 +402,7 @@ export class LiveKitTransport implements VoiceTransport {
   async setOutputDevice(deviceId: string) {
     this.preferences = { ...this.preferences, outputDeviceId: deviceId }
     saveVoicePreferences(this.preferences)
+    await this.playbackGraph.setOutputDevice(deviceId)
     if (this.room && deviceId) await this.room.switchActiveDevice('audiooutput', deviceId, true)
   }
 
@@ -395,9 +426,33 @@ export class LiveKitTransport implements VoiceTransport {
     }
   }
 
+  setPlaybackAttenuated(attenuated: boolean) {
+    this.playbackAttenuated = attenuated
+    this.playbackGraph.setAttenuated(attenuated, 0)
+    this.applyPlaybackState()
+  }
+
   async startMicrophoneTest(onLevel: (level: number) => void) {
+    this.setPlaybackAttenuated(true)
     const { startMicrophoneTest } = await import('./testMicrophone')
-    return startMicrophoneTest(this.audioCaptureOptions(), onLevel)
+    let stopTest: () => void
+    try {
+      stopTest = await startMicrophoneTest(
+        this.audioCaptureOptions(),
+        onLevel,
+        this.preferences.outputDeviceId || undefined,
+      )
+    } catch (error) {
+      this.setPlaybackAttenuated(false)
+      throw error
+    }
+    return () => {
+      try {
+        stopTest()
+      } finally {
+        this.setPlaybackAttenuated(false)
+      }
+    }
   }
 
   async startCameraPreview(element: HTMLVideoElement) {
@@ -612,6 +667,7 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   destroy() {
+    this.playbackGraph.destroy()
     this.leave()
     this.clearLocalPlaybackPreferences()
     this.listeners.clear()
@@ -622,11 +678,14 @@ export class LiveKitTransport implements VoiceTransport {
     if (!room) return false
     try {
       await room.startAudio()
+      await this.playbackGraph.resume()
       const played = await Promise.all(
         [...this.audioElements.values()].map((audio) => audio.play().then(() => true).catch(() => false)),
       )
       this.applyPlaybackState()
-      const ready = room.canPlaybackAudio && played.every(Boolean)
+      const ready = room.canPlaybackAudio
+        && played.every(Boolean)
+        && !this.playbackGraph.hasSuspendedContext()
       if (ready) this.audioPlaybackWarningShown = false
       return ready
     } catch {
@@ -766,6 +825,9 @@ export class LiveKitTransport implements VoiceTransport {
     room.on(sdk.RoomEvent.Reconnected, () => {
       if (!current()) return
       this.state = { ...this.state, status: 'connected' }
+      if (this.requestedChannel) {
+        this.options.send({ t: 'voice.join', channel: this.requestedChannel })
+      }
       this.sync()
     })
     room.on(sdk.RoomEvent.MediaDevicesError, (error) => {
@@ -1192,11 +1254,19 @@ export class LiveKitTransport implements VoiceTransport {
     const audio = document.createElement('audio')
     audio.autoplay = true
     const isScreenAudio = Boolean(sdk && publication.source === sdk.Track.Source.ScreenShareAudio)
-    audio.muted = isScreenAudio ? false : this.state.deafened
     audio.dataset.stappVoice = publication.trackSid
     audio.hidden = true
     document.body.append(audio)
     track.attach(audio)
+    const mediaStreamTrack = (track as { mediaStreamTrack?: MediaStreamTrack }).mediaStreamTrack
+    // O grafo Web Audio e o elemento tocam a MESMA fonte. Se os dois ficarem
+    // audiveis, sao duas saidas com relogios independentes: eco metalico e
+    // ganho dobrado. O elemento so continua no caminho de audio quando o grafo
+    // nao nasceu (AudioContext indisponivel).
+    const graphNodes = mediaStreamTrack
+      ? this.playbackGraph.attach(publication.trackSid, mediaStreamTrack)
+      : null
+    audio.muted = graphNodes !== null || (isScreenAudio ? false : this.state.deafened)
     this.audioElements.set(publication.trackSid, audio)
     this.publicationOwners.set(publication.trackSid, owner)
     this.audioSources.set(publication.trackSid, String(publication.source))
@@ -1205,9 +1275,16 @@ export class LiveKitTransport implements VoiceTransport {
     void audio.play()
       .then(() => this.applyPlaybackState(publication.trackSid))
       .catch(() => this.warnAudioPlaybackBlocked())
+    // Elemento mudo nunca e barrado pelo autoplay, entao a rejeicao do play()
+    // deixa de denunciar audio bloqueado: com o grafo no caminho quem denuncia
+    // e o AudioContext suspenso.
+    if (graphNodes && graphNodes.context.state === 'suspended') {
+      this.warnAudioPlaybackBlocked()
+    }
   }
 
   private detachAudio(publicationId: string) {
+    this.playbackGraph.detach(publicationId)
     const audio = this.audioElements.get(publicationId)
     const publication = this.findPublication(publicationId)
     if (audio) publication?.audioTrack?.detach(audio)
@@ -1225,7 +1302,6 @@ export class LiveKitTransport implements VoiceTransport {
 
   private applyVolume(publicationId: string) {
     const audio = this.audioElements.get(publicationId)
-    if (!audio) return
     const owner = this.publicationOwners.get(publicationId)
     const source = this.findPublication(publicationId)?.source
     const sdk = this.sdk
@@ -1236,8 +1312,21 @@ export class LiveKitTransport implements VoiceTransport {
         : 100
     const master = this.preferences.outputVolume
     const isScreenAudio = Boolean(sdk && source === sdk.Track.Source.ScreenShareAudio)
-    audio.muted = isScreenAudio ? false : this.state.deafened
-    audio.volume = clamp((trackVolume / 100) * (master / 100), 0, 1)
+    const isMuted = isScreenAudio ? false : this.state.deafened
+
+    // Com o grafo vivo o elemento fica mudo de forma incondicional: ele
+    // permanece so como ancora de autoplay e de setSinkId. Volume, mudo e
+    // atenuacao sao responsabilidade exclusiva do PlaybackGraph.
+    if (audio && this.playbackGraph.has(publicationId)) {
+      audio.muted = true
+    } else if (audio) {
+      audio.muted = isMuted || this.playbackAttenuated
+      audio.volume = this.playbackAttenuated ? 0 : clamp((trackVolume / 100) * (master / 100), 0, 1)
+    }
+
+    const targetGain = (trackVolume / 100) * (master / 100)
+    this.playbackGraph.setGain(publicationId, targetGain)
+    this.playbackGraph.setMuted(publicationId, isMuted)
   }
 
   private applyOwnerVolume(peerId: PeerId) {
@@ -1279,6 +1368,7 @@ export class LiveKitTransport implements VoiceTransport {
     this.audioRepairCooldowns.clear()
     this.inboundAudioDiagnostics = []
     for (const publicationId of [...this.audioElements.keys()]) this.detachAudio(publicationId)
+    this.playbackGraph.destroy()
     const room = this.room
     this.room = null
     this.sdk = null

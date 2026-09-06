@@ -237,15 +237,15 @@ async fn duas_pessoas_se_veem_conversam_e_entram_na_call() {
         .send(json!({ "t": "voice.join", "channel": "sala" }))
         .await;
     let roster_daniel = daniel.wait_for("voice.roster").await;
-    assert!(roster_daniel["peers"].as_array().unwrap().is_empty());
+    assert_eq!(roster_daniel["peers"].as_array().unwrap().len(), 1);
+    assert_eq!(roster_daniel["peers"][0]["username"], "daniel");
 
     alice
         .send(json!({ "t": "voice.join", "channel": "sala" }))
         .await;
     let roster_alice = alice.wait_for("voice.roster").await;
     let avisado = daniel.wait_for("voice.joined").await;
-    assert_eq!(roster_alice["peers"].as_array().unwrap().len(), 1);
-    assert_eq!(roster_alice["peers"][0]["username"], "daniel");
+    assert_eq!(roster_alice["peers"].as_array().unwrap().len(), 2);
     assert_eq!(avisado["peer"]["username"], "alice");
 
     // --- sair da call limpa o roster do outro
@@ -840,7 +840,7 @@ async fn takeover_de_voz_em_conexoes_concorrentes_da_mesma_conta() {
         .send(json!({ "t": "voice.join", "channel": "sala" }))
         .await;
     let roster1 = daniel1.wait_for("voice.roster").await;
-    assert!(roster1["peers"].as_array().unwrap().is_empty());
+    assert_eq!(roster1["peers"].as_array().unwrap().len(), 1);
 
     // Segunda conexão do Daniel (ex: reconexão após queda de rede/VPN)
     let mut daniel2 = common::Client::connect(addr).await;
@@ -854,6 +854,7 @@ async fn takeover_de_voz_em_conexoes_concorrentes_da_mesma_conta() {
         .await;
     let roster2 = daniel2.wait_for("voice.roster").await;
     assert_eq!(roster2["channel"], "sala");
+    assert_eq!(roster2["peers"].as_array().unwrap().len(), 1);
 
     // Daniel1 recebe notificação de saída de voz da sua sessão antiga
     let saiu = daniel1.wait_for("voice.left").await;

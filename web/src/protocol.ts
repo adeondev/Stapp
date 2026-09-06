@@ -114,6 +114,10 @@ export interface UrlPreview {
   description?: string
   image?: string
   site_name?: string
+  embed_url?: string
+  provider?: string
+  video_width?: number
+  video_height?: number
 }
 
 /** O que Chat sabe renderizar. Message e DirectMessage servem os dois. */

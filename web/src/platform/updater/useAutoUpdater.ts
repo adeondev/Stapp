@@ -7,7 +7,11 @@ export interface MandatoryRequirement {
   serverName?: string
 }
 
+export type BootPhase = 'checking' | 'ready'
+
 export function useAutoUpdater() {
+  const isDesktop = updaterService.isDesktop
+  const [bootPhase, setBootPhase] = useState<BootPhase>(() => (isDesktop ? 'checking' : 'ready'))
   const [currentVersion, setCurrentVersion] = useState<string>(APP_VERSION)
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null)
   const [channel, setChannelState] = useState<UpdateChannel>(() => updaterService.getChannel())
@@ -15,11 +19,12 @@ export function useAutoUpdater() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [progress, setProgress] = useState<UpdateDownloadProgress | null>(null)
   const [isReadyToRelaunch, setIsReadyToRelaunch] = useState(false)
+  /** Falha ao reiniciar: `isReadyToRelaunch` deixa de ser estado terminal. */
+  const [relaunchFailed, setRelaunchFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [mandatoryRequirement, setMandatoryRequirement] = useState<MandatoryRequirement | null>(null)
 
-  const isDesktop = updaterService.isDesktop
   const initialCheckRan = useRef(false)
 
   // Inicializa a versao real da aplicacao
@@ -62,17 +67,63 @@ export function useAutoUpdater() {
     void checkForUpdates(false, newChannel)
   }, [checkForUpdates])
 
-  // Verificacao em background ao iniciar o aplicativo Desktop
+  // Verificacao de bootstrap ao iniciar o aplicativo Desktop
   useEffect(() => {
-    if (!isDesktop || initialCheckRan.current) return
+    if (!isDesktop) {
+      if (bootPhase !== 'ready') {
+        setBootPhase('ready')
+      }
+      return
+    }
+
+    if (initialCheckRan.current) return
     initialCheckRan.current = true
 
-    const timer = setTimeout(() => {
-      void checkForUpdates(false)
-    }, 2500)
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let cancelled = false
 
-    return () => clearTimeout(timer)
-  }, [isDesktop, checkForUpdates])
+    const proceedToReady = () => {
+      if (cancelled) return
+      setBootPhase('ready')
+    }
+
+    // Timeout de seguranca de 5 segundos para nao travar o boot em caso de instabilidade na rede
+    timeoutId = setTimeout(() => {
+      proceedToReady()
+    }, 5000)
+
+    void checkForUpdates(false)
+      .then((update) => {
+        if (cancelled) return
+        if (update) {
+          // Se encontrou atualizacao, cancela o timeout para manter a splash sob o modal
+          if (timeoutId) {
+            clearTimeout(timeoutId)
+            timeoutId = null
+          }
+        } else {
+          // Sem atualizacoes: encerra o boot imediatamente
+          if (timeoutId) {
+            clearTimeout(timeoutId)
+            timeoutId = null
+          }
+          proceedToReady()
+        }
+      })
+      .catch(() => {
+        if (cancelled) return
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
+        proceedToReady()
+      })
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [isDesktop, checkForUpdates, bootPhase])
 
   const enforceMandatoryVersion = useCallback((minVersion: string, serverName?: string) => {
     if (!isSatisfied(currentVersion, minVersion)) {
@@ -84,6 +135,7 @@ export function useAutoUpdater() {
     setIsDownloading(true)
     setError(null)
     setProgress(null)
+    setRelaunchFailed(false)
 
     try {
       let targetUpdate = availableUpdate
@@ -111,24 +163,35 @@ export function useAutoUpdater() {
     try {
       await updaterService.relaunch()
     } catch (err) {
+      // Instalador pedindo elevacao, antivirus segurando o .exe, arquivo em uso:
+      // o relaunch falha e "Reiniciar e aplicar" era o unico botao da tela. Sem
+      // devolver a saida, o usuario ficava preso na splash com uma mensagem de
+      // erro e nenhuma acao — trancado fora do proprio app.
       setError(err instanceof Error ? err.message : 'Erro ao reiniciar o aplicativo.')
+      setRelaunchFailed(true)
     }
   }, [])
 
   const dismissModal = useCallback(() => {
-    if (!isDownloading && !isReadyToRelaunch) {
+    // `relaunchFailed` reabre a saida: a atualizacao ja foi baixada e sera
+    // aplicada na proxima abertura do app, entao seguir usando a versao atual
+    // e melhor do que nao abrir.
+    if ((!isDownloading && !isReadyToRelaunch) || relaunchFailed) {
       setIsModalOpen(false)
+      setBootPhase('ready')
     }
-  }, [isDownloading, isReadyToRelaunch])
+  }, [isDownloading, isReadyToRelaunch, relaunchFailed])
 
   return {
     isDesktop,
+    bootPhase,
     currentVersion,
     availableUpdate,
     isChecking,
     isDownloading,
     progress,
     isReadyToRelaunch,
+    relaunchFailed,
     error,
     isModalOpen,
     mandatoryRequirement,

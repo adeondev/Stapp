@@ -21,6 +21,76 @@ fn ssrf_permite_urls_publicas() {
 }
 
 #[test]
+fn ssrf_bloqueia_faixas_reservadas_alem_das_rfc1918() {
+    // CGNAT/Tailscale: 100.64.0.0/10.
+    assert!(!is_public_ip(&"100.64.0.1".parse().unwrap()));
+    assert!(!is_public_ip(&"100.127.255.254".parse().unwrap()));
+    // Radmin VPN: 26.0.0.0/8.
+    assert!(!is_public_ip(&"26.13.37.1".parse().unwrap()));
+    // "Este host, nesta rede": 0.0.0.0/8 inteiro, nao so 0.0.0.0.
+    assert!(!is_public_ip(&"0.1.2.3".parse().unwrap()));
+    // IETF Protocol Assignments 192.0.0.0/24.
+    assert!(!is_public_ip(&"192.0.0.8".parse().unwrap()));
+    // Benchmarking 198.18.0.0/15.
+    assert!(!is_public_ip(&"198.18.0.1".parse().unwrap()));
+    assert!(!is_public_ip(&"198.19.255.254".parse().unwrap()));
+    // Multicast 224.0.0.0/4 e reservado 240.0.0.0/4.
+    assert!(!is_public_ip(&"224.0.0.1".parse().unwrap()));
+    assert!(!is_public_ip(&"240.0.0.1".parse().unwrap()));
+    assert!(!is_public_ip(&"ff02::1".parse().unwrap()));
+
+    // Vizinhos legitimos das faixas acima seguem publicos.
+    assert!(is_public_ip(&"100.63.255.255".parse().unwrap()));
+    assert!(is_public_ip(&"100.128.0.1".parse().unwrap()));
+    assert!(is_public_ip(&"27.0.0.1".parse().unwrap()));
+    assert!(is_public_ip(&"192.0.1.1".parse().unwrap()));
+    assert!(is_public_ip(&"198.20.0.1".parse().unwrap()));
+    assert!(is_public_ip(&"223.255.255.255".parse().unwrap()));
+}
+
+#[test]
+fn ssrf_recusa_host_que_resolve_para_endereco_privado() {
+    // Um host publico com registro A apontando para dentro da rede passa pela
+    // peneira sintatica; quem o barra e a validacao dos IPs resolvidos.
+    assert!(is_safe_url("http://interno.exemplo.com/"));
+    assert!(!all_addrs_public(vec!["192.168.0.10".parse().unwrap()]));
+    assert!(!all_addrs_public(vec!["127.0.0.1".parse().unwrap()]));
+    assert!(!all_addrs_public(vec!["169.254.169.254".parse().unwrap()]));
+
+    // Basta um endereco privado no conjunto: quem escolhe a qual conectar e o
+    // sistema, entao um host misto continua sendo caminho para a rede interna.
+    assert!(!all_addrs_public(vec![
+        "8.8.8.8".parse().unwrap(),
+        "10.1.2.3".parse().unwrap(),
+    ]));
+
+    // Host que nao resolve para nada nao autoriza conexao.
+    assert!(!all_addrs_public(Vec::new()));
+
+    assert!(all_addrs_public(vec![
+        "8.8.8.8".parse().unwrap(),
+        "1.1.1.1".parse().unwrap(),
+    ]));
+}
+
+#[tokio::test]
+async fn ssrf_resolve_dns_antes_de_autorizar_conexao() {
+    // Exercita o resolvedor do sistema de verdade, sem depender de rede: o
+    // arquivo de hosts resolve "localhost" para loopback em toda plataforma.
+    assert!(!resolves_to_public_ip_only("http://localhost:8787/").await);
+
+    // Literais continuam validados sem passar pelo resolvedor.
+    assert!(!resolves_to_public_ip_only("http://169.254.169.254/latest/meta-data").await);
+    assert!(!resolves_to_public_ip_only("http://[::1]/").await);
+    assert!(resolves_to_public_ip_only("http://8.8.8.8/dns").await);
+
+    // Host inexistente falha fechado.
+    assert!(
+        !resolves_to_public_ip_only("http://nao-existe.invalid/").await
+    );
+}
+
+#[test]
 fn extrai_primeira_url_valida() {
     let text = "veja este link https://github.com e teste";
     assert_eq!(
@@ -113,6 +183,10 @@ async fn despacho_de_preview_para_canal_e_conversa_direta() {
         description: Some("Chat seguro e portatil".into()),
         image: None,
         site_name: Some("Stapp".into()),
+        embed_url: None,
+        provider: None,
+        video_width: None,
+        video_height: None,
     };
 
     // 1. Despacho para canal (broadcast)
@@ -163,4 +237,106 @@ async fn despacho_de_preview_para_canal_e_conversa_direta() {
     assert!(targets.contains(&"peer-b"));
 
     server.state.shutdown().await;
+}
+
+#[test]
+fn ssrf_is_safe_embed_url_valida_e_bloqueia_corretamente() {
+    assert!(is_safe_embed_url("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"));
+    assert!(is_safe_embed_url("https://www.youtube.com/embed/dQw4w9WgXcQ"));
+    assert!(is_safe_embed_url("https://player.vimeo.com/video/76979871"));
+    assert!(is_safe_embed_url("https://player.twitch.tv/?channel=stapp"));
+
+    // Bloqueia HTTP inseguro
+    assert!(!is_safe_embed_url("http://www.youtube.com/embed/dQw4w9WgXcQ"));
+
+    // Bloqueia localhost e IPs locais/privados mesmo se passar outro esquema
+    assert!(!is_safe_embed_url("https://localhost/embed/123"));
+    assert!(!is_safe_embed_url("https://127.0.0.1/embed/123"));
+    assert!(!is_safe_embed_url("https://192.168.1.1/embed/123"));
+    assert!(!is_safe_embed_url("https://10.0.0.1/embed/123"));
+    assert!(!is_safe_embed_url("https://169.254.169.254/embed/123"));
+    assert!(!is_safe_embed_url("https://evil.internal/embed/123"));
+
+    // Bloqueia portas arbitrárias que não 443
+    assert!(!is_safe_embed_url("https://www.youtube.com:8443/embed/123"));
+
+    // Bloqueia domínios não autorizados para embed em iframe
+    assert!(!is_safe_embed_url("https://malicious-site.com/embed/evil"));
+}
+
+#[test]
+fn detecta_links_youtube_e_extrai_embed_e_dimensoes() {
+    let watch_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    let (embed, provider, width, height, image, site) =
+        crawler::extract_video_metadata(watch_url, None);
+
+    assert_eq!(
+        embed,
+        Some("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ".to_string())
+    );
+    assert_eq!(provider, Some("YouTube".to_string()));
+    assert_eq!(width, Some(1280));
+    assert_eq!(height, Some(720));
+    assert_eq!(
+        image,
+        Some("https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg".to_string())
+    );
+    assert_eq!(site, Some("YouTube".to_string()));
+
+    let short_url = "https://youtu.be/dQw4w9WgXcQ";
+    let (embed_s, provider_s, _, _, _, _) = crawler::extract_video_metadata(short_url, None);
+    assert_eq!(
+        embed_s,
+        Some("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ".to_string())
+    );
+    assert_eq!(provider_s, Some("YouTube".to_string()));
+
+    let shorts_url = "https://www.youtube.com/shorts/dQw4w9WgXcQ";
+    let (embed_sh, _, _, _, _, _) = crawler::extract_video_metadata(shorts_url, None);
+    assert_eq!(
+        embed_sh,
+        Some("https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ".to_string())
+    );
+}
+
+#[test]
+fn extrai_opengraph_video_com_validacao_ssrf() {
+    let safe_html = r#"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Video Legal</title>
+            <meta property="og:video:secure_url" content="https://player.vimeo.com/video/12345" />
+            <meta property="og:video:width" content="1920" />
+            <meta property="og:video:height" content="1080" />
+        </head>
+        <body></body>
+        </html>
+    "#;
+
+    let doc = scraper::Html::parse_document(safe_html);
+    let (embed, provider, width, height, _, _) =
+        crawler::extract_video_metadata("https://vimeo.com/12345", Some(&doc));
+
+    assert_eq!(embed, Some("https://player.vimeo.com/video/12345".to_string()));
+    assert_eq!(provider, Some("Vimeo".to_string()));
+    assert_eq!(width, Some(1920));
+    assert_eq!(height, Some(1080));
+
+    // HTML malicioso tentando SSRF para localhost
+    let malicious_html = r#"
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta property="og:video:url" content="https://localhost:8443/secret_admin" />
+        </head>
+        <body></body>
+        </html>
+    "#;
+
+    let doc_malicious = scraper::Html::parse_document(malicious_html);
+    let (embed_bad, _, _, _, _, _) =
+        crawler::extract_video_metadata("https://example.com/blog", Some(&doc_malicious));
+
+    assert_eq!(embed_bad, None);
 }

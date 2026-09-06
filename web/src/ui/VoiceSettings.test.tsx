@@ -1,4 +1,4 @@
-﻿// @vitest-environment jsdom
+// @vitest-environment jsdom
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -26,6 +26,7 @@ function mockTransport(): VoiceTransport {
     setPublicationSubscribed: vi.fn(), getVoiceVolume: vi.fn(() => 100), setVoiceVolume: vi.fn(),
     setVoiceMuted: vi.fn(), getScreenShareVolume: vi.fn(() => 100),
     setScreenShareVolume: vi.fn(), setScreenShareMuted: vi.fn(),
+    setPlaybackAttenuated: vi.fn(),
     attachMedia: vi.fn(() => () => {}), snapshot: () => snapshot,
     subscribe: vi.fn(() => () => {}), getPreferences: () => ({ ...DEFAULT_VOICE_PREFERENCES }),
     updatePreferences: vi.fn(async () => {}), diagnosticReport: vi.fn(async () => ({
@@ -67,5 +68,47 @@ describe('VoiceSettings', () => {
     await user.click(testButton)
 
     expect(await screen.findByText('O microfone exige conexão segura (HTTPS) ou o aplicativo Desktop.')).toBeTruthy()
+    expect(transport.setPlaybackAttenuated).toHaveBeenCalledWith(false)
+  })
+
+  it('atenua o audio da chamada ativa ao iniciar o teste e restaura ao parar', async () => {
+    const user = userEvent.setup()
+    const transport = mockTransport()
+    const stopTest = vi.fn()
+    vi.mocked(transport.startMicrophoneTest).mockResolvedValue(stopTest)
+
+    render(<VoiceSettings open transport={transport} snapshot={snapshot} onClose={vi.fn()} />)
+    const testButton = screen.getByRole('button', { name: 'Testar microfone' })
+
+    // Inicia o teste de microfone
+    await user.click(testButton)
+    expect(transport.startMicrophoneTest).toHaveBeenCalled()
+    expect(transport.setPlaybackAttenuated).toHaveBeenCalledWith(true)
+
+    // Para o teste de microfone
+    const stopButton = await screen.findByRole('button', { name: 'Parar teste do microfone' })
+    await user.click(stopButton)
+
+    expect(stopTest).toHaveBeenCalled()
+    expect(transport.setPlaybackAttenuated).toHaveBeenCalledWith(false)
+  })
+
+  it('restaura o audio da chamada ao fechar as configuracoes enquanto o teste roda', async () => {
+    const user = userEvent.setup()
+    const transport = mockTransport()
+    const stopTest = vi.fn()
+    vi.mocked(transport.startMicrophoneTest).mockResolvedValue(stopTest)
+
+    const { rerender } = render(<VoiceSettings open transport={transport} snapshot={snapshot} onClose={vi.fn()} />)
+    const testButton = screen.getByRole('button', { name: 'Testar microfone' })
+    await user.click(testButton)
+
+    expect(transport.setPlaybackAttenuated).toHaveBeenCalledWith(true)
+
+    // Fecha o modal de configurações (open: false)
+    rerender(<VoiceSettings open={false} transport={transport} snapshot={snapshot} onClose={vi.fn()} />)
+
+    expect(stopTest).toHaveBeenCalled()
+    expect(transport.setPlaybackAttenuated).toHaveBeenCalledWith(false)
   })
 })

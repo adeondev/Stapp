@@ -363,7 +363,7 @@ describe('LiveKitTransport', () => {
     const room = sdk.Room.instances[0]
     expect(await transport.setScreenShareEnabled(true, { preset: 'balanced', sourceId: 'screen:7:0' })).toBe(true)
     expect(screenPlatform.start).toHaveBeenCalledWith({
-      sourceId: 'screen:7:0', maxWidth: 1920, maxHeight: 1080, fps: 30, includeAudio: true,
+      sourceId: 'screen:7:0', maxWidth: 1920, maxHeight: 1080, fps: 30, includeAudio: true, contentHint: 'detail',
     })
     expect(room.localParticipant.publishTrack).toHaveBeenCalledWith(
       screenPlatform.track,
@@ -375,6 +375,37 @@ describe('LiveKitTransport', () => {
     expect(await transport.setScreenShareEnabled(false)).toBe(true)
     expect(screenPlatform.stop).toHaveBeenCalled()
     expect(transport.snapshot().screenSharing).toBe(false)
+    transport.destroy()
+  })
+
+  it('aplica contentHint motion e degradationPreference maintain-framerate no modo fluido', async () => {
+    screenPlatform.tauri = true
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn(),
+    })
+    await transport.join('sala')
+    transport.handleServerMessage({
+      t: 'voice.grant', channel: 'sala', url: 'ws://sfu', token: 'jwt', expires_at: Date.now() + 60_000,
+    })
+    await vi.waitFor(() => expect(transport.snapshot().status).toBe('connected'))
+
+    const sdk = await import('livekit-client') as unknown as { Room: { instances: Array<any> }; Track: any }
+    const room = sdk.Room.instances[0]
+    const sender = {
+      getParameters: vi.fn(() => ({ degradationPreference: 'balanced' })),
+      setParameters: vi.fn(async () => {}),
+    }
+    const publication = { trackSid: 'screen-fluid', track: { sender } }
+    room.localParticipant.publishTrack.mockResolvedValueOnce(publication)
+
+    expect(await transport.setScreenShareEnabled(true, { preset: 'fluid', sourceId: 'screen:0:0' })).toBe(true)
+    expect(screenPlatform.start).toHaveBeenCalledWith(expect.objectContaining({
+      fps: 60,
+      contentHint: 'motion',
+    }))
+    expect(sender.setParameters).toHaveBeenCalledWith(expect.objectContaining({
+      degradationPreference: 'maintain-framerate',
+    }))
     transport.destroy()
   })
 
@@ -533,6 +564,80 @@ describe('LiveKitTransport', () => {
 
     transport.leave()
     transport.destroy()
+  })
+
+  it('muta o elemento <audio> quando o grafo de reproducao assume a track', async () => {
+    const gainNodes: Array<{ gain: { value: number } }> = []
+    const createGain = vi.fn(() => {
+      const node = { gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }
+      gainNodes.push(node)
+      return node
+    })
+    Object.defineProperty(window, 'AudioContext', {
+      configurable: true,
+      value: class {
+        state = 'running'
+        destination = {}
+        resume = vi.fn(async () => {})
+        close = vi.fn(async () => {})
+        createMediaStreamSource = vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn() }))
+        createGain = createGain
+        createDynamicsCompressor = vi.fn(() => ({
+          threshold: { value: 0 }, knee: { value: 0 }, ratio: { value: 0 },
+          attack: { value: 0 }, release: { value: 0 },
+          connect: vi.fn(), disconnect: vi.fn(),
+        }))
+      },
+    })
+
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn(),
+    })
+    try {
+      await transport.join('sala')
+      transport.handleServerMessage({
+        t: 'voice.grant', channel: 'sala', url: 'ws://sfu', token: 'jwt', expires_at: Date.now() + 60_000,
+      })
+      await vi.waitFor(() => expect(transport.snapshot().status).toBe('connected'))
+
+      const sdk = await import('livekit-client') as unknown as {
+        Room: { instances: Array<any> }; Participant: new (id: string, name: string) => any
+        Publication: new (id: string, source: string, kind?: string) => any
+        RoomEvent: Record<string, string>; Track: any
+      }
+      const room = sdk.Room.instances[0]
+      const remote = new sdk.Participant('peer-graph', 'Grafo')
+      const microphone = new sdk.Publication('mic-graph', sdk.Track.Source.Microphone, sdk.Track.Kind.Audio)
+      // Track real expoe mediaStreamTrack; e ela que faz o PlaybackGraph nascer.
+      ;(microphone.audioTrack as any).mediaStreamTrack = { kind: 'audio', id: 'ms-graph' }
+      remote.trackPublications.set(microphone.trackSid, microphone)
+      room.remoteParticipants.set(remote.identity, remote)
+      room.emit(sdk.RoomEvent.TrackSubscribed, microphone.audioTrack, microphone, remote)
+
+      // Duas saidas simultaneas para a mesma fonte tem relogios independentes:
+      // eco metalico e ganho dobrado. Com o grafo vivo o elemento fica mudo e
+      // serve so de ancora de autoplay/setSinkId.
+      const audio = document.querySelector<HTMLAudioElement>('audio[data-stapp-voice="mic-graph"]')
+      expect(audio?.muted).toBe(true)
+
+      // O volume passa a viver no grafo, com amplificacao acima de 1.0.
+      transport.setVoiceVolume(remote.identity, 180)
+      expect(gainNodes.at(-1)?.gain.value).toBeCloseTo(1.8)
+      expect(audio?.muted).toBe(true)
+
+      transport.setDeafened(true)
+      expect(gainNodes.at(-1)?.gain.value).toBe(0)
+      expect(audio?.muted).toBe(true)
+
+      transport.setDeafened(false)
+      expect(gainNodes.at(-1)?.gain.value).toBeCloseTo(1.8)
+      expect(audio?.muted).toBe(true)
+
+      transport.leave()
+      transport.destroy()
+    } finally {
+      Reflect.deleteProperty(window, 'AudioContext')
+    }
   })
 
   it('substitui microfone republicado sem tocar duas copias e limpa ao desconectar', async () => {
@@ -809,7 +914,39 @@ describe('LiveKitTransport', () => {
 
     transport.updateSession('peer-new', (msg) => { sentV2.push(msg) })
     expect(transport.snapshot().channel).toBe('geral')
+    expect(sentV2).toEqual([{ t: 'voice.join', channel: 'geral' }])
 
+    transport.destroy()
+  })
+
+  it('ao reconectar internamente no LiveKit, emite voice.join para resync de presenca/roster', async () => {
+    const sent: ClientMsg[] = []
+    const sdk = await import('livekit-client') as unknown as {
+      Room: { instances: Array<{ emit(event: string, ...args: unknown[]): void }> }
+      RoomEvent: { Reconnected: string }
+    }
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer',
+      send: (msg) => { sent.push(msg) },
+      onSpeaking: vi.fn(),
+      onError: vi.fn(),
+    })
+    await transport.join('geral')
+    transport.handleServerMessage({
+      t: 'voice.grant',
+      channel: 'geral',
+      url: 'ws://sfu:7880',
+      token: 'jwt-1',
+      expires_at: Date.now() + 60_000,
+    })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(transport.snapshot().status).toBe('connected')
+    sent.length = 0
+
+    const room = sdk.Room.instances[sdk.Room.instances.length - 1]
+    room.emit(sdk.RoomEvent.Reconnected)
+
+    expect(sent).toContainEqual({ t: 'voice.join', channel: 'geral' })
     transport.destroy()
   })
 

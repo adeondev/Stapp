@@ -4,6 +4,7 @@ import type { UpdaterService } from './types'
 
 export * from './types'
 export * from './semver'
+export type { BootPhase } from './useAutoUpdater'
 export { DesktopUpdater } from './desktopUpdater'
 export { WebUpdater, WEB_APP_VERSION } from './webUpdater'
 

@@ -83,6 +83,14 @@ pub struct UrlPreview {
     pub description: Option<String>,
     pub image: Option<String>,
     pub site_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embed_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video_height: Option<u32>,
 }
 
 /// Metadados de um anexo privado. O conteúdo exige ticket temporário.

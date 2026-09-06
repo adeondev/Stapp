@@ -55,7 +55,6 @@ async fn upload(
     let Some(account) = authenticate(&state, &headers).await else {
         return respond(StatusCode::UNAUTHORIZED, "sessao expirada", &context);
     };
-    cleanup_expired_orphans(&state).await;
 
     let mut scope_kind = None;
     let mut scope_id = None;
@@ -178,7 +177,7 @@ async fn upload(
     response
 }
 
-async fn cleanup_expired_orphans(state: &AppState) {
+pub async fn cleanup_expired_orphans(state: &AppState) {
     let now = now_ms();
     let expired = match state.db.expired_orphan_attachments(now).await {
         Ok(value) => value,
@@ -197,6 +196,22 @@ async fn cleanup_expired_orphans(state: &AppState) {
             Err(error) => tracing::warn!(%error, %id, "falha removendo objeto de anexo orfao"),
         }
     }
+}
+
+pub fn start_orphan_cleanup_task(state: Arc<AppState>) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        // Primeira limpeza no arranque do servidor
+        cleanup_expired_orphans(&state).await;
+
+        // Limpeza periódica em background a cada 30 minutos
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30 * 60));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            interval.tick().await;
+            cleanup_expired_orphans(&state).await;
+        }
+    })
 }
 
 async fn write_upload(

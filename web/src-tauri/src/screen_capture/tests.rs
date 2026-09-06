@@ -89,3 +89,14 @@ fn detector_encontra_o_probe_mesmo_com_silencio_em_volta() {
     pcm.resize(pcm.len() + 24_000 * 8, 0);
     assert!(goertzel_level(&pcm, 48_000.0, 18_000.0, 2) > 0.01);
 }
+
+#[test]
+fn composicao_do_cursor_do_mouse_executa_sem_panico_mesmo_fora_dos_limites() {
+    let mut image = image::RgbaImage::new(100, 100);
+    overlay_mouse_cursor(&mut image, 0, 0);
+    overlay_mouse_cursor(&mut image, -10000, -10000);
+    overlay_mouse_cursor(&mut image, 10000, 10000);
+    assert_eq!(image.width(), 100);
+    assert_eq!(image.height(), 100);
+}
+

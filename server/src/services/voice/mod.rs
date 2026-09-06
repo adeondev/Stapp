@@ -130,6 +130,7 @@ async fn handle_takeover(state: &AppState, takeover: &crate::session::VoiceTakeo
             },
         )
         .await;
+        broadcast_roster(state, &takeover.channel).await;
     }
     state.send_to(
         &takeover.old_peer_id,
@@ -300,6 +301,7 @@ pub async fn leave(state: &AppState, peer_id: &PeerId) {
             },
         )
         .await;
+        broadcast_roster(state, &channel).await;
     }
 
     if let Some((first, second)) = direct_participants(&channel) {
@@ -389,13 +391,7 @@ async fn authorize_channel(state: &AppState, peer_id: &PeerId, channel: &str) ->
 }
 
 async fn publish_join(state: &AppState, peer_id: &PeerId, channel: &str, joined: VoiceJoin) {
-    state.send_to(
-        peer_id,
-        ServerMsg::VoiceRoster {
-            channel: channel.to_string(),
-            peers: joined.roster,
-        },
-    );
+    broadcast_roster(state, channel).await;
     anunciar(
         state,
         channel,
@@ -403,6 +399,24 @@ async fn publish_join(state: &AppState, peer_id: &PeerId, channel: &str, joined:
         ServerMsg::VoiceJoined { peer: joined.peer },
     )
     .await;
+}
+
+async fn broadcast_roster(state: &AppState, channel: &str) {
+    let peers: Vec<VoicePeer> = state
+        .voice_peers()
+        .await
+        .into_iter()
+        .filter(|p| p.channel == channel)
+        .collect();
+
+    let msg = ServerMsg::VoiceRoster {
+        channel: channel.to_string(),
+        peers: peers.clone(),
+    };
+
+    for peer in &peers {
+        state.send_to(&peer.peer_id, msg.clone());
+    }
 }
 
 fn deny_join_error(

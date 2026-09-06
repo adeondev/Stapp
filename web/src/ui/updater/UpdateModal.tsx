@@ -9,6 +9,8 @@ export interface UpdateModalProps {
   isDownloading: boolean
   progress: UpdateDownloadProgress | null
   isReadyToRelaunch?: boolean
+  /** Relaunch falhou: a saida volta a existir mesmo com o download concluido. */
+  relaunchFailed?: boolean
   error?: string | null
   onClose: () => void
   onStartUpdate: () => void | Promise<void>
@@ -29,19 +31,25 @@ export function UpdateModal({
   isDownloading,
   progress,
   isReadyToRelaunch,
+  relaunchFailed = false,
   error,
   onClose,
   onStartUpdate,
   onRelaunch,
 }: UpdateModalProps) {
+  // O modal so prende a tela enquanto ha algo em andamento. Se o relaunch
+  // falhou, "Reiniciar e aplicar" deixa de ser a unica saida: sem isso o
+  // usuario fica trancado fora do app, porque a splash espera o boot terminar.
+  const isBlocking = (isDownloading || Boolean(isReadyToRelaunch)) && !relaunchFailed
+
   useEffect(() => {
-    if (!isOpen || isDownloading || isReadyToRelaunch) return
+    if (!isOpen || isBlocking) return
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, isDownloading, isReadyToRelaunch, onClose])
+  }, [isOpen, isBlocking, onClose])
 
   if (!isOpen || !update) return null
 
@@ -54,7 +62,7 @@ export function UpdateModal({
       aria-modal="true"
       aria-labelledby="updater-modal-title"
       onClick={(e) => {
-        if (!isDownloading && !isReadyToRelaunch && e.target === e.currentTarget) {
+        if (!isBlocking && e.target === e.currentTarget) {
           onClose()
         }
       }}
@@ -72,7 +80,7 @@ export function UpdateModal({
               Uma nova versão do Stapp Desktop está pronta para instalação.
             </p>
           </div>
-          {!isDownloading && !isReadyToRelaunch && (
+          {!isBlocking && (
             <button
               type="button"
               className="updater-close"
@@ -164,14 +172,25 @@ export function UpdateModal({
           )}
 
           {isReadyToRelaunch && (
-            <button
-              type="button"
-              className="updater-btn updater-btn--primary"
-              onClick={() => void onRelaunch?.()}
-              autoFocus
-            >
-              Reiniciar e aplicar
-            </button>
+            <>
+              {relaunchFailed && (
+                <button
+                  type="button"
+                  className="updater-btn updater-btn--secondary"
+                  onClick={onClose}
+                >
+                  Continuar sem reiniciar
+                </button>
+              )}
+              <button
+                type="button"
+                className="updater-btn updater-btn--primary"
+                onClick={() => void onRelaunch?.()}
+                autoFocus
+              >
+                {relaunchFailed ? 'Tentar reiniciar de novo' : 'Reiniciar e aplicar'}
+              </button>
+            </>
           )}
         </footer>
       </div>

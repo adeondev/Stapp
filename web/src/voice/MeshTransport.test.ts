@@ -38,6 +38,11 @@ const fakeAudioContext = {
   })),
   createMediaStreamSource: vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn() })),
   createGain: vi.fn(() => ({ gain: { value: 0 }, connect: vi.fn(), disconnect: vi.fn() })),
+  createDynamicsCompressor: vi.fn(() => ({
+    threshold: { value: 0 }, knee: { value: 0 }, ratio: { value: 0 },
+    attack: { value: 0 }, release: { value: 0 },
+    connect: vi.fn(), disconnect: vi.fn(),
+  })),
 }
 
 describe('MeshTransport', () => {
@@ -58,8 +63,10 @@ describe('MeshTransport', () => {
         createAnalyser = fakeAudioContext.createAnalyser
         createMediaStreamSource = fakeAudioContext.createMediaStreamSource
         createGain = fakeAudioContext.createGain
+        createDynamicsCompressor = fakeAudioContext.createDynamicsCompressor
       },
     })
+    fakeAudioContext.createGain.mockClear()
     Object.defineProperty(HTMLMediaElement.prototype, 'play', {
       configurable: true, value: vi.fn(async () => {}),
     })
@@ -90,13 +97,48 @@ describe('MeshTransport', () => {
     await vi.waitFor(() => expect(FakePeerConnection.instances).toHaveLength(1))
 
     const remoteStream = { getTracks: () => [], getAudioTracks: () => [] }
+    fakeAudioContext.createGain.mockClear()
     FakePeerConnection.instances[0]?.emit('track', { streams: [remoteStream] })
     const audio = document.querySelector<HTMLAudioElement>('audio')
+    // Primeiro ganho criado durante o evento de track e o do PlaybackGraph.
+    const graphGain = fakeAudioContext.createGain.mock.results[0]?.value
     expect(audio?.muted).toBe(true)
+    expect(graphGain.gain.value).toBe(0)
     audio?.dispatchEvent(new Event('play'))
     expect(audio?.muted).toBe(true)
     if (audio) audio.muted = false
     transport.handleServerMessage({ t: 'voice.left', peer_id: 'outra-pessoa' })
+    expect(audio?.muted).toBe(true)
+    expect(graphGain.gain.value).toBe(0)
+    transport.destroy()
+  })
+
+  it('nao deixa o elemento <audio> tocar em paralelo com o grafo de reproducao', async () => {
+    const transport = new MeshTransport(
+      { backend: 'mesh', ice_servers: [], max_peers: 6 },
+      { selfPeerId: 'self', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn() },
+    )
+    expect(await transport.join('sala')).toBe(true)
+    transport.handleServerMessage({
+      t: 'rtc.signal', from: 'new-peer', payload: { kind: 'offer', sdp: { type: 'offer', sdp: 'remote' } },
+    })
+    await vi.waitFor(() => expect(FakePeerConnection.instances).toHaveLength(1))
+    FakePeerConnection.instances[0]?.emit('track', {
+      streams: [{ getTracks: () => [], getAudioTracks: () => [] }],
+    })
+
+    // Duas saidas simultaneas para a mesma fonte tem relogios independentes:
+    // eco metalico e ganho dobrado. Com o grafo vivo o elemento fica mudo e
+    // serve so de ancora de autoplay/setSinkId.
+    const audio = document.querySelector<HTMLAudioElement>('audio')
+    expect(audio?.muted).toBe(true)
+
+    // Nem mesmo mexer no volume devolve o elemento ao caminho de audio.
+    transport.setVoiceVolume('new-peer', 80)
+    expect(audio?.muted).toBe(true)
+    transport.setDeafened(true)
+    expect(audio?.muted).toBe(true)
+    transport.setDeafened(false)
     expect(audio?.muted).toBe(true)
     transport.destroy()
   })
@@ -112,10 +154,15 @@ describe('MeshTransport', () => {
       t: 'rtc.signal', from: 'new-peer', payload: { kind: 'offer', sdp: { type: 'offer', sdp: 'remote' } },
     })
     await vi.waitFor(() => expect(FakePeerConnection.instances).toHaveLength(1))
+    fakeAudioContext.createGain.mockClear()
     FakePeerConnection.instances[0]?.emit('track', {
       streams: [{ getTracks: () => [], getAudioTracks: () => [] }],
     })
-    expect(document.querySelector<HTMLAudioElement>('audio')?.volume).toBeCloseTo(0.25)
+    // O volume vive no PlaybackGraph, nao no elemento: o primeiro ganho criado
+    // durante o evento de track e o do grafo.
+    const graphGain = fakeAudioContext.createGain.mock.results[0]?.value
+    expect(graphGain.gain.value).toBeCloseTo(0.25)
+    expect(document.querySelector<HTMLAudioElement>('audio')?.muted).toBe(true)
     transport.handleServerMessage({ t: 'voice.left', peer_id: 'outra-pessoa' })
     expect(transport.getVoiceVolume('new-peer')).toBe(25)
     transport.leave()

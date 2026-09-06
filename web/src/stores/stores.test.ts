@@ -63,6 +63,44 @@ describe('Zustand Atomic Stores', () => {
     expect(Object.keys(useChatStore.getState().messages)).toHaveLength(0)
   })
 
+  it('centraliza mudo e ensurdecer garantindo que ensurdecer forca mutar e preserva preferencias', () => {
+    const store = useVoiceStore.getState()
+    expect(store.muted).toBe(false)
+    expect(store.deafened).toBe(false)
+
+    // Alternar mudo
+    store.toggleMute()
+    expect(useVoiceStore.getState().muted).toBe(true)
+    expect(useVoiceStore.getState().deafened).toBe(false)
+
+    store.toggleMute()
+    expect(useVoiceStore.getState().muted).toBe(false)
+    expect(useVoiceStore.getState().deafened).toBe(false)
+
+    // Ensurdecer forca mudo
+    store.toggleDeafen()
+    expect(useVoiceStore.getState().deafened).toBe(true)
+    expect(useVoiceStore.getState().muted).toBe(true)
+
+    // Desmutar desfaz o ensurdecimento
+    store.toggleMute()
+    expect(useVoiceStore.getState().muted).toBe(false)
+    expect(useVoiceStore.getState().deafened).toBe(false)
+
+    // Sincroniza com chamada ativa quando existente
+    useVoiceStore.getState().setCall({ channel: 'c-voz', muted: false, deafened: false })
+    expect(useVoiceStore.getState().call?.muted).toBe(false)
+
+    useVoiceStore.getState().toggleMute()
+    expect(useVoiceStore.getState().muted).toBe(true)
+    expect(useVoiceStore.getState().call?.muted).toBe(true)
+
+    // resetVoice limpa dados da chamada mas mantem preferencias de mudo
+    useVoiceStore.getState().resetVoice()
+    expect(useVoiceStore.getState().call).toBeNull()
+    expect(useVoiceStore.getState().muted).toBe(true)
+  })
+
   it('gerencia chat e mensagens diretas no chatStore', () => {
     dispatchServerMessage({
       t: 'chat.history',
@@ -96,5 +134,118 @@ describe('Zustand Atomic Stores', () => {
 
     expect(useChatStore.getState().messages['geral']).toHaveLength(1)
     expect(useChatStore.getState().messages['geral'][0].id).toBe('m2')
+  })
+
+  it('reconcilia participantes unicamente por user_id eliminando sessoes zumbi', () => {
+    // 1. Welcome inicial com Daniel e Alice
+    dispatchServerMessage({
+      t: 'welcome',
+      self_peer_id: 'peer-daniel-1',
+      self_user_id: 'user-daniel',
+      server_name: 'Stapp Teste',
+      channels: [{ id: 'voz-1', name: 'Voz 1', kind: 'voice' }, { id: 'voz-2', name: 'Voz 2', kind: 'voice' }],
+      users: [
+        { user_id: 'user-daniel', username: 'Daniel' },
+        { user_id: 'user-alice', username: 'Alice' },
+      ],
+      directory: [],
+      profiles: [],
+      voice: { backend: 'livekit', max_peers: 10, camera: true, screen_share: true, screen_audio: true },
+      voice_peers: [
+        {
+          peer_id: 'peer-alice-old',
+          user_id: 'user-alice',
+          username: 'Alice',
+          channel: 'voz-1',
+          muted: false,
+          deafened: false,
+          camera_enabled: false,
+          screen_sharing: false,
+        },
+      ],
+      limits: { max_upload_bytes: 1000, max_text_chars: 500 },
+    })
+
+    expect(useVoiceStore.getState().voicePeers).toHaveLength(1)
+    expect(useVoiceStore.getState().voicePeers[0].peer_id).toBe('peer-alice-old')
+
+    // 2. Alice reconecta com novo peer_id e entra no mesmo ou em outro canal (voice.joined)
+    dispatchServerMessage({
+      t: 'voice.joined',
+      peer: {
+        peer_id: 'peer-alice-new',
+        user_id: 'user-alice',
+        username: 'Alice',
+        channel: 'voz-2',
+        muted: true,
+        deafened: false,
+        camera_enabled: false,
+        screen_sharing: false,
+      },
+    })
+
+    // Deve ter substituído a sessão antiga pelo user_id
+    const peersAfterJoined = useVoiceStore.getState().voicePeers
+    expect(peersAfterJoined).toHaveLength(1)
+    expect(peersAfterJoined[0].peer_id).toBe('peer-alice-new')
+    expect(peersAfterJoined[0].channel).toBe('voz-2')
+
+    // 3. Roster autoritativo chega para voz-1 contendo apenas Daniel
+    dispatchServerMessage({
+      t: 'voice.roster',
+      channel: 'voz-1',
+      peers: [
+        {
+          peer_id: 'peer-daniel-1',
+          user_id: 'user-daniel',
+          username: 'Daniel',
+          channel: 'voz-1',
+          muted: false,
+          deafened: false,
+          camera_enabled: false,
+          screen_sharing: false,
+        },
+      ],
+    })
+
+    const peersAfterRoster = useVoiceStore.getState().voicePeers
+    expect(peersAfterRoster).toHaveLength(2)
+    const userIds = peersAfterRoster.map((p) => p.user_id).sort()
+    expect(userIds).toEqual(['user-alice', 'user-daniel'])
+    // Alice continua em voz-2 com peer-alice-new
+    expect(peersAfterRoster.find((p) => p.user_id === 'user-alice')?.peer_id).toBe('peer-alice-new')
+
+    // 4. Se o roster de voz-1 incluir Alice (mudou para voz-1), remove Alice de voz-2 e não duplica
+    dispatchServerMessage({
+      t: 'voice.roster',
+      channel: 'voz-1',
+      peers: [
+        {
+          peer_id: 'peer-daniel-1',
+          user_id: 'user-daniel',
+          username: 'Daniel',
+          channel: 'voz-1',
+          muted: false,
+          deafened: false,
+          camera_enabled: false,
+          screen_sharing: false,
+        },
+        {
+          peer_id: 'peer-alice-v1',
+          user_id: 'user-alice',
+          username: 'Alice',
+          channel: 'voz-1',
+          muted: false,
+          deafened: false,
+          camera_enabled: false,
+          screen_sharing: false,
+        },
+      ],
+    })
+
+    const peersFinal = useVoiceStore.getState().voicePeers
+    expect(peersFinal).toHaveLength(2)
+    expect(peersFinal.filter((p) => p.user_id === 'user-alice')).toHaveLength(1)
+    expect(peersFinal.find((p) => p.user_id === 'user-alice')?.channel).toBe('voz-1')
   })
 })

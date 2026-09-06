@@ -30,6 +30,7 @@ import { loadVoicePreferences, type VoicePreferences } from './voice/preferences
 import { useAutoUpdater } from './platform/updater/useAutoUpdater'
 import { UpdateModal } from './ui/updater/UpdateModal'
 import { MandatoryUpdateLock } from './ui/updater/MandatoryUpdateLock'
+import { SplashScreen } from './ui/updater/SplashScreen'
 import './ui/app.css'
 
 interface Ringing { userId: UserId; username: string; direction: 'incoming' | 'outgoing' }
@@ -70,13 +71,16 @@ export default function App() {
 
   const call = useVoiceStore((s) => s.call)
   const setCall = useVoiceStore((s) => s.setCall)
-  /* Microfone e fone sao PREFERENCIA da pessoa, nao estado de uma chamada.
-     Antes eles so existiam dentro de `call`: os botoes sumiam da tela ao
-     desligar, e quem tinha entrado mudo voltava com o microfone aberto na
-     chamada seguinte. Agora a verdade mora aqui, a chamada so espelha, e o
-     par de botoes fica fixo no painel de conta — como no Discord. */
-  const [voicePrefs, setVoicePrefs] = useState({ muted: false, deafened: false })
-  const voicePrefsRef = useRef(voicePrefs)
+  const muted = useVoiceStore((s) => s.muted)
+  const deafened = useVoiceStore((s) => s.deafened)
+  const toggleMute = useVoiceStore((s) => s.toggleMute)
+  const toggleDeafen = useVoiceStore((s) => s.toggleDeafen)
+
+  useEffect(() => {
+    callSounds.setDeafened(deafened)
+    voice.current?.setMuted(muted || deafened)
+    voice.current?.setDeafened(deafened)
+  }, [muted, deafened])
   const voiceSnapshot = useVoiceStore((s) => s.voiceSnapshot)
   const setVoiceSnapshot = useVoiceStore((s) => s.setVoiceSnapshot)
   const voiceConfig = useVoiceStore((s) => s.voiceConfig)
@@ -175,6 +179,7 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    if (updater.bootPhase !== 'ready') return
     const serverUrl = active?.profile.url
     if (!serverUrl) return
     resetRoom()
@@ -319,9 +324,10 @@ export default function App() {
           void voice.current?.join(msg.channel).then((started) => {
             if (started) {
               callSounds.playJoin()
-              voice.current?.setMuted(voicePrefsRef.current.muted)
-              voice.current?.setDeafened(voicePrefsRef.current.deafened)
-              setCall({ channel: msg.channel, ...voicePrefsRef.current })
+              const { muted: m, deafened: d } = useVoiceStore.getState()
+              voice.current?.setMuted(m || d)
+              voice.current?.setDeafened(d)
+              setCall({ channel: msg.channel, muted: m, deafened: d })
             }
           })
         }
@@ -350,7 +356,7 @@ export default function App() {
       if (connection.current === conn) connection.current = null
       if (authApi.current === api) authApi.current = null
     }
-  }, [active?.profile.url, connectionEpoch, resetRoom, updateActiveProfile])
+  }, [active?.profile.url, connectionEpoch, resetRoom, updateActiveProfile, updater.bootPhase])
 
   useEffect(() => {
     if (!notice) return
@@ -542,13 +548,14 @@ export default function App() {
     if (started) {
       callSounds.playJoin()
       // A preferencia de microfone atravessa a entrada: quem entrou mudo continua mudo.
-      voice.current?.setMuted(voicePrefsRef.current.muted)
-      voice.current?.setDeafened(voicePrefsRef.current.deafened)
-      setCall({ channel: channelId, ...voicePrefsRef.current })
+      const { muted: m, deafened: d } = useVoiceStore.getState()
+      voice.current?.setMuted(m || d)
+      voice.current?.setDeafened(d)
+      setCall({ channel: channelId, muted: m, deafened: d })
       const serverVoice = state.channels.some((channel) => channel.kind === 'voice' && channel.id === channelId)
       if (serverVoice) openServerCallView(channelId)
     }
-  }, [openServerCallView, state.channels])
+  }, [openServerCallView, setCall, state.channels])
 
   const handleJoinCall = useCallback(async (channelId: string) => {
     if (call?.channel === channelId) {
@@ -610,21 +617,6 @@ export default function App() {
       ? (previousServerView.current ?? { kind: 'home' })
       : current)
   }, [])
-  /** Fonte unica: grava a escolha, manda para o transporte e espelha na call. */
-  const aplicarVoicePrefs = useCallback((proximo: { muted: boolean; deafened: boolean }) => {
-    voicePrefsRef.current = proximo
-    setVoicePrefs(proximo)
-    callSounds.setDeafened(proximo.deafened)
-    voice.current?.setMuted(proximo.muted)
-    voice.current?.setDeafened(proximo.deafened)
-    setCall((atual) => atual ? { ...atual, ...proximo } : atual)
-  }, [setCall])
-  const toggleMute = useCallback(() => {
-    aplicarVoicePrefs({ ...voicePrefsRef.current, muted: !voicePrefsRef.current.muted })
-  }, [aplicarVoicePrefs])
-  const toggleDeafen = useCallback(() => {
-    aplicarVoicePrefs({ ...voicePrefsRef.current, deafened: !voicePrefsRef.current.deafened })
-  }, [aplicarVoicePrefs])
 
   const resolveUserId = useCallback((peerId: PeerId): UserId | undefined => {
     if (peerId === state.selfPeerId) return state.selfUserId ?? undefined
@@ -635,6 +627,23 @@ export default function App() {
     const dir = state.directory.find((d) => d.username === peerId)
     return dir?.user_id
   }, [state.selfPeerId, state.selfUserId, state.voicePeers, state.users, state.directory])
+
+  if (updater.bootPhase !== 'ready') {
+    return (
+      <SplashScreen
+        isModalOpen={updater.isModalOpen}
+        update={updater.availableUpdate}
+        isDownloading={updater.isDownloading}
+        progress={updater.progress}
+        isReadyToRelaunch={updater.isReadyToRelaunch}
+        relaunchFailed={updater.relaunchFailed}
+        error={updater.error}
+        onClose={updater.dismissModal}
+        onStartUpdate={updater.startUpdate}
+        onRelaunch={updater.relaunch}
+      />
+    )
+  }
 
   if (updater.mandatoryRequirement) {
     return (
@@ -666,6 +675,7 @@ export default function App() {
           isDownloading={updater.isDownloading}
           progress={updater.progress}
           isReadyToRelaunch={updater.isReadyToRelaunch}
+          relaunchFailed={updater.relaunchFailed}
           error={updater.error}
           onClose={updater.dismissModal}
           onStartUpdate={updater.startUpdate}
@@ -731,8 +741,8 @@ export default function App() {
             }}
             userId={state.selfUserId}
             username={self?.username ?? attemptedUsername.current}
-            muted={voicePrefs.muted}
-            deafened={voicePrefs.deafened}
+            muted={muted}
+            deafened={deafened}
             onToggleMute={toggleMute}
             onToggleDeafen={toggleDeafen}
             onOpenSettings={() => {
@@ -894,6 +904,7 @@ export default function App() {
         isDownloading={updater.isDownloading}
         progress={updater.progress}
         isReadyToRelaunch={updater.isReadyToRelaunch}
+        relaunchFailed={updater.relaunchFailed}
         error={updater.error}
         onClose={updater.dismissModal}
         onStartUpdate={updater.startUpdate}

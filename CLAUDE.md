@@ -249,3 +249,20 @@ Antes da primeira entrada, crie uma conta com `docker compose exec stapp-server 
   precisa de conferencia manual com microfone de verdade.
 - **Senha exige transporte seguro.** `ws://` so autentica em loopback ou redes privadas autorizadas. Fora dessas redes,
   termine TLS em um proxy no mesmo host e conecte por `wss://`.
+- **Limite nativo de volume no `<audio>` e uso obrigatório do `PlaybackGraph`:** A propriedade HTML5
+  `audio.volume` aceita valores apenas entre `0.0` e `1.0`. Sliders que permitem amplificação
+  (volume boost até 200%) são ignorados se aplicados diretamente no elemento de áudio. É obrigatório
+  rotear as tracks remotas através do `PlaybackGraph` (`MediaStreamAudioSourceNode -> GainNode -> AudioContext.destination`),
+  onde o `GainNode` suporta multiplicadores até `2.0`. Mantenha sempre referências vivas aos nós e ao `AudioContext`,
+  caso contrário o GC do V8 coleta os objetos intermediários e o áudio é mutado silenciosamente.
+- **Transmissão de tela no Tauri v2 exige buffer binário bruto no IPC:** Jamais envie frames de vídeo
+  ou capturas de tela serializadas como arrays numéricos ou JSON através do IPC do Tauri. A serialização
+  infla a carga em ~4x e destrói o framerate da transmissão. Use sempre `tauri::ipc::Response` com payload
+  binário cru (`Vec<u8>`) e consuma no frontend com `invoke<ArrayBuffer>('capture_screen_frame_raw')`. No Windows,
+  a sobreposição do ponteiro do mouse é composta nativamente via Win32 GDI (`GetCursorInfo`, `DrawIconEx`)
+  antes do redimensionamento multithread com `rayon`.
+- **Navegação de links externos na WebView2 (plugin opener):** Na WebView2 (Windows), tags `<a target="_blank">`
+  não abrem o navegador padrão confiavelmente e podem quebrar a janela do app se não interceptadas.
+  Use sempre a abstração `openExternalLink(url)` de [`web/src/platform/externalLink.ts`](web/src/platform/externalLink.ts),
+  que delega para o `@tauri-apps/plugin-opener` no desktop nativo e recorre ao `window.open` seguro no navegador.
+

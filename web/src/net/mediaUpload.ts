@@ -43,14 +43,37 @@ function uploadOnce(
     xhr.open('POST', endpoint, true)
     xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`)
     xhr.responseType = 'json'
+    xhr.timeout = 60_000
+
+    let isStalled = false
+    let stallTimer: ReturnType<typeof setTimeout> | null = null
+    const resetStallTimer = () => {
+      if (stallTimer !== null) clearTimeout(stallTimer)
+      stallTimer = setTimeout(() => {
+        isStalled = true
+        xhr.abort()
+      }, 15_000)
+    }
 
     const abort = () => xhr.abort()
     signal?.addEventListener('abort', abort, { once: true })
-    const cleanup = () => signal?.removeEventListener('abort', abort)
+    const cleanup = () => {
+      signal?.removeEventListener('abort', abort)
+      if (stallTimer !== null) {
+        clearTimeout(stallTimer)
+        stallTimer = null
+      }
+    }
 
-    if (xhr.upload && onProgress) {
+    // Dispara o watchdog no início da transmissão
+    resetStallTimer()
+
+    if (xhr.upload) {
       xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100))
+        resetStallTimer()
+        if (onProgress && event.lengthComputable) {
+          onProgress(Math.round((event.loaded / event.total) * 100))
+        }
       }
     }
     xhr.onload = () => {
@@ -67,9 +90,17 @@ function uploadOnce(
       cleanup()
       reject(new UploadError(friendlyUploadError(0, ''), 0))
     }
+    xhr.ontimeout = () => {
+      cleanup()
+      reject(new UploadError('Tempo limite esgotado durante o envio.', 0))
+    }
     xhr.onabort = () => {
       cleanup()
-      reject(new DOMException('Upload cancelado', 'AbortError'))
+      if (isStalled) {
+        reject(new UploadError('A conexao estagnou durante o upload.', 0))
+      } else {
+        reject(new DOMException('Upload cancelado', 'AbortError'))
+      }
     }
 
     const form = new FormData()
@@ -95,7 +126,10 @@ export async function uploadMediaFile(
   let lastError: unknown
 
   for (let attempt = 0; attempt < delays.length; attempt += 1) {
-    if (delays[attempt]) await wait(delays[attempt])
+    if (attempt > 0) {
+      onProgress?.(0)
+      if (delays[attempt]) await wait(delays[attempt])
+    }
     try {
       return await uploadOnce(endpoint, accessToken, file, scope, onProgress, signal)
     } catch (error) {
@@ -145,17 +179,42 @@ export async function updatePendingAttachment(
   if (!response.ok) throw new Error(friendlyUploadError(response.status, await response.text()))
 }
 
+export class AttachmentSessionExpired extends Error {
+  constructor(message = 'sessão expirada') {
+    super(message)
+    this.name = 'AttachmentSessionExpired'
+  }
+}
+
 export async function attachmentContentUrl(
   serverUrl: string,
   accessToken: string,
   attachmentId: string,
-) {
+  onRenewToken?: () => Promise<string | null>,
+): Promise<string> {
   const base = httpBaseFrom(serverUrl)
-  const response = await fetch(`${base}/attachments/${attachmentId}/ticket`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!response.ok) throw new Error(await response.text())
-  const payload = (await response.json()) as { content_url: string }
-  return new URL(payload.content_url, base).toString()
+  const fetchTicket = async (token: string) => {
+    const response = await fetch(`${base}/attachments/${attachmentId}/ticket`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (response.status === 401) {
+      throw new AttachmentSessionExpired('sessão expirada')
+    }
+    if (!response.ok) throw new Error(await response.text())
+    const payload = (await response.json()) as { content_url: string }
+    return new URL(payload.content_url, base).toString()
+  }
+
+  try {
+    return await fetchTicket(accessToken)
+  } catch (error) {
+    if (error instanceof AttachmentSessionExpired && onRenewToken) {
+      const refreshed = await onRenewToken()
+      if (refreshed) {
+        return await fetchTicket(refreshed)
+      }
+    }
+    throw error
+  }
 }

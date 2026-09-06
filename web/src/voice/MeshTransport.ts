@@ -10,6 +10,7 @@ import type {
 import { loadVoicePreferences, saveVoicePreferences } from './preferences'
 import type { VoicePreferences } from './preferences'
 import { callSounds } from '../net/callSounds'
+import { PlaybackGraph } from './PlaybackGraph'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -50,6 +51,8 @@ export class MeshTransport implements VoiceTransport {
   private deafened = false
 
   private readonly peers = new Map<PeerId, PeerLink>()
+  private readonly playbackGraph = new PlaybackGraph()
+  private playbackAttenuated = false
   private readonly voiceVolumes = new Map<PeerId, number>()
   private readonly lastVoiceVolumes = new Map<PeerId, number>()
   private readonly monitors = new Map<PeerId, Monitor>()
@@ -196,6 +199,7 @@ export class MeshTransport implements VoiceTransport {
     this.options.send({ t: 'voice.leave' })
 
     for (const id of [...this.peers.keys()]) this.dropPeer(id)
+    this.playbackGraph.destroy()
 
     this.stopWatching(this.options.selfPeerId)
     this.local?.getTracks().forEach((track) => track.stop())
@@ -212,6 +216,7 @@ export class MeshTransport implements VoiceTransport {
 
   destroy() {
     this.leave()
+    this.playbackGraph.destroy()
     this.voiceVolumes.clear()
     this.lastVoiceVolumes.clear()
     if (this.ticker) clearInterval(this.ticker)
@@ -222,6 +227,7 @@ export class MeshTransport implements VoiceTransport {
   }
 
   async resumeAudio() {
+    await this.playbackGraph.resume()
     await this.audioCtx?.resume().catch(() => {})
     const results = await Promise.all(
       [...this.peers.values()].map((link) => link.audio.play()
@@ -229,7 +235,9 @@ export class MeshTransport implements VoiceTransport {
         .catch(() => false)),
     )
     this.applyPlaybackState()
-    return results.every(Boolean)
+    // Elemento mudo sempre resolve o play(); com o grafo no caminho, quem
+    // denuncia bloqueio de autoplay e o AudioContext suspenso.
+    return results.every(Boolean) && !this.playbackGraph.hasSuspendedContext()
   }
 
   async setCameraEnabled(_enabled: boolean) {
@@ -269,6 +277,7 @@ export class MeshTransport implements VoiceTransport {
   async setOutputDevice(deviceId: string) {
     this.preferences.outputDeviceId = deviceId
     saveVoicePreferences(this.preferences)
+    await this.playbackGraph.setOutputDevice(deviceId)
     for (const link of this.peers.values()) {
       if ('setSinkId' in link.audio) {
         await (link.audio as HTMLAudioElement & { setSinkId(id: string): Promise<void> }).setSinkId(deviceId)
@@ -293,9 +302,33 @@ export class MeshTransport implements VoiceTransport {
     }
   }
 
+  setPlaybackAttenuated(attenuated: boolean) {
+    this.playbackAttenuated = attenuated
+    this.playbackGraph.setAttenuated(attenuated, 0)
+    this.applyPlaybackState()
+  }
+
   async startMicrophoneTest(onLevel: (level: number) => void) {
+    this.setPlaybackAttenuated(true)
     const { startMicrophoneTest } = await import('./testMicrophone')
-    return startMicrophoneTest(this.audioConstraints(), onLevel)
+    let stopTest: () => void
+    try {
+      stopTest = await startMicrophoneTest(
+        this.audioConstraints(),
+        onLevel,
+        this.preferences.outputDeviceId || undefined,
+      )
+    } catch (error) {
+      this.setPlaybackAttenuated(false)
+      throw error
+    }
+    return () => {
+      try {
+        stopTest()
+      } finally {
+        this.setPlaybackAttenuated(false)
+      }
+    }
   }
 
   async startCameraPreview(element: HTMLVideoElement) {
@@ -394,6 +427,12 @@ export class MeshTransport implements VoiceTransport {
       const stream = event.streams[0]
       if (!stream) return
       audio.srcObject = stream
+      // O grafo Web Audio e o elemento tocam a MESMA fonte. Se os dois ficarem
+      // audiveis, sao duas saidas com relogios independentes: eco metalico e
+      // ganho dobrado. O elemento so continua no caminho de audio quando o
+      // grafo nao nasceu (AudioContext indisponivel).
+      const graphAttached = this.playbackGraph.attach(peerId, stream) !== null
+      audio.muted = graphAttached || this.deafened || this.playbackAttenuated
       this.applyPlaybackState(audio, peerId)
       void audio.play().then(() => this.applyPlaybackState(audio, peerId)).catch(() => {})
       this.watch(peerId, stream)
@@ -457,6 +496,7 @@ export class MeshTransport implements VoiceTransport {
   }
 
   private dropPeer(peerId: PeerId) {
+    this.playbackGraph.detach(peerId)
     const link = this.peers.get(peerId)
     if (!link) return
     link.pc.close()
@@ -557,13 +597,26 @@ export class MeshTransport implements VoiceTransport {
   private applyPlaybackState(target?: HTMLAudioElement, peerId?: PeerId) {
     if (peerId) {
       const audio = target ?? this.peers.get(peerId)?.audio
+      const targetGain = (this.getVoiceVolume(peerId) / 100) * (this.preferences.outputVolume / 100)
+      this.playbackGraph.setGain(peerId, targetGain)
+      this.playbackGraph.setMuted(peerId, this.deafened)
+
       if (!audio) return
-      audio.muted = this.deafened
-      audio.volume = clamp(
-        (this.getVoiceVolume(peerId) / 100) * (this.preferences.outputVolume / 100),
-        0,
-        1,
-      )
+      // Com o grafo vivo o elemento fica mudo de forma incondicional: ele
+      // permanece so como ancora de autoplay e de setSinkId. Volume, mudo e
+      // atenuacao sao responsabilidade exclusiva do PlaybackGraph.
+      if (this.playbackGraph.has(peerId)) {
+        audio.muted = true
+        return
+      }
+      audio.muted = this.deafened || this.playbackAttenuated
+      audio.volume = this.playbackAttenuated
+        ? 0
+        : clamp(
+            (this.getVoiceVolume(peerId) / 100) * (this.preferences.outputVolume / 100),
+            0,
+            1,
+          )
       return
     }
     for (const [id, link] of this.peers) this.applyPlaybackState(link.audio, id)

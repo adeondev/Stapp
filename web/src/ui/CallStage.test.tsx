@@ -2,11 +2,12 @@
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import { DEFAULT_VOICE_PREFERENCES } from '../voice/preferences'
 import { CallStage } from './CallStage'
 import { UserMenuProvider } from './UserMenu'
+import { useVoiceStore } from '../stores'
 
 const snapshot: VoiceSnapshot = {
   status: 'connected', channel: 'geral', muted: false, deafened: false,
@@ -45,6 +46,10 @@ function transport(): VoiceTransport {
 }
 
 describe('palco da chamada', () => {
+  beforeEach(() => {
+    useVoiceStore.setState({ muted: false, deafened: false })
+  })
+
   afterEach(() => {
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   })
@@ -77,9 +82,23 @@ describe('palco da chamada', () => {
     await user.click(screen.getByRole('button', { name: 'voz e vídeo' }))
     await user.click(screen.getByRole('button', { name: 'desconectar' }))
     expect(media.setMuted).toHaveBeenCalledWith(true)
+    expect(useVoiceStore.getState().muted).toBe(true)
     expect(media.setCameraEnabled).toHaveBeenCalledWith(false)
     expect(settings).toHaveBeenCalled()
     expect(leave).toHaveBeenCalled()
+  })
+
+  it('sincroniza ensurdecer e mudo com o store a partir do dock', async () => {
+    const user = userEvent.setup()
+    const media = transport()
+    render(<CallStage channelName="Sala" snapshot={snapshot} transport={media}
+      onLeave={vi.fn()} onOpenSettings={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'ensurdecer' }))
+    expect(useVoiceStore.getState().deafened).toBe(true)
+    expect(useVoiceStore.getState().muted).toBe(true)
+    expect(media.setDeafened).toHaveBeenCalledWith(true)
+    expect(media.setMuted).toHaveBeenCalledWith(true)
   })
 
   it('escolhe a fonte no modal do Stapp antes de compartilhar no aplicativo', async () => {
@@ -293,4 +312,90 @@ describe('palco da chamada', () => {
     expect(screen.getByRole('alert')).toBeTruthy()
     expect(screen.getByText('Falha ao acessar o microfone selecionado.')).toBeTruthy()
   })
+
+  it('suporta 7 participantes na grade com layout dinamico sem transbordo', () => {
+    const media = transport()
+    const participants7 = [
+      { peerId: 'p1', name: 'P1', local: true, speaking: false, microphone: true, camera: true, screen: false, quality: 'good' as const },
+      { peerId: 'p2', name: 'P2', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p3', name: 'P3', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p4', name: 'P4', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p5', name: 'P5', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p6', name: 'P6', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p7', name: 'P7', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+    ]
+    const { container } = render(
+      <CallStage
+        channelName="Sala"
+        snapshot={{
+          ...snapshot,
+          participants: participants7,
+          media: [
+            { id: 'cam-p1', peerId: 'p1', name: 'P1', kind: 'camera', local: true, subscribed: true, muted: false },
+          ],
+        }}
+        transport={media}
+        onLeave={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    const layout = container.querySelector('.callstage__layout') as HTMLElement
+    expect(layout).toBeTruthy()
+    const tiles = layout.querySelectorAll('.calltile')
+    expect(tiles.length).toBe(7)
+
+    // O layout não deve mais conter a classe estática rígida .callstage__layout--count-7
+    expect(layout.className).not.toContain('callstage__layout--count-7')
+
+    // Deve aplicar variáveis de estilo calculadas dinamicamente garantindo que 7 caibam
+    const cols = Number.parseInt(layout.style.getPropertyValue('--callstage-columns'))
+    const rows = Number.parseInt(layout.style.getPropertyValue('--callstage-rows'))
+    expect(cols * rows).toBeGreaterThanOrEqual(7)
+  })
+
+  it('exibe controles flutuantes no tile ao entrar em tela cheia e permite mutar/ensurdecer diretamente por eles', async () => {
+    const user = userEvent.setup()
+    const media = transport()
+    const leave = vi.fn()
+    const { container } = render(
+      <CallStage
+        channelName="Sala"
+        snapshot={snapshot}
+        transport={media}
+        onLeave={leave}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    const fullscreenAlice = screen.getByRole('button', { name: 'tela cheia de Alice' })
+    await user.click(fullscreenAlice)
+
+    const floatingControls = container.querySelector('.calltile__fullscreen-controls')
+    expect(floatingControls).toBeTruthy()
+
+    // O tile possui data-tile-id correspondente
+    const aliceTile = container.querySelector('[data-tile-id="media:screen-alice"]')
+    expect(aliceTile).toBeTruthy()
+    expect(aliceTile?.contains(floatingControls)).toBe(true)
+
+    // Controles flutuantes permitem mutar e ensurdecer
+    const muteBtn = floatingControls?.querySelector('button[title="Desligar microfone"]') as HTMLButtonElement
+    expect(muteBtn).toBeTruthy()
+    await user.click(muteBtn)
+    expect(useVoiceStore.getState().muted).toBe(true)
+
+    // Botão de desconectar no HUD flutuante
+    const leaveBtn = floatingControls?.querySelector('button[title="Desconectar"]') as HTMLButtonElement
+    expect(leaveBtn).toBeTruthy()
+    await user.click(leaveBtn)
+    expect(leave).toHaveBeenCalledTimes(1)
+
+    // Sair de tela cheia
+    const exitBtn = floatingControls?.querySelector('button[title="Sair da tela cheia (Esc)"]') as HTMLButtonElement
+    expect(exitBtn).toBeTruthy()
+    await user.click(exitBtn)
+    expect(container.querySelector('.calltile__fullscreen-controls')).toBeNull()
+  })
 })
+
