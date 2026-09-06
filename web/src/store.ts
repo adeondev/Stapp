@@ -362,6 +362,9 @@ export function reduce(state: StappState, msg: StappAction): StappState {
     case 'error':
     case 'dm.denied':
     case 'telemetry.pong':
+    /* `profile.detail` nao vive aqui: amigos em comum sao a resposta a UM par de
+       contas, entao ficam no `presenceStore`, ao lado do perfil que os pediu. */
+    case 'profile.detail':
       return state
   }
 }
@@ -514,6 +517,8 @@ export function resolveProfile(
     accent: 'blue',
     bio: '',
     has_avatar: false,
+    has_banner: false,
+    created_at: 0,
     updated_at: 0,
   }
 }

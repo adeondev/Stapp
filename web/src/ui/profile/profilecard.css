@@ -1,0 +1,302 @@
+/* O cartao de perfil. Elevacao por tom de fundo, como o resto do app:
+   `--bg-floating` sobre qualquer coisa, sem sombra e sem borda. */
+
+.profile-card {
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: var(--bg-floating);
+  color: var(--text);
+}
+
+.profile-card--popover { width: 340px; max-width: calc(100vw - 16px); }
+.profile-card--full { width: 100%; }
+.profile-card--preview { width: 100%; max-width: 340px; }
+
+/* ── Faixa ──────────────────────────────────────────────────────────────── */
+
+.profile-card__banner {
+  position: relative;
+  height: 90px;
+  flex: 0 0 auto;
+  background: var(--profile-accent, var(--accent));
+}
+
+.profile-card--full .profile-card__banner { height: 140px; }
+
+.profile-card__banner-img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+/* ── Identidade ─────────────────────────────────────────────────────────── */
+
+.profile-card__identity {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 var(--space-6);
+  /* Puxa o avatar para cima da faixa. A altura negativa e metade do avatar. */
+  margin-top: -40px;
+}
+
+.profile-card__avatar {
+  position: relative;
+  display: grid;
+  width: 80px;
+  height: 80px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  /* O anel e o proprio fundo do cartao, nao uma borda: mesma leitura, sem linha. */
+  outline: 6px solid var(--bg-floating);
+  background: var(--avatar-accent, var(--accent));
+  color: var(--avatar-ink, var(--on-accent));
+  font-size: var(--fs-2xl);
+  font-weight: var(--fw-bold);
+}
+
+.profile-card__avatar > span {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  place-items: center;
+  border-radius: inherit;
+  background: inherit;
+  color: inherit;
+}
+
+/* Ponto de presenca. Vale so online/offline — o app nao tem outros estados, e
+   inventar "ausente" aqui seria mostrar dado que nao existe. */
+.profile-card__avatar.is-online::after {
+  content: '';
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  outline: 4px solid var(--bg-floating);
+  background: var(--online);
+}
+
+.profile-card__quick {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-bottom: var(--space-3);
+}
+
+/* ── Corpo ──────────────────────────────────────────────────────────────── */
+
+.profile-card__body {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-5);
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  overflow-y: auto;
+}
+
+.profile-card__names {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.profile-card__display {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+  line-height: 1.2;
+  word-break: break-word;
+}
+
+.profile-card__handle {
+  color: var(--text-dim);
+  font-size: var(--fs-base);
+}
+
+.profile-card__relation {
+  align-self: flex-start;
+  margin-top: var(--space-2);
+  padding: 2px var(--space-4);
+  border-radius: var(--radius-pill);
+  background: var(--modifier-hover);
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+
+/* As secoes se separam por tom, nao por linha: cada uma e um bloco afundado. */
+.profile-card__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius);
+  background: var(--sunken);
+}
+
+.profile-card__section h4 {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-card__bio {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--fs-base);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.profile-card__meta {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: var(--fs-base);
+}
+
+.profile-card__meta--loading { color: var(--text-faint); }
+
+.profile-card__mutuals {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  list-style: none;
+}
+
+.profile-card__mutual-avatar {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--avatar-accent, var(--accent));
+  color: var(--avatar-ink, var(--on-accent));
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  overflow: hidden;
+}
+
+.profile-card__mutual-more {
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+/* ── Acoes ──────────────────────────────────────────────────────────────── */
+
+.profile-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.profile-card__button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-soft);
+  font-size: var(--fs-base);
+  font-weight: var(--fw-medium);
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.profile-card__button:hover { background: var(--modifier-hover); color: var(--text); }
+.profile-card__button:active { background: var(--modifier-active); }
+.profile-card__button.is-primary { background: var(--accent); color: var(--on-accent); }
+.profile-card__button.is-primary:hover { background: var(--accent-hover); color: var(--on-accent); }
+
+.profile-card__link {
+  padding: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.profile-card__link:hover { color: var(--text); }
+
+/* ── Campo rapido ───────────────────────────────────────────────────────── */
+
+.profile-card__compose {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  border-radius: var(--radius);
+  background: var(--bg-input);
+}
+
+.profile-card__compose input {
+  flex: 1;
+  min-width: 0;
+  min-height: 28px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--fs-base);
+}
+
+.profile-card__compose input:focus { outline: 0; }
+
+/* ── Indisponivel ───────────────────────────────────────────────────────── */
+
+.profile-card__banner--flat { background: var(--profile-accent, var(--accent)); }
+
+.profile-card__unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-7) var(--space-6);
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.profile-card__unavailable p { margin: 0; font-size: var(--fs-base); }
+
+.profile-card__close { position: absolute; top: var(--space-4); right: var(--space-4); }
+
+@media (max-width: 420px) {
+  .profile-card--popover { width: calc(100vw - 16px); }
+}
+
+/* ── A casca flutuante ──────────────────────────────────────────────────── */
+
+.profile-popover {
+  z-index: var(--z-popover);
+  max-height: calc(100vh - 16px);
+  animation: profile-popover-in var(--dur-base) var(--motion-smooth);
+}
+
+.profile-popover .profile-card__body { max-height: calc(100vh - 200px); }
+
+@keyframes profile-popover-in {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+/* No dialogo, o cartao ja esta dentro da moldura do Overlay: o fundo proprio
+   viraria cartao dentro de cartao. */
+.profile-full .profile-card { background: transparent; border-radius: 0; }
+.profile-full .profile-card__avatar { outline-color: var(--bg-app); }
+.profile-full .profile-card__avatar.is-online::after { outline-color: var(--bg-app); }

@@ -5,3 +5,4 @@ pub mod assets;
 pub mod attachments;
 pub mod auth;
 pub mod avatars;
+pub mod banners;

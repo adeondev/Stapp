@@ -1,6 +1,7 @@
 import { Avatar, ProfileName } from './Avatar'
 import type { SocialMember, UserId } from '../protocol'
 import { useUserMenu } from './UserMenu'
+import { useUserProfile } from './profile/UserProfilePopover'
 import './members.css'
 
 interface Props {
@@ -8,15 +9,15 @@ interface Props {
   onlineIds: ReadonlySet<UserId>
   selfUserId: UserId | null
   selfUsername: string
-  onEditSelf(): void
 }
 
 /* Mensagem, adicionar, bloquear e o resto sairam daqui: agora saem do menu de
    perfil, que ja existia e ja era o caminho do botao direito em todo o resto
    do app. Ter as mesmas acoes em dois lugares — pilulas aqui, menu ali — era
    duas listas para manter e dois desenhos diferentes para a mesma coisa. */
-export function MembersPanel({ members, onlineIds, selfUserId, selfUsername, onEditSelf }: Props) {
+export function MembersPanel({ members, onlineIds, selfUserId, selfUsername }: Props) {
   const userMenu = useUserMenu()
+  const perfil = useUserProfile()
   const outros = members.filter((member) => member.user_id !== selfUserId)
   const ordenar = (lista: SocialMember[]) =>
     [...lista].sort((a, b) => a.username.localeCompare(b.username, 'pt-BR', { sensitivity: 'base' }))
@@ -26,11 +27,12 @@ export function MembersPanel({ members, onlineIds, selfUserId, selfUsername, onE
   const linha = (userId: UserId, username: string, conectado: boolean, eu: boolean) => (
     <button key={userId} className={`members__row ${conectado ? '' : 'is-offline'}`} type="button"
       onClick={(event) => {
-        if (eu) return onEditSelf()
-        const rect = event.currentTarget.getBoundingClientRect()
-        // O menu nasce colado na linha, e nao no ponteiro: o clique da esquerda
-        // tem uma ancora previsivel, diferente do menu de contexto.
-        userMenu.open({ x: rect.left - 8, y: rect.top }, { userId, name: username })
+        /* O clique da esquerda abre o CARTAO, inclusive no proprio perfil — e o
+           cartao e que leva a "Editar perfil". O menu de acoes continua no botao
+           direito e em "Mais opcoes" dentro do cartao, entao a mesma coisa vale
+           aqui, no chat e na lista de amigos.
+           O lado preferido e a esquerda porque esta coluna e a ultima da tela. */
+        perfil.open(event.currentTarget, userId, 'left')
       }}
       onContextMenu={(event) => userMenu.open(event, { userId, name: username })}>
       <Avatar userId={userId} className={`members__avatar ${conectado ? 'is-online' : ''}`} fallbackName={username} />

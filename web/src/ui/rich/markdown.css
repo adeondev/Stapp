@@ -30,14 +30,14 @@
   color: var(--text);
 }
 
-.stapp-markdown h1 { font-size: 1.25rem; }
-.stapp-markdown h2 { font-size: 1.15rem; }
-.stapp-markdown h3 { font-size: 1.05rem; }
-.stapp-markdown h4 { font-size: 0.95rem; }
+.stapp-markdown h1 { font-size: var(--fs-xl); }
+.stapp-markdown h2 { font-size: var(--fs-lg); }
+.stapp-markdown h3 { font-size: var(--fs-md); }
+.stapp-markdown h4 { font-size: var(--fs-base); }
 
 .stapp-markdown strong {
-  font-weight: 600;
-  color: #fff;
+  font-weight: var(--fw-semibold);
+  color: var(--text);
 }
 
 .stapp-markdown em {
@@ -95,7 +95,7 @@
   padding: 0.75rem;
   overflow-x: auto;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.85rem;
+  font-size: var(--fs-sm);
   line-height: 1.4;
 }
 
@@ -110,7 +110,7 @@
   border-collapse: collapse;
   margin: 0.5rem 0;
   width: 100%;
-  font-size: 0.9rem;
+  font-size: var(--fs-base);
 }
 
 .stapp-markdown th,
@@ -151,4 +151,48 @@
   border-radius: var(--radius);
   background: var(--bg-raised);
   object-fit: contain;
+}
+
+/* Bloco de codigo. Estava escrito em utilitarios do Tailwind com valores
+   arbitrarios (`text-[11px]`, `px-3`, `bg-[var(--bg-canvas)]`), o que contraria
+   a regra do projeto de CSS na mao, um arquivo por componente — e ainda escondia
+   as medidas fora do sistema de tokens. */
+.stapp-code {
+  position: relative;
+  margin: var(--space-4) 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--bg-canvas);
+}
+
+.stapp-code__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-5);
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  user-select: none;
+}
+
+.stapp-code__copy {
+  padding: 2px var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  transition: color var(--dur-fast) ease, background var(--dur-fast) ease;
+}
+
+.stapp-code__copy:hover { background: var(--modifier-hover); color: var(--text); }
+
+.stapp-code__body {
+  margin: 0;
+  padding: var(--space-5);
+  overflow-x: auto;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-base);
 }

@@ -26,10 +26,10 @@
   width: 40px;
   height: 40px;
   flex: 0 0 auto;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--avatar-accent, var(--accent));
   color: var(--avatar-ink, var(--on-accent));
-  font-size: 16px;
+  font-size: var(--fs-lg);
   font-weight: 600;
 }
 
@@ -48,7 +48,7 @@
 
 .callpanel__state {
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 .callpanel__actions {
@@ -64,7 +64,7 @@
   gap: 6px;
   flex: 1;
   padding: 9px;
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
 }
 

@@ -9,6 +9,7 @@ import type {
 } from './VoiceTransport'
 import { loadVoicePreferences, saveVoicePreferences } from './preferences'
 import type { VoicePreferences } from './preferences'
+import type { MicrophoneTestOptions } from './testMicrophone'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -283,9 +284,15 @@ export class MeshTransport implements VoiceTransport {
     }
   }
 
-  async startMicrophoneTest(onLevel: (level: number) => void) {
+  async startMicrophoneTest(onLevel: (level: number) => void, options?: MicrophoneTestOptions) {
     const { startMicrophoneTest } = await import('./testMicrophone')
-    return startMicrophoneTest(this.audioConstraints(), onLevel)
+    // A saida do retorno segue a preferencia de dispositivo ja escolhida.
+    return startMicrophoneTest(this.audioConstraints(), onLevel, {
+      outputDeviceId: this.preferences.outputDeviceId,
+      monitorVolume: this.preferences.monitorVolume,
+      monitor: this.preferences.monitorMic,
+      ...options,
+    })
   }
 
   async startCameraPreview(element: HTMLVideoElement) {

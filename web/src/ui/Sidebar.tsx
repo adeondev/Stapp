@@ -55,7 +55,7 @@ export function Sidebar({ state, status, view, mode, onSelectHome, onSelectChann
       <header className="sidebar__head">
         {home ? (
           <label className="sidebar__search">
-            <IconSearch size={14} />
+            <IconSearch size={16} />
             <input value={busca} onChange={(event) => setBusca(event.target.value)}
               placeholder="Encontre uma conversa" aria-label="Filtrar conversas" />
           </label>
@@ -135,7 +135,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   return <>
     <button className="sidebar__section" type="button" aria-expanded={aberta}
       onClick={() => setAberta((valor) => !valor)}>
-      <IconChevronDown size={12} className="sidebar__section-chevron" />
+      <IconChevronDown size={16} className="sidebar__section-chevron" />
       <span className="sidebar__section-label">{label}</span>
     </button>
     {aberta && children}
@@ -239,7 +239,7 @@ function ServerNavigation({ state, view, callChannel, speaking, onSelectChannel,
                 <span className="sidebar__peer-name">
                   <ProfileName userId={peer.user_id} fallbackName={peer.username} />
                 </span>
-                {(peer.muted || peer.deafened) && <span className="sidebar__peer-muted"><IconMicOff size={14} /></span>}
+                {(peer.muted || peer.deafened) && <span className="sidebar__peer-muted"><IconMicOff size={16} /></span>}
               </div>
             ))}
           </div>

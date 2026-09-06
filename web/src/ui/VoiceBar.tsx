@@ -16,7 +16,7 @@ export function VoiceBar({ channelName, onLeave, onOpen }: Props) {
     <div className="voicebar">
       <button className="voicebar__where" type="button" onClick={onOpen} title="Abrir chamada">
         <span className="voicebar__label">
-          <IconSignal size={14} className="voicebar__signal" />
+          <IconSignal size={16} className="voicebar__signal" />
           Voz conectada
         </span>
         <span className="voicebar__channel">{channelName}</span>

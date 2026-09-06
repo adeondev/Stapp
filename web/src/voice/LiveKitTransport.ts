@@ -21,6 +21,7 @@ import type {
   InboundAudioDiagnostic,
   MediaDeviceLists,
   ScreenShareOptions,
+  ScreenShareResult,
   VoiceParticipantState,
   VoiceSnapshot,
   VoiceTransport,
@@ -38,6 +39,7 @@ import {
   type ConfigurableAudioProcessor,
   type VoiceProcessorSettings,
 } from './VoiceAudioProcessor'
+import type { MicrophoneTestOptions } from './testMicrophone'
 
 type LiveKitModule = typeof import('livekit-client')
 
@@ -179,7 +181,7 @@ export class LiveKitTransport implements VoiceTransport {
   async setScreenShareEnabled(
     enabled: boolean,
     options: ScreenShareOptions = {},
-  ): Promise<boolean> {
+  ): Promise<ScreenShareResult> {
     const preset = options.preset ?? this.preferences.screenPreset
     const sourceId = options.sourceId
     const includeAudio = options.includeAudio ?? this.preferences.shareAudio
@@ -331,7 +333,10 @@ export class LiveKitTransport implements VoiceTransport {
       }
       return true
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'NotAllowedError') return false
+      // Fechar o seletor do sistema tambem chega como NotAllowedError. Nao e
+      // erro: e a pessoa dizendo que mudou de ideia, e a tela nao deve acusar
+      // falha nenhuma por causa disso.
+      if (error instanceof DOMException && error.name === 'NotAllowedError') return 'canceled'
       this.fail(mediaError(error, 'Nao consegui iniciar o compartilhamento.'))
       return false
     }
@@ -380,9 +385,15 @@ export class LiveKitTransport implements VoiceTransport {
     }
   }
 
-  async startMicrophoneTest(onLevel: (level: number) => void) {
+  async startMicrophoneTest(onLevel: (level: number) => void, options?: MicrophoneTestOptions) {
     const { startMicrophoneTest } = await import('./testMicrophone')
-    return startMicrophoneTest(this.audioCaptureOptions(), onLevel)
+    // A saida do retorno segue a preferencia de dispositivo ja escolhida.
+    return startMicrophoneTest(this.audioCaptureOptions(), onLevel, {
+      outputDeviceId: this.preferences.outputDeviceId,
+      monitorVolume: this.preferences.monitorVolume,
+      monitor: this.preferences.monitorMic,
+      ...options,
+    })
   }
 
   async startCameraPreview(element: HTMLVideoElement) {

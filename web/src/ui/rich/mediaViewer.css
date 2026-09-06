@@ -1,0 +1,151 @@
+.media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  background: var(--overlay-scrim);
+  animation: media-viewer-in var(--dur-base) var(--motion-smooth);
+}
+
+/* Camada que recebe o clique de fechar. Fica atras de tudo para que arrastar a
+   imagem para fora nao feche a janela no meio do gesto. */
+.media-viewer__fundo { position: absolute; inset: 0; }
+
+@keyframes media-viewer-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ── Barra ───────────────────────────────────────────────────────────────── */
+
+.media-viewer__barra {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-5);
+  background: var(--scrim-strong);
+  color: var(--text);
+}
+
+.media-viewer__info {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.media-viewer__info strong {
+  overflow: hidden;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-viewer__info span { color: var(--text-dim); font-size: var(--fs-sm); }
+
+.media-viewer__acoes {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.media-viewer__zoom {
+  min-width: 48px;
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.media-viewer__link {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--interactive);
+  text-decoration: none;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.media-viewer__link:hover { background: var(--modifier-hover); color: var(--interactive-active); }
+
+/* Rotulo so para leitor de tela: o botao e o icone, mas ele precisa ter nome. */
+.media-viewer__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Palco ───────────────────────────────────────────────────────────────── */
+
+.media-viewer__palco {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  padding: var(--space-6);
+  overflow: hidden;
+  touch-action: none;
+}
+
+.media-viewer__palco:focus { outline: 0; }
+.media-viewer__palco.is-zoomed { cursor: grab; }
+.media-viewer__palco.is-dragging { cursor: grabbing; }
+
+.media-viewer__img {
+  max-width: 100%;
+  max-height: 100%;
+  /* `transform` e nao largura/altura: mexer em tamanho refaz o layout a cada
+     quadro e trava com foto grande. Aqui o trabalho fica na GPU. */
+  transform-origin: center;
+  will-change: transform;
+  opacity: 0;
+  transition: opacity var(--dur-base) ease;
+  user-select: none;
+}
+
+.media-viewer__img.is-ready { opacity: 1; }
+
+/* Enquanto arrasta nao ha transicao: a imagem tem que colar no ponteiro. */
+.media-viewer__palco.is-dragging .media-viewer__img { transition: none; }
+
+.media-viewer__erro {
+  max-width: 40ch;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-md);
+  text-align: center;
+}
+
+/* ── Navegacao ───────────────────────────────────────────────────────────── */
+
+.media-viewer__nav {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+  background: var(--scrim-strong);
+  color: var(--text);
+}
+
+.media-viewer__nav:hover:not(:disabled) { background: var(--bg-raised); }
+.media-viewer__nav.is-prev { left: var(--space-5); }
+.media-viewer__nav.is-next { right: var(--space-5); }
+
+@media (max-width: 720px) {
+  .media-viewer__barra { flex-direction: column; align-items: stretch; gap: var(--space-3); }
+  .media-viewer__acoes { flex-wrap: wrap; justify-content: flex-end; }
+  .media-viewer__nav.is-prev { left: var(--space-2); }
+  .media-viewer__nav.is-next { right: var(--space-2); }
+}

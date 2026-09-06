@@ -1,13 +1,18 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ChatEntry, DirectoryEntry, Limits, UserId } from '../protocol'
 import { useChatStore } from '../stores/chatStore'
-import { IconAt, IconEdit, IconHash, IconMembers, IconPhone, IconReaction, IconReply, IconTrash } from './Icons'
+import {
+  IconAt, IconChevronLeft, IconChevronRight, IconEdit, IconFile, IconHash, IconMembers,
+  IconPhone, IconReaction, IconRefresh, IconReply, IconTrash, IconUpload, IconX,
+} from './Icons'
 import { Avatar, ProfileName } from './Avatar'
+import { useProfileTriggerFactory } from './profile/UserProfilePopover'
 import { MarkdownRenderer } from './rich/MarkdownRenderer'
 import { EmojiPicker } from './rich/EmojiPicker'
 import { LinkPreviewCard } from './rich/LinkPreviewCard'
 import { MessageAttachments } from './rich/MessageAttachments'
 import { deletePendingAttachment, updatePendingAttachment, uploadMediaFile } from '../net/mediaUpload'
+import { probeMediaDimensions } from './rich/mediaDimensions'
 import { AudioRecorder, type RecordedVoice } from './rich/AudioRecorder'
 import { MessageComposer } from './MessageComposer'
 import { GifPicker } from './rich/GifPicker'
@@ -135,6 +140,7 @@ export function Chat({
   const storeTypingUsers = useChatStore((s) => s.typing[typingKey])
   const typingUsers = propTypingUsers ?? storeTypingUsers ?? []
   const userMenu = useUserMenu()
+  const gatilhoDoAutor = useProfileTriggerFactory()
   const [draft, setDraft] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showGifPicker, setShowGifPicker] = useState(false)
@@ -486,6 +492,8 @@ export function Chat({
             controller.signal,
           )
           setPendingUploads((prev) => prev.map((entry) => entry.id === tempId ? { ...entry, attachmentId, progress: 100, error: undefined } : entry))
+          // Fora do `await`: medir nao pode segurar a fila de uploads.
+          void enviarDimensoes(attachmentId, file)
         } catch (error) {
           if (error instanceof DOMException && error.name === 'AbortError') continue
           setPendingUploads((prev) => prev.map((entry) => entry.id === tempId ? { ...entry, error: error instanceof Error ? error.message : 'Falha no envio' } : entry))
@@ -515,6 +523,7 @@ export function Chat({
         setPendingUploads((prev) => prev.map((entry) => entry.id === id ? { ...entry, progress } : entry))
       }, controller.signal)
       setPendingUploads((prev) => prev.map((entry) => entry.id === id ? { ...entry, attachmentId, progress: 100 } : entry))
+      void enviarDimensoes(attachmentId, item.file)
     } catch (error) {
       setPendingUploads((prev) => prev.map((entry) => entry.id === id ? { ...entry, error: error instanceof Error ? error.message : 'Falha no envio' } : entry))
     }
@@ -544,6 +553,30 @@ export function Chat({
         ...entry,
         error: error instanceof Error ? error.message : 'Falha ao salvar detalhes',
       } : entry))
+    }
+  }
+
+  /**
+   * Manda as dimensoes reais da midia logo depois do upload.
+   *
+   * `width`/`height` existem no protocolo e no banco desde a v8, e o `PATCH`
+   * sempre os aceitou — mas ninguem preenchia: o servidor nao decodifica anexo e
+   * o cliente so mandava nome e descricao. Sem isso o container nao sabe a
+   * proporcao, e era por isso que video vertical entrava espremido numa caixa
+   * horizontal e a conversa dava salto quando a midia carregava.
+   *
+   * Falhar aqui nao e problema: sem metadado o player mede no `loadedmetadata`,
+   * como fazia antes. Por isso o erro e engolido — nao vale marcar um envio que
+   * deu certo como falho por causa de uma medicao.
+   */
+  async function enviarDimensoes(attachmentId: string, file: File) {
+    if (!serverUrl || !accessToken) return
+    try {
+      const dimensoes = await probeMediaDimensions(file)
+      if (!dimensoes) return
+      await updatePendingAttachment(serverUrl, accessToken, attachmentId, dimensoes)
+    } catch {
+      // Sem dimensao o desenho continua funcionando, so sem reserva de espaco.
     }
   }
 
@@ -686,16 +719,12 @@ export function Chat({
     >
       {isDragging && (
         <div className="stapp-drag-overlay">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mb-2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" y1="3" x2="12" y2="15" />
-          </svg>
-          <span className="text-sm font-semibold text-[var(--accent)]">Solte os arquivos para enviar</span>
+          <IconUpload size={32} className="stapp-drag-overlay__icone" />
+          <span className="stapp-drag-overlay__texto">Solte os arquivos para enviar</span>
         </div>
       )}
       <header className="chat__head">
-        <span className="chat__head-icon">{kind === 'direct' ? <IconAt size={22} /> : <IconHash size={22} />}</span>
+        <span className="chat__head-icon">{kind === 'direct' ? <IconAt size={20} /> : <IconHash size={20} />}</span>
         <span className="chat__title">{title}</span>
         {/* So entra aqui o que o Stapp de fato faz. Encher a barra com sinos e
             alfinetes que nao levam a lugar nenhum e o caminho curto para a
@@ -727,7 +756,7 @@ export function Chat({
             {kind === 'direct' ? (
               <Avatar userId={scopeId} className="chat__welcome-avatar" fallbackName={title} />
             ) : (
-              <span className="chat__welcome-icon"><IconHash size={44} /></span>
+              <span className="chat__welcome-icon"><IconHash size={32} /></span>
             )}
             <h2 className="chat__welcome-title">
               {kind === 'direct' ? title : `Bem-vindo a #${title}!`}
@@ -793,6 +822,7 @@ export function Chat({
                   <span className="chat__hovertime">{time(msg.ts)}</span>
                 ) : (
                   <Avatar
+                    interactive
                     userId={msg.author_id}
                     className="chat__avatar"
                     fallbackName={msg.author_username}
@@ -807,7 +837,9 @@ export function Chat({
                   <div className="chat__meta">
                     {/* `author_username` e registro historico de quem escreveu;
                         o que aparece na tela sai do perfil vivo. */}
-                    <span className="chat__nick">
+                    {/* O apelido e o segundo alvo mais obvio depois do avatar;
+                        ate agora nenhum dos dois fazia nada no clique. */}
+                    <span className="chat__nick" {...gatilhoDoAutor(msg.author_id)}>
                       <ProfileName userId={msg.author_id} fallbackName={msg.author_username} />
                     </span>
                     <span className="chat__time">{time(msg.ts)}</span>
@@ -886,7 +918,7 @@ export function Chat({
                     title="Reagir"
                     onClick={() => setReagindo(msg.id)}
                   >
-                    <IconReaction size={15} />
+                    <IconReaction size={16} />
                   </button>
                   <button
                     type="button"
@@ -894,7 +926,7 @@ export function Chat({
                     title="Responder"
                     onClick={() => setRespondendo(msg)}
                   >
-                    <IconReply size={15} />
+                    <IconReply size={16} />
                   </button>
                   {souEu && (
                     <>
@@ -904,7 +936,7 @@ export function Chat({
                         title="Editar"
                         onClick={() => comecarEdicao(msg)}
                       >
-                        <IconEdit size={15} />
+                        <IconEdit size={16} />
                       </button>
                       <button
                         type="button"
@@ -912,7 +944,7 @@ export function Chat({
                         title="Excluir"
                         onClick={() => onDelete?.(msg.id)}
                       >
-                        <IconTrash size={15} />
+                        <IconTrash size={16} />
                       </button>
                     </>
                   )}
@@ -981,7 +1013,7 @@ export function Chat({
         )}
         {respondendo && (
           <div className="chat__respondendo">
-            <IconReply size={13} />
+            <IconReply size={16} />
             <span className="chat__respondendo-alvo">
               respondendo a{' '}
               <strong>
@@ -996,8 +1028,9 @@ export function Chat({
               className="chat__respondendo-fechar"
               onClick={() => setRespondendo(null)}
               title="Cancelar resposta"
+              aria-label="Cancelar resposta"
             >
-              ✕
+              <IconX size={16} />
             </button>
           </div>
         )}
@@ -1012,8 +1045,9 @@ export function Chat({
                 className="stapp-voice-status__fechar"
                 onClick={() => setVoiceError(null)}
                 title="Fechar aviso"
+                aria-label="Fechar aviso"
               >
-                ✕
+                <IconX size={16} />
               </button>
             )}
           </div>
@@ -1030,10 +1064,7 @@ export function Chat({
                   {item.previewUrl ? (
                     <img src={item.previewUrl} alt="" className="stapp-media-preview-thumb" />
                   ) : (
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--text-dim)]">
-                      <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                      <polyline points="14 2 14 8 20 8" />
-                    </svg>
+                    <IconFile size={24} className="stapp-media-preview-fallback" />
                   )}
                 </div>
                 <div className="stapp-media-preview-details">
@@ -1057,11 +1088,11 @@ export function Chat({
                   )}
                 </div>
                 <div className="stapp-media-preview-order" aria-label="Reordenar anexo">
-                  <button type="button" onClick={() => moveUpload(item.id, -1)} aria-label="Mover anexo para esquerda">‹</button>
-                  <button type="button" onClick={() => moveUpload(item.id, 1)} aria-label="Mover anexo para direita">›</button>
+                  <button type="button" onClick={() => moveUpload(item.id, -1)} aria-label="Mover anexo para esquerda"><IconChevronLeft size={16} /></button>
+                  <button type="button" onClick={() => moveUpload(item.id, 1)} aria-label="Mover anexo para direita"><IconChevronRight size={16} /></button>
                 </div>
                 {item.error ? (
-                  <button type="button" className="stapp-media-preview-erro" onClick={() => void retryUpload(item.id)} title="Tentar novamente">!</button>
+                  <button type="button" className="stapp-media-preview-erro" onClick={() => void retryUpload(item.id)} title="Tentar novamente" aria-label="Tentar enviar novamente"><IconRefresh size={16} /></button>
                 ) : (
                   item.progress < 100 && (
                     <div
@@ -1075,8 +1106,9 @@ export function Chat({
                   className="stapp-media-preview-remove"
                   onClick={() => removeUpload(item.id)}
                   title="Remover anexo"
+                  aria-label="Remover anexo"
                 >
-                  ✕
+                  <IconX size={16} />
                 </button>
               </div>
             ))}

@@ -31,7 +31,7 @@
   bottom: 0;
   left: 0;
   height: 1px;
-  background: rgba(0, 0, 0, 0.24);
+  background: var(--sunken);
   content: '';
 }
 
@@ -44,7 +44,7 @@
 .chat__title {
   flex: 1;
   overflow: hidden;
-  font-size: 16px;
+  font-size: var(--fs-lg);
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -116,7 +116,7 @@
 .chat__welcome-text {
   margin: 8px 0 0;
   color: var(--text-dim);
-  font-size: 16px;
+  font-size: var(--fs-lg);
 }
 
 /* Duas colunas: calha do avatar e corpo. A mensagem seguida do mesmo autor
@@ -134,7 +134,7 @@
   padding: 2px 48px 2px 16px;
 }
 
-.chat__msg:hover { background: rgba(0, 0, 0, 0.10); }
+.chat__msg:hover { background: var(--sunken-soft); }
 
 .chat__msg:not(.is-grouped) {
   margin-top: 17px;
@@ -155,7 +155,7 @@
   border-radius: var(--radius-pill);
   background: var(--avatar-accent, var(--accent));
   color: var(--avatar-ink, var(--on-accent));
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 700;
   user-select: none;
 }
@@ -165,11 +165,11 @@
 .chat__hovertime {
   margin-top: 4px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   line-height: 1.4;
   opacity: 0;
-  transition: opacity 0.1s ease;
+  transition: opacity var(--dur-fast) ease;
 }
 
 .chat__msg:hover .chat__hovertime {
@@ -190,19 +190,19 @@
 .chat__nick {
   color: var(--text);
   font-weight: 500;
-  font-size: 16px;
+  font-size: var(--fs-lg);
 }
 
 .chat__time {
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--fs-sm);
 }
 
 .chat__text {
   margin: 2px 0 0;
   overflow-wrap: anywhere;
   color: var(--text-soft);
-  font-size: 16px;
+  font-size: var(--fs-lg);
   line-height: 1.375;
   white-space: pre-wrap;
 }
@@ -249,7 +249,7 @@
   bottom: 0;
   left: 0;
   height: 1px;
-  background: rgba(0, 0, 0, 0.24);
+  background: var(--sunken);
   content: '';
 }
 
@@ -260,7 +260,7 @@
   gap: 10px;
   margin: 24px 16px 8px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 650;
 }
 
@@ -279,24 +279,24 @@
   min-height: 32px;
   padding: 0 12px;
   border: 0;
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   background: var(--accent);
   color: var(--on-accent);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 650;
 }
 
 .chat__msg--optimistic { opacity: .7; }
 .chat__msg--optimistic.is-failed { opacity: 1; }
-.chat__delivery { display: flex; gap: 8px; color: var(--text-faint); font-size: 11px; }
+.chat__delivery { display: flex; gap: 8px; color: var(--text-faint); font-size: var(--fs-xs); }
 .chat__delivery button { border: 0; background: transparent; color: var(--danger); cursor: pointer; font-weight: 650; }
-.chat__seen { display: block; margin-top: 2px; color: var(--text-faint); font-size: 10px; text-align: right; }
+.chat__seen { display: block; margin-top: 2px; color: var(--text-faint); font-size: var(--fs-xs); text-align: right; }
 .chat__readers { position: relative; display: flex; justify-content: flex-end; align-items: center; margin-left: auto; border: 0; background: transparent; color: var(--text-faint); cursor: pointer; }
-.chat__reader-avatar { width: 18px; height: 18px; margin-left: -4px; border-radius: 50%; }
-.chat__reader-list { position: absolute; right: 0; bottom: 24px; z-index: 30; display: grid; min-width: 180px; gap: 5px; padding: 8px; border-radius: 8px; background: var(--bg-floating, var(--bg-raised)); color: var(--text); text-align: left; }
-.chat__reader-list > span { display: flex; align-items: center; gap: 7px; min-height: 24px; font-size: 12px; }
-.chat__reader-list img { width: 22px; height: 22px; border-radius: 50%; }
+.chat__reader-avatar { width: 18px; height: 18px; margin-left: -4px; border-radius: var(--radius-pill); }
+.chat__reader-list { position: absolute; right: 0; bottom: 24px; z-index: 30; display: grid; min-width: 180px; gap: 5px; padding: 8px; border-radius: var(--radius); background: var(--bg-floating, var(--bg-raised)); color: var(--text); text-align: left; }
+.chat__reader-list > span { display: flex; align-items: center; gap: 7px; min-height: 24px; font-size: var(--fs-sm); }
+.chat__reader-list img { width: 22px; height: 22px; border-radius: var(--radius-pill); }
 .chat__typing {
   display: flex;
   align-items: center;
@@ -304,7 +304,7 @@
   min-height: 24px;
   margin: 0 16px;
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 .chat__typing strong { color: var(--text); font-weight: 600; }
@@ -330,12 +330,12 @@
 .chat__voice-preview { display: grid; grid-template-columns: minmax(160px, 1fr) auto; align-items: center; gap: 8px 12px; padding: 10px 12px; }
 .chat__voice-preview audio { width: 100%; height: 32px; }
 .chat__voice-waveform { grid-column: 1 / -1; display: flex; align-items: center; height: 24px; gap: 2px; }
-.chat__voice-waveform i { width: 2px; max-height: 100%; flex: 1; border-radius: 2px; background: var(--accent); }
+.chat__voice-waveform i { width: 2px; max-height: 100%; flex: 1; border-radius: var(--radius-sm); background: var(--accent); }
 .chat__voice-preview-actions { display: flex; gap: 4px; }
-.chat__voice-preview-actions button, .stapp-recorder-actions button { min-height: 30px; padding: 0 9px; border: 0; border-radius: 4px; background: transparent; color: var(--text-dim); cursor: pointer; }
+.chat__voice-preview-actions button, .stapp-recorder-actions button { min-height: 30px; padding: 0 9px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-dim); cursor: pointer; }
 .chat__voice-preview-actions button:hover, .stapp-recorder-actions button:hover { background: var(--bg-hover); color: var(--text); }
 .chat__voice-preview-actions .is-primary, .stapp-recorder-actions .is-primary { background: var(--accent); color: var(--on-accent); }
-.chat__voice-error { grid-column: 1 / -1; color: var(--danger); font-size: 11px; }
+.chat__voice-error { grid-column: 1 / -1; color: var(--danger); font-size: var(--fs-xs); }
 
 .chat__input {
   display: block;
@@ -343,10 +343,10 @@
   min-height: 44px;
   max-height: 160px;
   padding: 11px 16px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   background: var(--bg-input);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-md);
   field-sizing: content;
   resize: none;
 }
@@ -363,7 +363,7 @@
   margin: 16px 0 0;
   padding: 0 16px;
   color: var(--text-faint);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   text-align: center;
 }
 
@@ -378,7 +378,7 @@
   background: var(--accent);
   color: var(--on-accent);
   cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease;
+  transition: background var(--dur-base) ease, opacity var(--dur-base) ease;
 }
 
 .chat .stapp-composer-send:hover:not(:disabled) {
@@ -398,7 +398,7 @@
   gap: 0.5rem;
   padding: 8px 12px;
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 .stapp-voice-status__erro {
@@ -407,7 +407,7 @@
 
 .stapp-voice-status__fechar {
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 
@@ -422,7 +422,7 @@
   right: 12px;
   bottom: -18px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
   pointer-events: none;
 }
@@ -469,7 +469,7 @@
   background: var(--bg-app);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.1s ease;
+  transition: opacity var(--dur-fast) ease;
 }
 
 .chat__msg:hover .chat__acoes,
@@ -500,7 +500,7 @@
 .chat__editada {
   margin-left: 4px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .chat__editor {
@@ -516,7 +516,7 @@
   border-radius: var(--radius);
   background: var(--bg-input);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1.4;
   field-sizing: content;
   resize: none;
@@ -526,7 +526,7 @@
   display: block;
   margin-top: 4px;
   color: var(--text-faint);
-  font-size: 11px;
+  font-size: var(--fs-xs);
 }
 
 .chat__respondendo {
@@ -535,7 +535,7 @@
   gap: 6px;
   padding: 8px 12px;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--fs-base);
 }
 
 .chat__respondendo-alvo {
@@ -547,7 +547,7 @@
 
 .chat__respondendo-fechar {
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   cursor: pointer;
 }
 

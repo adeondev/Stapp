@@ -1,0 +1,122 @@
+/* O scrim e o corpo de todo dialogo do app. Elevacao por tom de fundo: o
+   dialogo e `--bg-app` sobre um scrim escuro, sem sombra e sem borda. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-7) var(--space-6);
+  background: var(--overlay-scrim);
+  animation: overlay-in var(--dur-base) var(--motion-smooth);
+}
+
+.overlay__dialog {
+  display: flex;
+  width: 100%;
+  max-height: 100%;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: var(--bg-app);
+  color: var(--text);
+  animation: overlay-dialog-in var(--dur-slow) var(--motion-smooth);
+  overflow: hidden;
+}
+
+.overlay__dialog:focus { outline: 0; }
+.overlay__dialog:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.overlay__dialog--sm { max-width: 420px; }
+.overlay__dialog--md { max-width: 520px; }
+.overlay__dialog--lg { max-width: 720px; }
+.overlay__dialog--xl { max-width: 960px; }
+
+/* `full` e para o que precisa da tela inteira (visualizador de midia,
+   configuracoes). Continua com o respiro do scrim para nunca colar na borda. */
+.overlay__dialog--full {
+  max-width: min(1100px, 100%);
+  height: 100%;
+  max-height: min(760px, 100%);
+}
+
+.overlay__head {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-6) var(--space-6) var(--space-5);
+}
+
+.overlay__head-copy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.overlay__overline {
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.overlay__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  line-height: 1.25;
+}
+
+.overlay__close {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--interactive);
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.overlay__close:hover { background: var(--modifier-hover); color: var(--interactive-active); }
+.overlay__close:active { background: var(--modifier-active); }
+
+.overlay__body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--space-6) var(--space-6);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.overlay__foot {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg-sidebar);
+}
+
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes overlay-dialog-in {
+  from { opacity: 0; transform: scale(0.97) translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 720px) {
+  .overlay { padding: 0; }
+  .overlay__dialog { max-width: 100%; height: 100%; max-height: 100%; border-radius: 0; }
+}

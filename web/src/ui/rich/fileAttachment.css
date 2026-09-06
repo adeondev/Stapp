@@ -1,0 +1,104 @@
+.file-attachment {
+  display: grid;
+  max-width: min(100%, 420px);
+  align-items: center;
+  gap: var(--space-5);
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+.file-attachment__icone {
+  position: relative;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  color: var(--text-dim);
+}
+
+/* A extensao vem por cima do icone, como etiqueta. Duas informacoes no espaco
+   de uma, e e ela que diferencia dois PDFs de dois ZIPs num relance. */
+.file-attachment__ext {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  max-width: 40px;
+  overflow: hidden;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* A cor diz o tipo antes de a pessoa ler o rotulo. */
+.file-attachment.is-pdf .file-attachment__icone { color: var(--danger); }
+.file-attachment.is-zip .file-attachment__icone { color: var(--warning); }
+.file-attachment.is-code .file-attachment__icone { color: var(--accent); }
+.file-attachment.is-image .file-attachment__icone,
+.file-attachment.is-video .file-attachment__icone { color: var(--online); }
+.file-attachment.is-audio .file-attachment__icone { color: var(--accent-purple); }
+
+.file-attachment__copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.file-attachment__nome {
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+  /* Ja vem cortado no meio pelo componente; isto e a rede de seguranca. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-attachment__meta { color: var(--text-dim); font-size: var(--fs-sm); }
+
+.file-attachment__descricao {
+  margin-top: 2px;
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+
+.file-attachment__erro {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+
+.file-attachment__acao {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--interactive);
+  text-decoration: none;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
+}
+
+.file-attachment__acao:hover { background: var(--modifier-hover); color: var(--interactive-active); }
+.file-attachment__acao:active { background: var(--modifier-active); }
+
+.file-attachment__progresso {
+  grid-column: 1 / -1;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}

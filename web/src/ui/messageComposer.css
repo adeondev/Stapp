@@ -1,84 +1,86 @@
-/* O respiro e o fundo agora sao da caixa em chat.css. */
+/* O respiro e o fundo da caixa vem de chat.css. */
 .message-composer { position: relative; }
+
+/* Altura de uma linha do campo: `padding 11 + line-height 22 + padding 11`.
+   Os dois `__slot` usam esta medida, e e dai que vem o alinhamento. */
+.message-composer {
+  --composer-line: 44px;
+}
 
 .message-composer__input {
   position: relative;
   display: flex;
   align-items: flex-end;
-  min-height: 44px;
-  gap: 4px;
-  padding: 0 8px 0 0;
+  min-height: var(--composer-line);
+  gap: var(--space-2);
+  padding: 0 var(--space-4) 0 var(--space-4);
   background: transparent;
+}
+
+/* Cada lado da barra e uma caixa da altura de UMA linha, com o conteudo
+   centrado. Como `align-items: flex-end` encosta o rodape dos dois no rodape da
+   linha e os dois tem a mesma altura, os centros coincidem — e coincidem com a
+   linha media do texto. Era isso que faltava: antes um lado tinha 24px de
+   conteudo e o outro 32px, ambos com `padding-bottom: 6px`, e davam 18px contra
+   22px de distancia do fundo. Nao mexa nisto com `translateY`. */
+.message-composer__slot {
+  position: relative;
+  display: flex;
+  height: var(--composer-line);
+  align-items: center;
+  gap: var(--space-1);
 }
 
 .message-composer__textarea {
   flex: 1;
   min-width: 0;
-  min-height: 44px;
+  min-height: var(--composer-line);
   max-height: 50vh;
   margin: 0;
-  padding: 11px 0;
+  padding: 11px var(--space-3);
   resize: none;
   overflow-y: auto;
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--fs-lg);
   line-height: 22px;
 }
 
 .message-composer__textarea:focus { outline: 0; }
 .message-composer__textarea::placeholder { color: var(--text-faint); }
 
-.message-composer__actions {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding-bottom: 6px;
-}
+/* O "+" e o unico com fundo: e o botao que traz coisa nova, e precisa se separar
+   dos tres que so mudam o conteudo da mensagem. A hitbox continua sendo a de
+   todos (32x32) e so o disco desenhado tem 24 — assim ele pesa como no Discord
+   sem sair da fileira. */
+.message-composer__plus { color: var(--bg-input); }
 
-.message-composer__button {
-  display: grid;
-  width: 34px;
-  height: 32px;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--interactive);
-}
-
-.message-composer__button:hover:not(:disabled) { color: var(--interactive-active); }
-.message-composer__button:disabled { cursor: not-allowed; opacity: 0.4; }
-
-/* O "+" e o unico com fundo: e o botao que abre coisa nova, e precisa se
-   separar dos tres que so trocam o conteudo da mensagem. */
-.message-composer__plus-wrap { position: relative; padding: 6px 0 6px 10px; }
-
-.message-composer__button.is-plus {
+.message-composer__plus::before {
+  content: '';
+  position: absolute;
   width: 24px;
   height: 24px;
   border-radius: var(--radius-pill);
   background: var(--interactive);
-  color: var(--bg-input);
+  transition: background var(--dur-fast) ease;
 }
 
-.message-composer__button.is-plus:hover:not(:disabled) {
-  background: var(--interactive-active);
-  color: var(--bg-input);
-}
-
-.message-composer__button.is-send { color: var(--accent); }
-.message-composer__button.is-send:hover:not(:disabled) { color: var(--accent-hover); }
+.message-composer__plus:hover:not(:disabled) { background: transparent; color: var(--bg-input); }
+.message-composer__plus:hover:not(:disabled)::before { background: var(--interactive-active); }
+.message-composer__plus:active:not(:disabled) { background: transparent; }
+.message-composer__plus:disabled::before { background: var(--text-faint); }
+.message-composer__plus > svg { position: relative; }
 
 .message-composer__menu {
   position: absolute;
-  bottom: 44px;
+  bottom: calc(var(--composer-line) + var(--space-1));
   left: 0;
-  z-index: 45;
+  z-index: var(--z-dock);
   display: grid;
   min-width: 190px;
-  gap: 2px;
-  padding: 6px;
+  gap: var(--space-1);
+  padding: var(--space-3);
   border-radius: var(--radius);
   background: var(--bg-floating);
 }
@@ -87,12 +89,13 @@
   display: flex;
   min-height: 32px;
   align-items: center;
-  padding: 0 9px;
+  padding: 0 var(--space-4);
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-soft);
-  font-size: 14px;
+  font-size: var(--fs-md);
   text-align: left;
+  transition: background var(--dur-fast) ease, color var(--dur-fast) ease;
 }
 
 .message-composer__menu button:hover,
@@ -104,10 +107,10 @@
 
 .message-composer__counter {
   position: absolute;
-  right: 10px;
+  right: var(--space-5);
   bottom: -16px;
   color: var(--text-dim);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -115,7 +118,7 @@
 .message-composer__menu .is-mobile-action { display: none; }
 
 @media (max-width: 700px) {
-  .chat__composer { padding-inline: 8px; }
-  .message-composer__button.is-secondary { display: none; }
+  .chat__composer { padding-inline: var(--space-4); }
+  .message-composer__slot--actions .is-secondary { display: none; }
   .message-composer__menu .is-mobile-action { display: flex; }
 }

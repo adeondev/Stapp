@@ -38,7 +38,7 @@ export const ReplyQuote = memo(function ReplyQuote({ reply, onGoTo }: Props) {
     return (
       <p className="stapp-reply stapp-reply--apagada">
         <Espinha />
-        <IconReply size={12} />
+        <IconReply size={16} />
         <span>mensagem apagada</span>
       </p>
     )

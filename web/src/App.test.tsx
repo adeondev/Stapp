@@ -115,7 +115,7 @@ describe('App', () => {
         display_name: 'Deon',
         accent: 'blue',
         bio: '',
-        has_avatar: false,
+        has_avatar: false, has_banner: false, created_at: 0,
         updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 },
@@ -139,7 +139,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: '', has_avatar: false, updated_at: 1,
+        bio: '', has_avatar: false, has_banner: false, created_at: 0, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },

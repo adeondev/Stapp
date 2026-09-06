@@ -2,7 +2,7 @@
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.85);
+  background: var(--overlay-scrim);
   backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
@@ -23,7 +23,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s ease;
+  transition: background var(--dur-base) ease;
 }
 
 .stapp-media-lightbox__close:hover {
@@ -64,7 +64,7 @@
   width: 48px;
   height: 48px;
   overflow: hidden;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg-input);
 }
 
@@ -75,11 +75,11 @@
 }
 
 .stapp-media-preview-details { display: grid; min-width: 0; gap: 3px; }
-.stapp-media-preview-details input { min-width: 0; height: 20px; padding: 0 4px; border: 0; border-radius: 3px; outline: 0; background: transparent; color: var(--text); font: inherit; font-size: 11px; }
+.stapp-media-preview-details input { min-width: 0; height: 20px; padding: 0 4px; border: 0; border-radius: var(--radius-sm); outline: 0; background: transparent; color: var(--text); font: inherit; font-size: var(--fs-xs); }
 .stapp-media-preview-details input:focus { background: var(--bg-input); }
-.stapp-media-preview-details span { overflow: hidden; color: var(--text-faint); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.stapp-media-preview-details span { overflow: hidden; color: var(--text-faint); font-size: var(--fs-xs); text-overflow: ellipsis; white-space: nowrap; }
 .stapp-media-preview-order { display: grid; gap: 1px; padding-top: 15px; }
-.stapp-media-preview-order button { width: 22px; height: 17px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-dim); cursor: pointer; font-size: 17px; line-height: 1; }
+.stapp-media-preview-order button { width: 22px; height: 17px; padding: 0; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text-dim); cursor: pointer; font-size: var(--fs-lg); line-height: 1; }
 .stapp-media-preview-order button:hover { background: var(--bg-hover); color: var(--text); }
 
 .stapp-media-preview-remove {
@@ -89,10 +89,10 @@
   background: transparent;
   color: var(--text-dim);
   border: none;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   width: 18px;
   height: 18px;
-  font-size: 10px;
+  font-size: var(--fs-xs);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -105,23 +105,38 @@
   left: 0;
   height: 4px;
   background: var(--accent);
-  transition: width 0.15s ease;
+  transition: width var(--dur-base) ease;
   border-radius: 0 0 var(--radius-sm) var(--radius-sm);
 }
 
+/* O fundo era `rgba(var(--bg-app-rgb, 20,20,20), .85)` — e `--bg-app-rgb` nunca
+   existiu, entao a sobreposicao sempre caia no cinza literal do fallback em vez
+   de acompanhar o tema. Agora usa o scrim do design system. A borda tracejada
+   virou realce de fundo com acento: o projeto nao desenha area com linha. */
 .stapp-drag-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(var(--bg-app-rgb, 20, 20, 20), 0.85);
-  border: 2px dashed var(--accent);
-  border-radius: var(--radius);
+  z-index: 50;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 50;
+  gap: 8px;
+  border-radius: var(--radius);
+  background: var(--overlay-scrim);
+  color: var(--accent);
   pointer-events: none;
 }
+
+.stapp-drag-overlay__icone { color: var(--accent); }
+
+.stapp-drag-overlay__texto {
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.stapp-media-preview-fallback { color: var(--text-dim); }
 /* Upload que falhou continua na barra ate a pessoa remover: some-lo calado era
    o que fazia a mensagem sair sem o anexo sem ninguem entender por que. */
 .stapp-media-preview-item.is-erro {
@@ -136,7 +151,7 @@
   background: transparent;
   cursor: pointer;
   color: var(--danger);
-  font-size: 16px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   line-height: 1;
 }

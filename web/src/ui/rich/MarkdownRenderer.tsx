@@ -47,18 +47,14 @@ function CodeBlock({ children, className }: { children: React.ReactNode; classNa
   }
 
   return (
-    <div className="relative my-2 rounded-[var(--radius)] bg-[var(--bg-canvas)] overflow-hidden group">
-      <div className="flex items-center justify-between px-3 py-1 bg-[var(--bg-raised)] text-[11px] text-[var(--text-dim)] select-none">
+    <div className="stapp-code">
+      <div className="stapp-code__head">
         <span>{className?.replace('language-', '') || 'código'}</span>
-        <button
-          type="button"
-          onClick={copy}
-          className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors px-2 py-0.5 rounded-[var(--radius-sm)] bg-[var(--bg-input)] cursor-pointer"
-        >
+        <button type="button" className="stapp-code__copy" onClick={copy}>
           {copied ? 'copiado!' : 'copiar'}
         </button>
       </div>
-      <pre className="p-3 overflow-x-auto m-0 text-[13px] font-mono text-[var(--text)]">
+      <pre className="stapp-code__body">
         <code>{children}</code>
       </pre>
     </div>

@@ -3,6 +3,8 @@ import type { PeerId, Profile, UserId } from '../protocol'
 import { avatarUrl } from '../net/avatars'
 import { resolveProfile, type StappState } from '../store'
 import { usePresenceStore } from '../stores/presenceStore'
+import type { Placement } from './anchored'
+import { useProfileTrigger } from './profile/UserProfilePopover'
 import { useVoiceStore } from '../stores/voiceStore'
 
 /**
@@ -65,14 +67,25 @@ interface Props {
   title?: string
   peerId?: PeerId
   speaking?: boolean
+  /**
+   * Torna o avatar um alvo de clique que abre o cartao de perfil.
+   *
+   * E opcional porque nem todo avatar deve abrir perfil: o do proprio cartao
+   * abriria ele mesmo, e o de uma linha que ja e `<button>` viraria botao dentro
+   * de botao. Onde faz sentido, ligue — e o mesmo cartao em todo lugar.
+   */
+  interactive?: boolean
+  /** Lado preferido do cartao. Ele vira sozinho se nao couber. */
+  profilePlacement?: Placement
 }
 
-export function Avatar({ userId, className, fallbackName, title, peerId, speaking }: Props) {
+export function Avatar({ userId, className, fallbackName, title, peerId, speaking, interactive, profilePlacement }: Props) {
   const profile = useProfile(userId, fallbackName)
   const { avatarBase } = useContext(ProfilesContext)
   const [falhou, setFalhou] = useState(false)
   const storeSpeaking = useVoiceStore((s) => (peerId ? s.speakingPeers.has(peerId) : false))
   const isSpeaking = speaking ?? storeSpeaking
+  const gatilho = useProfileTrigger(interactive ? userId : null, profilePlacement)
 
   // Trocar a foto muda o `updated_at`, e com ele a URL — entao vale voltar a
   // tentar depois de um erro.
@@ -83,10 +96,11 @@ export function Avatar({ userId, className, fallbackName, title, peerId, speakin
       ? avatarUrl(avatarBase, profile.user_id, profile.updated_at)
       : null
 
-  const combinedClass = `${className ?? ''} ${isSpeaking ? 'is-speaking' : ''}`.trim()
+  const combinedClass = `${className ?? ''} ${isSpeaking ? 'is-speaking' : ''} ${interactive ? 'is-interactive' : ''}`.trim()
 
   return (
     <span
+      {...gatilho}
       className={combinedClass || undefined}
       title={title}
       style={

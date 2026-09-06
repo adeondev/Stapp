@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { IconServer, IconShield, IconUser, IconX } from './Icons'
+import { IconServer, IconShield, IconUser } from './Icons'
+import { Modal, ModalHeader, useModalTitleId } from './Overlay'
 import './helpmodal.css'
 
 interface HelpModalProps {
@@ -9,50 +9,23 @@ interface HelpModalProps {
   serverName?: string
 }
 
+/* O scrim, o Escape, a armadilha de foco e o fechamento por clique de fundo vem
+   do `<Modal>`. O `useEffect` de Escape que morava aqui era a quarta copia
+   literal do mesmo bloco no projeto. */
 export function HelpModal({ isOpen, onClose, type, serverName }: HelpModalProps) {
-  useEffect(() => {
-    if (!isOpen) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
-
-  if (!isOpen) return null
+  const tituloId = useModalTitleId()
 
   return (
-    <div
-      className="help-modal"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="help-modal-title"
-    >
-      <div className="help-modal__dialog">
-        <header className="help-modal__head">
-          <div className="help-modal__titles">
-            <h2 id="help-modal-title" className="help-modal__title">
-              {type === 'connection' ? 'Dificuldade para conectar?' : 'Ajuda com a conta'}
-            </h2>
-            <p className="help-modal__desc">
-              {type === 'connection'
-                ? 'Instruções para estabelecer conexão com o servidor Stapp.'
-                : `Orientações de acesso para o servidor ${serverName ? `"${serverName}"` : 'atual'}.`}
-            </p>
-          </div>
-          <button
-            type="button"
-            className="help-modal__close"
-            onClick={onClose}
-            aria-label="Fechar ajuda"
-            title="Fechar"
-          >
-            <IconX size={14} />
-          </button>
-        </header>
+    <Modal open={isOpen} onClose={onClose} size="md" labelledBy={tituloId} className="help-modal__dialog">
+      <>
+        <ModalHeader
+          titleId={tituloId}
+          onClose={onClose}
+          title={type === 'connection' ? 'Dificuldade para conectar?' : 'Ajuda com a conta'}
+          overline={type === 'connection'
+            ? 'Instruções para estabelecer conexão com o servidor Stapp.'
+            : `Orientações de acesso para o servidor ${serverName ? `"${serverName}"` : 'atual'}.`}
+        />
 
         <div className="help-modal__list">
           {type === 'connection' ? (
@@ -125,11 +98,11 @@ export function HelpModal({ isOpen, onClose, type, serverName }: HelpModalProps)
         </div>
 
         <footer className="help-modal__actions">
-          <button type="button" className="help-modal__btn-primary" onClick={onClose} autoFocus>
+          <button type="button" className="help-modal__btn-primary" onClick={onClose}>
             Entendi
           </button>
         </footer>
-      </div>
-    </div>
+      </>
+    </Modal>
   )
 }

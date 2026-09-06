@@ -3,6 +3,7 @@ import type { ScreenSource } from '../platform/screenCapture'
 import { LiveKitTransport } from './LiveKitTransport'
 import { MeshTransport } from './MeshTransport'
 import type { ScreenPreset, VoicePreferences } from './preferences'
+import type { MicrophoneTest, MicrophoneTestOptions } from './testMicrophone'
 
 export type VoiceConnectionStatus =
   | 'idle'
@@ -105,6 +106,9 @@ export interface InboundAudioDiagnostic {
   playerAttached: boolean
 }
 
+/** Ver `setScreenShareEnabled`. */
+export type ScreenShareResult = boolean | 'canceled'
+
 export interface ScreenShareOptions {
   preset?: ScreenPreset
   sourceId?: string
@@ -118,14 +122,31 @@ export interface VoiceTransport {
   setMuted(muted: boolean): void
   setDeafened(deafened: boolean): void
   setCameraEnabled(enabled: boolean): Promise<boolean>
-  setScreenShareEnabled(enabled: boolean, options?: ScreenShareOptions): Promise<boolean>
+  /**
+   * `true` deu certo, `false` falhou, `'canceled'` a pessoa fechou o seletor do
+   * sistema sem escolher nada.
+   *
+   * O terceiro estado existe porque desistir vinha voltando `false` igual a
+   * falha, e o seletor mostrava "Não consegui iniciar o compartilhamento dessa
+   * fonte" para quem simplesmente mudou de ideia. `true`/`false` continuam com o
+   * mesmo significado de antes.
+   */
+  setScreenShareEnabled(enabled: boolean, options?: ScreenShareOptions): Promise<ScreenShareResult>
   listScreenSources(): Promise<ScreenSource[]>
   captureScreenSourceThumbnail(sourceId: string): Promise<string | null>
   setInputDevice(deviceId: string): Promise<void>
   setOutputDevice(deviceId: string): Promise<void>
   setCameraDevice(deviceId: string): Promise<void>
   enumerateDevices(): Promise<MediaDeviceLists>
-  startMicrophoneTest(onLevel: (level: number) => void): Promise<() => void>
+  /**
+   * Abre uma captura PROPRIA do microfone — separada da que a chamada publica —
+   * e devolve o controle do teste: medidor, retorno local, volume e saida.
+   * Comecar ou parar o teste nao mexe numa chamada em andamento.
+   */
+  startMicrophoneTest(
+    onLevel: (level: number) => void,
+    options?: MicrophoneTestOptions,
+  ): Promise<MicrophoneTest>
   startCameraPreview(element: HTMLVideoElement): Promise<() => void>
   setPublicationSubscribed(publicationId: string, subscribed: boolean): void
   getVoiceVolume(peerId: PeerId): number

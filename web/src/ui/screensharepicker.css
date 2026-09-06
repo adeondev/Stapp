@@ -1,25 +1,21 @@
-.screenpicker {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background: var(--scrim-strong);
+/* O scrim, a moldura e o cabecalho vem do `<Modal>` compartilhado. Aqui fica so
+   o conteudo do seletor: abas, grade de fontes, qualidade e audio. */
+
+/* O respiro lateral e o mesmo do `ModalBody`; o conteudo nao usa aquele
+   componente porque a grade de fontes precisa rolar sozinha, com as abas e o
+   rodape fixos. */
+.screenpicker__dialog > .screenpicker__tabs,
+.screenpicker__dialog > .screenpicker__sources,
+.screenpicker__dialog > .screenpicker__browser,
+.screenpicker__dialog > .screenpicker__quality,
+.screenpicker__dialog > .screenpicker__audio,
+.screenpicker__dialog > .screenpicker__note,
+.screenpicker__dialog > .screenpicker__error {
+  margin-inline: var(--space-6);
 }
 
-.screenpicker__dialog {
-  display: flex;
-  width: min(900px, 100%);
-  max-height: min(760px, calc(100vh - 48px));
-  flex-direction: column;
-  overflow: hidden;
-  border-radius: var(--radius-xl);
-  background: var(--call-menu);
-  color: var(--text);
-}
+.screenpicker__dialog > .screenpicker__error:last-of-type { margin-bottom: var(--space-5); }
 
-.screenpicker__header,
 .screenpicker__footer {
   display: flex;
   align-items: center;
@@ -27,27 +23,6 @@
   gap: 16px;
   padding: 16px 20px;
   background: var(--call-header);
-}
-
-.screenpicker__header span {
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-}
-
-.screenpicker__header h2 {
-  margin: 2px 0 0;
-  font-size: 20px;
-}
-
-.screenpicker__header button {
-  display: grid;
-  width: 36px;
-  height: 36px;
-  place-items: center;
-  background: var(--call-control);
-  color: var(--text-dim);
 }
 
 .screenpicker__tabs {
@@ -115,14 +90,14 @@
 .screenpicker__source strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .screenpicker__source small {
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .screenpicker__empty,
@@ -170,7 +145,7 @@
 .screenpicker__quality small,
 .screenpicker__note {
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .screenpicker__audio {
@@ -198,7 +173,7 @@
 
 .screenpicker__audio small {
   color: var(--text-dim);
-  font-size: 10px;
+  font-size: var(--fs-xs);
 }
 
 .screenpicker__note,
@@ -231,9 +206,6 @@
 }
 
 @media (max-width: 720px) {
-  .screenpicker {
-    padding: 10px;
-  }
 
   .screenpicker__quality {
     grid-template-columns: 1fr 1fr;
