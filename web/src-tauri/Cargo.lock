@@ -4227,6 +4227,7 @@ dependencies = [
  "url",
  "wasapi",
  "webview2-com",
+ "windows 0.62.2",
  "xcap",
 ]
 
