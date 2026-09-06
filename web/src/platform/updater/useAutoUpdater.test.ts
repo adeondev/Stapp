@@ -69,7 +69,7 @@ describe('useAutoUpdater', () => {
   })
 
   it('busca atualizacoes e abre modal quando disponivel', async () => {
-    vi.mocked(updaterService.checkForUpdate).mockResolvedValueOnce(mockUpdate)
+    vi.mocked(updaterService.checkForUpdate).mockResolvedValue(mockUpdate)
     const { result } = renderHook(() => useAutoUpdater())
     await act(async () => {})
 
@@ -84,7 +84,7 @@ describe('useAutoUpdater', () => {
   })
 
   it('executa download e atualiza estado para pronto para reiniciar', async () => {
-    vi.mocked(updaterService.checkForUpdate).mockResolvedValueOnce(mockUpdate)
+    vi.mocked(updaterService.checkForUpdate).mockResolvedValue(mockUpdate)
     const { result } = renderHook(() => useAutoUpdater())
     await act(async () => {})
 
@@ -110,5 +110,79 @@ describe('useAutoUpdater', () => {
     })
 
     expect(updaterService.relaunch).toHaveBeenCalledOnce()
+  })
+
+  it('inicia em checking no desktop e transiciona para ready ao resolver sem atualizacao', async () => {
+    let resolveCheck: (value: AvailableUpdate | null) => void
+    const checkPromise = new Promise<AvailableUpdate | null>((resolve) => {
+      resolveCheck = resolve
+    })
+    vi.mocked(updaterService.checkForUpdate).mockReturnValueOnce(checkPromise)
+
+    const { result } = renderHook(() => useAutoUpdater())
+    expect(result.current.bootPhase).toBe('checking')
+
+    await act(async () => {
+      resolveCheck!(null)
+    })
+
+    expect(result.current.bootPhase).toBe('ready')
+    expect(result.current.isModalOpen).toBe(false)
+  })
+
+  it('mantem bootPhase em checking quando atualizacao e detectada e transiciona ao fechar o modal', async () => {
+    vi.mocked(updaterService.checkForUpdate).mockResolvedValueOnce(mockUpdate)
+
+    const { result } = renderHook(() => useAutoUpdater())
+    await act(async () => {})
+
+    expect(result.current.bootPhase).toBe('checking')
+    expect(result.current.isModalOpen).toBe(true)
+    expect(result.current.availableUpdate).toEqual(mockUpdate)
+
+    act(() => {
+      result.current.dismissModal()
+    })
+
+    expect(result.current.isModalOpen).toBe(false)
+    expect(result.current.bootPhase).toBe('ready')
+  })
+
+  it('libera o boot para ready apos o timeout de seguranca de 5 segundos caso a checagem demore', async () => {
+    vi.useFakeTimers()
+    try {
+      // Promise que nao resolve dentro de 5 segundos
+      vi.mocked(updaterService.checkForUpdate).mockReturnValueOnce(new Promise(() => {}))
+
+      const { result } = renderHook(() => useAutoUpdater())
+      expect(result.current.bootPhase).toBe('checking')
+
+      act(() => {
+        vi.advanceTimersByTime(4999)
+      })
+      expect(result.current.bootPhase).toBe('checking')
+
+      act(() => {
+        vi.advanceTimersByTime(1)
+      })
+      expect(result.current.bootPhase).toBe('ready')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('inicia imediatamente como ready quando fora do desktop (web)', async () => {
+    const origDesktop = updaterService.isDesktop
+    try {
+      // @ts-expect-error mutando para testar ambiente web
+      updaterService.isDesktop = false
+
+      const { result } = renderHook(() => useAutoUpdater())
+      expect(result.current.bootPhase).toBe('ready')
+      expect(result.current.isDesktop).toBe(false)
+    } finally {
+      // @ts-expect-error restaurando estado original
+      updaterService.isDesktop = origDesktop
+    }
   })
 })

@@ -7,7 +7,11 @@ export interface MandatoryRequirement {
   serverName?: string
 }
 
+export type BootPhase = 'checking' | 'ready'
+
 export function useAutoUpdater() {
+  const isDesktop = updaterService.isDesktop
+  const [bootPhase, setBootPhase] = useState<BootPhase>(() => (isDesktop ? 'checking' : 'ready'))
   const [currentVersion, setCurrentVersion] = useState<string>(APP_VERSION)
   const [availableUpdate, setAvailableUpdate] = useState<AvailableUpdate | null>(null)
   const [channel, setChannelState] = useState<UpdateChannel>(() => updaterService.getChannel())
@@ -19,7 +23,6 @@ export function useAutoUpdater() {
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [mandatoryRequirement, setMandatoryRequirement] = useState<MandatoryRequirement | null>(null)
 
-  const isDesktop = updaterService.isDesktop
   const initialCheckRan = useRef(false)
 
   // Inicializa a versao real da aplicacao
@@ -62,17 +65,63 @@ export function useAutoUpdater() {
     void checkForUpdates(false, newChannel)
   }, [checkForUpdates])
 
-  // Verificacao em background ao iniciar o aplicativo Desktop
+  // Verificacao de bootstrap ao iniciar o aplicativo Desktop
   useEffect(() => {
-    if (!isDesktop || initialCheckRan.current) return
+    if (!isDesktop) {
+      if (bootPhase !== 'ready') {
+        setBootPhase('ready')
+      }
+      return
+    }
+
+    if (initialCheckRan.current) return
     initialCheckRan.current = true
 
-    const timer = setTimeout(() => {
-      void checkForUpdates(false)
-    }, 2500)
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let cancelled = false
 
-    return () => clearTimeout(timer)
-  }, [isDesktop, checkForUpdates])
+    const proceedToReady = () => {
+      if (cancelled) return
+      setBootPhase('ready')
+    }
+
+    // Timeout de seguranca de 5 segundos para nao travar o boot em caso de instabilidade na rede
+    timeoutId = setTimeout(() => {
+      proceedToReady()
+    }, 5000)
+
+    void checkForUpdates(false)
+      .then((update) => {
+        if (cancelled) return
+        if (update) {
+          // Se encontrou atualizacao, cancela o timeout para manter a splash sob o modal
+          if (timeoutId) {
+            clearTimeout(timeoutId)
+            timeoutId = null
+          }
+        } else {
+          // Sem atualizacoes: encerra o boot imediatamente
+          if (timeoutId) {
+            clearTimeout(timeoutId)
+            timeoutId = null
+          }
+          proceedToReady()
+        }
+      })
+      .catch(() => {
+        if (cancelled) return
+        if (timeoutId) {
+          clearTimeout(timeoutId)
+          timeoutId = null
+        }
+        proceedToReady()
+      })
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [isDesktop, checkForUpdates, bootPhase])
 
   const enforceMandatoryVersion = useCallback((minVersion: string, serverName?: string) => {
     if (!isSatisfied(currentVersion, minVersion)) {
@@ -118,11 +167,13 @@ export function useAutoUpdater() {
   const dismissModal = useCallback(() => {
     if (!isDownloading && !isReadyToRelaunch) {
       setIsModalOpen(false)
+      setBootPhase('ready')
     }
   }, [isDownloading, isReadyToRelaunch])
 
   return {
     isDesktop,
+    bootPhase,
     currentVersion,
     availableUpdate,
     isChecking,
