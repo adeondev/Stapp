@@ -1,0 +1,89 @@
+/* ==========================================================================
+   Stapp Boot Splash Screen (Flat, Dark, No Box-Shadow)
+   ========================================================================== */
+
+.splash-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-canvas);
+  color: var(--text);
+  user-select: none;
+  animation: splash-fade-in 0.15s ease-out forwards;
+}
+
+@keyframes splash-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.splash-screen__content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+}
+
+.splash-screen__brand {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.splash-screen__logo {
+  color: var(--accent);
+  transition: transform 0.2s ease;
+}
+
+.splash-screen__title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.splash-screen__status-box {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-raised);
+}
+
+.splash-screen__spinner {
+  width: 16px;
+  height: 16px;
+  animation: splash-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes splash-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.splash-screen__text {
+  font-size: 13px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash-screen,
+  .splash-screen__spinner {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
