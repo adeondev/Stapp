@@ -48,7 +48,7 @@ Sem biblioteca de UI e sem framework de CSS. CSS na mão, um arquivo por compone
 
 ```
 compose.yaml      Orquestração completa: stapp-server, livekit e caddy (opcional)
-server/Dockerfile Build multi-stage (Node 22 SPA + Rust 1.85 release + Debian runtime)
+server/Dockerfile Build multi-stage (Node 22 SPA + Rust 1.90 release + Debian runtime)
 server/           Rust — axum + tokio. Binário único, config em stapp.toml ou env STAPP_*, SQLite em data/stapp.db.
 web/              Vite + React + TS. Roda no navegador ou empacotado em Tauri.
 infra/caddy/      Terminação TLS reversa opcional para HTTPS e portas unificadas.
