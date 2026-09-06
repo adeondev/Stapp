@@ -57,6 +57,86 @@ describe('uploadMediaFile', () => {
     )).rejects.toThrow('formato incompativel')
     expect(send).toHaveBeenCalledTimes(1)
   })
+
+  it('aplica timeout de 60s e recupera via retry resetando progresso para 0%', async () => {
+    let callCount = 0
+    const progressValues: number[] = []
+    vi.stubGlobal('XMLHttpRequest', function MockXHR(this: any) {
+      this.upload = {}
+      this.open = vi.fn()
+      this.setRequestHeader = vi.fn()
+      this.send = vi.fn(() => {
+        callCount += 1
+        expect(this.timeout).toBe(60_000)
+        if (callCount === 1) {
+          this.ontimeout?.()
+        } else {
+          this.status = 201
+          this.response = { attachment_id: 'att-recovered' }
+          this.onload?.()
+        }
+      })
+      this.abort = vi.fn()
+    })
+
+    const onProgress = (p: number) => progressValues.push(p)
+    const id = await uploadMediaFile(
+      'ws://127.0.0.1:8787',
+      'token',
+      new File(['dados'], 'doc.pdf'),
+      { kind: 'channel', id: 'geral' },
+      onProgress,
+    )
+
+    expect(id).toBe('att-recovered')
+    expect(callCount).toBe(2)
+    expect(progressValues).toContain(0)
+  })
+
+  it('detecta estagnacao de progresso apos 15s e aciona retry', async () => {
+    vi.useFakeTimers()
+    try {
+      let callCount = 0
+      let abortCalled = false
+      vi.stubGlobal('XMLHttpRequest', function MockXHR(this: any) {
+        this.upload = {}
+        this.open = vi.fn()
+        this.setRequestHeader = vi.fn()
+        this.abort = vi.fn(() => {
+          abortCalled = true
+          this.onabort?.()
+        })
+        this.send = vi.fn(() => {
+          callCount += 1
+          if (callCount === 1) {
+            // Estagna sem resposta
+          } else {
+            this.status = 201
+            this.response = { attachment_id: 'att-after-stall' }
+            this.onload?.()
+          }
+        })
+      })
+
+      const uploadPromise = uploadMediaFile(
+        'ws://127.0.0.1:8787',
+        'token',
+        new File(['dados'], 'doc.pdf'),
+        { kind: 'channel', id: 'geral' },
+      )
+
+      // Avança 15s para estourar o watchdog de estagnação e aguarda delay de retry
+      await vi.advanceTimersByTimeAsync(15_001)
+      await vi.advanceTimersByTimeAsync(2_000)
+
+      const id = await uploadPromise
+      expect(id).toBe('att-after-stall')
+      expect(abortCalled).toBe(true)
+      expect(callCount).toBe(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 describe('metadados e acesso privado', () => {
