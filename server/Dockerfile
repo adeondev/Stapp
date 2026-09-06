@@ -15,7 +15,7 @@ RUN pnpm build
 # =======================================================================
 # Stage 2: Build Rust Backend (axum + tokio + sqlx bundled)
 # =======================================================================
-FROM rust:1.85-slim-bookworm AS server-builder
+FROM rust:1.90-slim-bookworm AS server-builder
 WORKDIR /build/server
 
 # Install build dependencies for C-bundled sqlite
