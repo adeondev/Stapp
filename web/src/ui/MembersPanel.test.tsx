@@ -32,16 +32,15 @@ describe('painel de membros', () => {
       </ProfileProvider>,
     )
 
-    expect(screen.getByRole('heading', { name: '2 membros ativos' })).toBeTruthy()
-    expect(screen.getByText('2')).toBeTruthy()
-    expect(screen.queryByText(/Online —/i)).toBeNull()
+    expect(screen.getByRole('heading', { name: '2 — Online' })).toBeTruthy()
+    expect(screen.getByText('2 — Online')).toBeTruthy()
     expect(screen.getByText('Deon vivo')).toBeTruthy()
     expect(screen.getByText('você')).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: /Deon vivo/ }))
     expect(edit).toHaveBeenCalledOnce()
   })
 
-  it('renderiza membros offline com seção separada e sem texto literal Offline', () => {
+  it('renderiza membros offline com seção separada e formato "Y — Offline"', () => {
     render(
       <ProfileProvider avatarBase={null} profiles={{}}>
         <MembersPanel
@@ -57,10 +56,10 @@ describe('painel de membros', () => {
       </ProfileProvider>,
     )
 
-    expect(screen.getByRole('heading', { name: '1 membros ativos' })).toBeTruthy()
-    expect(screen.getByRole('heading', { name: '1 membros offline' })).toBeTruthy()
-    expect(screen.queryByText(/Online —/i)).toBeNull()
-    expect(screen.queryByText(/Offline —/i)).toBeNull()
+    expect(screen.getByRole('heading', { name: '1 — Online' })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: '1 — Offline' })).toBeTruthy()
+    expect(screen.getByText('1 — Online')).toBeTruthy()
+    expect(screen.getByText('1 — Offline')).toBeTruthy()
     const bobBtn = screen.getByRole('button', { name: /Bob/ })
     expect(bobBtn.classList.contains('is-offline')).toBe(true)
   })
