@@ -341,25 +341,14 @@ fn capture_loop(
         let image = if (width, height) == (target_width, target_height) {
             image
         } else {
-            image::imageops::resize(
-                &image,
-                target_width,
-                target_height,
-                image::imageops::FilterType::Nearest,
-            )
+            parallel_resize_rgba(&image, target_width, target_height)
         };
-        let rgb = image::DynamicImage::ImageRgba8(image).into_rgb8();
         let mut packet = Vec::with_capacity(12 + (target_width * target_height) as usize);
         packet.extend_from_slice(&target_width.to_le_bytes());
         packet.extend_from_slice(&target_height.to_le_bytes());
         packet.extend_from_slice(&capture_id.to_le_bytes());
         if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut packet, 72)
-            .encode(
-                rgb.as_raw(),
-                target_width,
-                target_height,
-                image::ExtendedColorType::Rgb8,
-            )
+            .encode_image(&image)
             .is_err()
         {
             continue;
@@ -376,6 +365,40 @@ fn capture_loop(
             thread::yield_now();
         }
     }
+}
+
+fn parallel_resize_rgba(
+    src: &image::RgbaImage,
+    target_width: u32,
+    target_height: u32,
+) -> image::RgbaImage {
+    use rayon::prelude::*;
+
+    let (src_width, src_height) = src.dimensions();
+    if target_width == 0 || target_height == 0 || src_width == 0 || src_height == 0 {
+        return image::RgbaImage::new(target_width, target_height);
+    }
+    let src_raw = src.as_raw();
+    let mut dest_raw = vec![0u8; (target_width as usize) * (target_height as usize) * 4];
+
+    dest_raw
+        .par_chunks_exact_mut((target_width as usize) * 4)
+        .enumerate()
+        .for_each(|(target_y, row)| {
+            let src_y = ((target_y as u64 * src_height as u64) / target_height as u64) as u32;
+            let src_row_offset = (src_y as usize) * (src_width as usize) * 4;
+            let src_row = &src_raw[src_row_offset..src_row_offset + (src_width as usize) * 4];
+
+            for target_x in 0..target_width {
+                let src_x = ((target_x as u64 * src_width as u64) / target_width as u64) as usize;
+                let src_idx = src_x * 4;
+                let dst_idx = (target_x as usize) * 4;
+                row[dst_idx..dst_idx + 4].copy_from_slice(&src_row[src_idx..src_idx + 4]);
+            }
+        });
+
+    image::RgbaImage::from_raw(target_width, target_height, dest_raw)
+        .unwrap_or_else(|| image::RgbaImage::new(target_width, target_height))
 }
 
 #[cfg(windows)]
