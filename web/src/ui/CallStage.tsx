@@ -12,6 +12,7 @@ import {
   IconMinimize, IconMore, IconScreen, IconSettings, IconSignal,
 } from './Icons'
 import { useVoiceStore } from '../stores'
+import { calculateCallGridLayout } from './callGridLayout'
 import './callstage.css'
 
 interface Props {
@@ -105,6 +106,42 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
 
   const [isAppFullscreen, setIsAppFullscreen] = useState(false)
   const [isTrayCollapsed, setIsTrayCollapsed] = useState(false)
+
+  const viewportRef = useRef<HTMLDivElement | null>(null)
+  const [viewportBounds, setViewportBounds] = useState<{ width: number; height: number }>({
+    width: typeof window !== 'undefined' ? window.innerWidth : 1280,
+    height: typeof window !== 'undefined' ? window.innerHeight : 720,
+  })
+
+  useEffect(() => {
+    const el = viewportRef.current
+    if (!el) return
+
+    const updateSize = () => {
+      const rect = el.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        setViewportBounds({ width: rect.width, height: rect.height })
+      }
+    }
+
+    updateSize()
+
+    if (typeof ResizeObserver !== 'undefined') {
+      const observer = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect
+          if (width > 0 && height > 0) {
+            setViewportBounds({ width, height })
+          }
+        }
+      })
+      observer.observe(el)
+      return () => observer.disconnect()
+    }
+
+    window.addEventListener('resize', updateSize)
+    return () => window.removeEventListener('resize', updateSize)
+  }, [])
 
   const toggleFullscreen = async (targetTileId?: string) => {
     if (targetTileId) {
@@ -242,6 +279,16 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
     ? [...tiles.filter((tile) => tile.id === focused), ...tiles.filter((tile) => tile.id !== focused)]
     : tiles
 
+  const gridLayout = useMemo(() => {
+    return calculateCallGridLayout(
+      ordered.length,
+      viewportBounds.width,
+      viewportBounds.height,
+      16 / 9,
+      12,
+    )
+  }, [ordered.length, viewportBounds.width, viewportBounds.height])
+
   const startShare = (sourceId: string | undefined, preset: ScreenPreset, includeAudio: boolean) =>
     transport.setScreenShareEnabled(true, { preset, sourceId, includeAudio })
 
@@ -278,7 +325,7 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
       )}
 
       <div className="callstage__body">
-        <div className="callstage__viewport">
+        <div ref={viewportRef} className="callstage__viewport">
           {ordered.length === 0 ? (
             <div className="callstage__empty">
               <strong>Conectando ao palco…</strong>
@@ -317,7 +364,13 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
               )}
             </div>
           ) : (
-            <div className={`callstage__layout callstage__layout--count-${Math.min(ordered.length, 12)}`}>
+            <div
+              className={`callstage__layout ${ordered.length === 1 ? 'callstage__layout--count-1' : ''}`}
+              style={{
+                '--callstage-columns': gridLayout.columns,
+                '--callstage-rows': gridLayout.rows,
+              } as React.CSSProperties}
+            >
               {ordered.map((tile) => (
                 <CallTile key={tile.id} tile={tile} primary={false}
                   focused={false} transport={transport}

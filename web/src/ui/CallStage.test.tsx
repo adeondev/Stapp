@@ -312,4 +312,45 @@ describe('palco da chamada', () => {
     expect(screen.getByRole('alert')).toBeTruthy()
     expect(screen.getByText('Falha ao acessar o microfone selecionado.')).toBeTruthy()
   })
+
+  it('suporta 7 participantes na grade com layout dinamico sem transbordo', () => {
+    const media = transport()
+    const participants7 = [
+      { peerId: 'p1', name: 'P1', local: true, speaking: false, microphone: true, camera: true, screen: false, quality: 'good' as const },
+      { peerId: 'p2', name: 'P2', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p3', name: 'P3', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p4', name: 'P4', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p5', name: 'P5', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p6', name: 'P6', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+      { peerId: 'p7', name: 'P7', local: false, speaking: false, microphone: true, camera: false, screen: false, quality: 'good' as const },
+    ]
+    const { container } = render(
+      <CallStage
+        channelName="Sala"
+        snapshot={{
+          ...snapshot,
+          participants: participants7,
+          media: [
+            { id: 'cam-p1', peerId: 'p1', name: 'P1', kind: 'camera', local: true, subscribed: true, muted: false },
+          ],
+        }}
+        transport={media}
+        onLeave={vi.fn()}
+        onOpenSettings={vi.fn()}
+      />,
+    )
+
+    const layout = container.querySelector('.callstage__layout') as HTMLElement
+    expect(layout).toBeTruthy()
+    const tiles = layout.querySelectorAll('.calltile')
+    expect(tiles.length).toBe(7)
+
+    // O layout não deve mais conter a classe estática rígida .callstage__layout--count-7
+    expect(layout.className).not.toContain('callstage__layout--count-7')
+
+    // Deve aplicar variáveis de estilo calculadas dinamicamente garantindo que 7 caibam
+    const cols = Number.parseInt(layout.style.getPropertyValue('--callstage-columns'))
+    const rows = Number.parseInt(layout.style.getPropertyValue('--callstage-rows'))
+    expect(cols * rows).toBeGreaterThanOrEqual(7)
+  })
 })

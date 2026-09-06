@@ -363,42 +363,10 @@
   flex: 0 1 calc((100% - (var(--callstage-columns) - 1) * var(--callstage-gap)) / var(--callstage-columns));
 }
 
-.callstage__layout--count-1 {
-  --callstage-columns: 1;
-  --callstage-rows: 1;
+.callstage__layout--count-1,
+.callstage__layout--solo {
   width: min(100%, 1100px);
   margin-inline: auto;
-}
-
-.callstage__layout--count-2 {
-  --callstage-columns: 2;
-  --callstage-rows: 1;
-}
-
-.callstage__layout--count-3,
-.callstage__layout--count-4 {
-  --callstage-columns: 2;
-  --callstage-rows: 2;
-}
-
-.callstage__layout--count-5,
-.callstage__layout--count-6,
-.callstage__layout--count-7 {
-  --callstage-columns: 3;
-  --callstage-rows: 2;
-}
-
-.callstage__layout--count-8 {
-  --callstage-columns: 4;
-  --callstage-rows: 2;
-}
-
-.callstage__layout--count-9,
-.callstage__layout--count-10,
-.callstage__layout--count-11,
-.callstage__layout--count-12 {
-  --callstage-columns: 4;
-  --callstage-rows: 3;
 }
 
 .callstage--embedded .callstage__layout {
@@ -949,22 +917,6 @@
 }
 
 @media (max-width: 950px) {
-  .callstage__layout--count-5,
-  .callstage__layout--count-6,
-  .callstage__layout--count-7,
-  .callstage__layout--count-8,
-  .callstage__layout--count-9 {
-    --callstage-columns: 3;
-    --callstage-rows: 3;
-  }
-
-  .callstage__layout--count-10,
-  .callstage__layout--count-11,
-  .callstage__layout--count-12 {
-    --callstage-columns: 3;
-    --callstage-rows: 4;
-  }
-
   .callstage__sidechat {
     width: 280px;
   }
@@ -982,21 +934,5 @@
   .callstage__focus-tray .calltile {
     flex-basis: 136px;
     min-width: 136px;
-  }
-
-  .callstage__layout--count-5,
-  .callstage__layout--count-6,
-  .callstage__layout--count-7,
-  .callstage__layout--count-8 {
-    --callstage-columns: 2;
-    --callstage-rows: 4;
-  }
-
-  .callstage__layout--count-9,
-  .callstage__layout--count-10,
-  .callstage__layout--count-11,
-  .callstage__layout--count-12 {
-    --callstage-columns: 2;
-    --callstage-rows: 6;
   }
 }
