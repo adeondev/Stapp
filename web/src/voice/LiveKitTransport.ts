@@ -109,7 +109,7 @@ export class LiveKitTransport implements VoiceTransport {
 
   updateSession(selfPeerId: PeerId, send: (msg: ClientMsg) => boolean | void) {
     this.options = { ...this.options, selfPeerId, send: (msg) => { send(msg) } }
-    if (this.requestedChannel && (this.state.status === 'reconnecting' || this.state.status === 'requesting')) {
+    if (this.requestedChannel && (this.state.status === 'reconnecting' || this.state.status === 'requesting' || this.state.status === 'connected')) {
       this.options.send({ t: 'voice.join', channel: this.requestedChannel })
     }
   }
@@ -796,6 +796,9 @@ export class LiveKitTransport implements VoiceTransport {
     room.on(sdk.RoomEvent.Reconnected, () => {
       if (!current()) return
       this.state = { ...this.state, status: 'connected' }
+      if (this.requestedChannel) {
+        this.options.send({ t: 'voice.join', channel: this.requestedChannel })
+      }
       this.sync()
     })
     room.on(sdk.RoomEvent.MediaDevicesError, (error) => {

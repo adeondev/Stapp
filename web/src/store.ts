@@ -210,33 +210,40 @@ export function reduce(state: StappState, msg: StappAction): StappState {
       }
 
     case 'voice.roster': {
-      const me = state.users.find((user) => user.user_id === state.selfUserId)
-      const self: VoicePeer[] =
-        me && state.selfPeerId
-          ? [
-              {
-                peer_id: state.selfPeerId,
-                user_id: me.user_id,
-                username: me.username,
-                channel: msg.channel,
-                muted: false,
-                deafened: false,
-                camera_enabled: false,
-                screen_sharing: false,
-              },
-            ]
-          : []
+      const rosterUserIds = new Set(msg.peers.map((p) => p.user_id))
       const others = state.voicePeers.filter(
-        (peer) => peer.channel !== msg.channel && peer.peer_id !== state.selfPeerId,
+        (peer) => peer.channel !== msg.channel && !rosterUserIds.has(peer.user_id),
       )
-      return { ...state, voicePeers: [...others, ...msg.peers, ...self] }
+      const peersByUserId = new Map<string, VoicePeer>()
+      for (const peer of others) {
+        peersByUserId.set(peer.user_id, peer)
+      }
+      for (const peer of msg.peers) {
+        peersByUserId.set(peer.user_id, peer)
+      }
+      if (state.selfUserId && state.selfPeerId && !peersByUserId.has(state.selfUserId)) {
+        const me = state.users.find((user) => user.user_id === state.selfUserId)
+        if (me) {
+          peersByUserId.set(me.user_id, {
+            peer_id: state.selfPeerId,
+            user_id: me.user_id,
+            username: me.username,
+            channel: msg.channel,
+            muted: false,
+            deafened: false,
+            camera_enabled: false,
+            screen_sharing: false,
+          })
+        }
+      }
+      return { ...state, voicePeers: Array.from(peersByUserId.values()) }
     }
 
     case 'voice.joined':
       return {
         ...state,
         voicePeers: [
-          ...state.voicePeers.filter((peer) => peer.peer_id !== msg.peer.peer_id),
+          ...state.voicePeers.filter((peer) => peer.user_id !== msg.peer.user_id),
           msg.peer,
         ],
       }

@@ -809,7 +809,39 @@ describe('LiveKitTransport', () => {
 
     transport.updateSession('peer-new', (msg) => { sentV2.push(msg) })
     expect(transport.snapshot().channel).toBe('geral')
+    expect(sentV2).toEqual([{ t: 'voice.join', channel: 'geral' }])
 
+    transport.destroy()
+  })
+
+  it('ao reconectar internamente no LiveKit, emite voice.join para resync de presenca/roster', async () => {
+    const sent: ClientMsg[] = []
+    const sdk = await import('livekit-client') as unknown as {
+      Room: { instances: Array<{ emit(event: string, ...args: unknown[]): void }> }
+      RoomEvent: { Reconnected: string }
+    }
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer',
+      send: (msg) => { sent.push(msg) },
+      onSpeaking: vi.fn(),
+      onError: vi.fn(),
+    })
+    await transport.join('geral')
+    transport.handleServerMessage({
+      t: 'voice.grant',
+      channel: 'geral',
+      url: 'ws://sfu:7880',
+      token: 'jwt-1',
+      expires_at: Date.now() + 60_000,
+    })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(transport.snapshot().status).toBe('connected')
+    sent.length = 0
+
+    const room = sdk.Room.instances[sdk.Room.instances.length - 1]
+    room.emit(sdk.RoomEvent.Reconnected)
+
+    expect(sent).toContainEqual({ t: 'voice.join', channel: 'geral' })
     transport.destroy()
   })
 

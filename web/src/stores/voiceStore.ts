@@ -121,13 +121,18 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
   handleVoiceMessage: (msg: ServerMsg) => {
     switch (msg.t) {
-      case 'welcome':
+      case 'welcome': {
+        const peersByUserId = new Map<string, VoicePeer>()
+        for (const peer of msg.voice_peers) {
+          peersByUserId.set(peer.user_id, peer)
+        }
         set({
           voiceConfig: msg.voice,
-          voicePeers: msg.voice_peers,
+          voicePeers: Array.from(peersByUserId.values()),
           speakingPeers: new Set(),
         })
         break
+      }
 
       case 'user.offline':
         set((state) => ({
@@ -137,33 +142,45 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
 
       case 'voice.roster': {
         const presence = usePresenceStore.getState()
-        const me = presence.users.find((user) => user.user_id === presence.selfUserId)
-        const self: VoicePeer[] =
-          me && presence.selfPeerId
-            ? [
-                {
-                  peer_id: presence.selfPeerId,
-                  user_id: me.user_id,
-                  username: me.username,
-                  channel: msg.channel,
-                  muted: false,
-                  deafened: false,
-                  camera_enabled: false,
-                  screen_sharing: false,
-                },
-              ]
-            : []
+        const rosterUserIds = new Set(msg.peers.map((p) => p.user_id))
         const others = get().voicePeers.filter(
-          (peer) => peer.channel !== msg.channel && peer.peer_id !== presence.selfPeerId,
+          (peer) => peer.channel !== msg.channel && !rosterUserIds.has(peer.user_id),
         )
-        set({ voicePeers: [...others, ...msg.peers, ...self] })
+        const peersByUserId = new Map<string, VoicePeer>()
+        for (const peer of others) {
+          peersByUserId.set(peer.user_id, peer)
+        }
+        for (const peer of msg.peers) {
+          peersByUserId.set(peer.user_id, peer)
+        }
+        if (
+          get().callChannel === msg.channel &&
+          presence.selfUserId &&
+          presence.selfPeerId &&
+          !peersByUserId.has(presence.selfUserId)
+        ) {
+          const me = presence.users.find((user) => user.user_id === presence.selfUserId)
+          if (me) {
+            peersByUserId.set(me.user_id, {
+              peer_id: presence.selfPeerId,
+              user_id: me.user_id,
+              username: me.username,
+              channel: msg.channel,
+              muted: get().muted,
+              deafened: get().deafened,
+              camera_enabled: false,
+              screen_sharing: false,
+            })
+          }
+        }
+        set({ voicePeers: Array.from(peersByUserId.values()) })
         break
       }
 
       case 'voice.joined':
         set((state) => ({
           voicePeers: [
-            ...state.voicePeers.filter((peer) => peer.peer_id !== msg.peer.peer_id),
+            ...state.voicePeers.filter((peer) => peer.user_id !== msg.peer.user_id),
             msg.peer,
           ],
         }))
