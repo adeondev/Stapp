@@ -179,17 +179,42 @@ export async function updatePendingAttachment(
   if (!response.ok) throw new Error(friendlyUploadError(response.status, await response.text()))
 }
 
+export class AttachmentSessionExpired extends Error {
+  constructor(message = 'sessão expirada') {
+    super(message)
+    this.name = 'AttachmentSessionExpired'
+  }
+}
+
 export async function attachmentContentUrl(
   serverUrl: string,
   accessToken: string,
   attachmentId: string,
-) {
+  onRenewToken?: () => Promise<string | null>,
+): Promise<string> {
   const base = httpBaseFrom(serverUrl)
-  const response = await fetch(`${base}/attachments/${attachmentId}/ticket`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
-  if (!response.ok) throw new Error(await response.text())
-  const payload = (await response.json()) as { content_url: string }
-  return new URL(payload.content_url, base).toString()
+  const fetchTicket = async (token: string) => {
+    const response = await fetch(`${base}/attachments/${attachmentId}/ticket`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (response.status === 401) {
+      throw new AttachmentSessionExpired('sessão expirada')
+    }
+    if (!response.ok) throw new Error(await response.text())
+    const payload = (await response.json()) as { content_url: string }
+    return new URL(payload.content_url, base).toString()
+  }
+
+  try {
+    return await fetchTicket(accessToken)
+  } catch (error) {
+    if (error instanceof AttachmentSessionExpired && onRenewToken) {
+      const refreshed = await onRenewToken()
+      if (refreshed) {
+        return await fetchTicket(refreshed)
+      }
+    }
+    throw error
+  }
 }

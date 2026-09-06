@@ -167,4 +167,32 @@ describe('metadados e acesso privado', () => {
     await expect(attachmentContentUrl('ws://127.0.0.1:8787', 'secret', 'file-1'))
       .resolves.toBe('http://127.0.0.1:8787/attachments/file-1/content?ticket=temporary')
   })
+
+  it('renova o access token e tenta novamente quando recebe 401 ao emitir ticket', async () => {
+    let callCount = 0
+    const renewToken = vi.fn(async () => 'novo-token-renovado')
+    const fetchMock = vi.fn().mockImplementation(async (_url, options) => {
+      callCount += 1
+      const auth = options.headers?.Authorization
+      if (auth === 'Bearer token-expirado') {
+        return new Response('Unauthorized', { status: 401 })
+      }
+      return new Response(
+        JSON.stringify({ content_url: '/attachments/file-1/content?ticket=novo' }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const url = await attachmentContentUrl(
+      'ws://127.0.0.1:8787',
+      'token-expirado',
+      'file-1',
+      renewToken,
+    )
+
+    expect(url).toBe('http://127.0.0.1:8787/attachments/file-1/content?ticket=novo')
+    expect(callCount).toBe(2)
+    expect(renewToken).toHaveBeenCalledTimes(1)
+  })
 })
