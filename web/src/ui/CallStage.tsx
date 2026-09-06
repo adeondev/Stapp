@@ -11,6 +11,7 @@ import {
   IconFullscreen, IconHeadphones, IconHeadphonesOff, IconLeave, IconMic, IconMicOff,
   IconMinimize, IconMore, IconScreen, IconSettings, IconSignal,
 } from './Icons'
+import { useVoiceStore } from '../stores'
 import './callstage.css'
 
 interface Props {
@@ -31,6 +32,16 @@ type Tile =
 export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSettings, resolveUserId, selfUserId, variant = 'fullscreen' }: Props) {
   const root = useRef<HTMLDivElement>(null)
   const preferences = transport.getPreferences()
+  const muted = useVoiceStore((s) => s.muted)
+  const deafened = useVoiceStore((s) => s.deafened)
+  const toggleMute = useVoiceStore((s) => s.toggleMute)
+  const toggleDeafen = useVoiceStore((s) => s.toggleDeafen)
+
+  useEffect(() => {
+    transport.setMuted(muted || deafened)
+    transport.setDeafened(deafened)
+  }, [transport, muted, deafened])
+
   const [focused, setFocused] = useState<string | null>(null)
   const [sharePicker, setSharePicker] = useState(false)
   const [quickMenu, setQuickMenu] = useState<{ kind: 'audio' | 'camera'; position: MenuPosition } | null>(null)
@@ -372,11 +383,11 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
           {/* Microfone */}
           <div className="callstage__dock-combo">
             <DockButton
-              active={!snapshot.muted && !snapshot.deafened}
-              off={snapshot.muted || snapshot.deafened}
-              label={snapshot.muted ? 'ligar microfone' : 'desligar microfone'}
-              onClick={() => transport.setMuted(!snapshot.muted)}
-              icon={snapshot.muted || snapshot.deafened ? <IconMicOff size={20} /> : <IconMic size={20} />}
+              active={!muted && !deafened}
+              off={muted || deafened}
+              label={muted || deafened ? 'ligar microfone' : 'desligar microfone'}
+              onClick={toggleMute}
+              icon={muted || deafened ? <IconMicOff size={20} /> : <IconMic size={20} />}
             />
             <button
               className="callstage__dock-chevron"
@@ -395,11 +406,11 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
 
           {/* Ensurdecer */}
           <DockButton
-            active={!snapshot.deafened}
-            off={snapshot.deafened}
-            label={snapshot.deafened ? 'voltar a ouvir' : 'ensurdecer'}
-            onClick={() => transport.setDeafened(!snapshot.deafened)}
-            icon={snapshot.deafened ? <IconHeadphonesOff size={20} /> : <IconHeadphones size={20} />}
+            active={!deafened}
+            off={deafened}
+            label={deafened ? 'voltar a ouvir' : 'ensurdecer'}
+            onClick={toggleDeafen}
+            icon={deafened ? <IconHeadphonesOff size={20} /> : <IconHeadphones size={20} />}
           />
 
           {/* Câmera */}

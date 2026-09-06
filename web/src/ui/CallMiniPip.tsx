@@ -2,8 +2,18 @@ import { useEffect, useRef } from 'react'
 import type { PeerId, UserId } from '../protocol'
 import type { VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import { Avatar } from './Avatar'
-import { IconExpand, IconLeave, IconMic, IconMicOff, IconScreen, IconSignal } from './Icons'
+import {
+  IconExpand,
+  IconHeadphones,
+  IconHeadphonesOff,
+  IconLeave,
+  IconMic,
+  IconMicOff,
+  IconScreen,
+  IconSignal,
+} from './Icons'
 import { useUserMenu } from './UserMenu'
+import { useVoiceStore } from '../stores'
 import './callminipip.css'
 
 interface Props {
@@ -28,7 +38,17 @@ export function CallMiniPip({ channelName, snapshot, transport, onExpand, onLeav
     ? (resolveUserId?.(speakingParticipant.peerId) ?? (speakingParticipant.local ? (selfUserId ?? undefined) : undefined))
     : undefined
 
-  const micOff = snapshot.muted || snapshot.deafened
+  const muted = useVoiceStore((s) => s.muted)
+  const deafened = useVoiceStore((s) => s.deafened)
+  const toggleMute = useVoiceStore((s) => s.toggleMute)
+  const toggleDeafen = useVoiceStore((s) => s.toggleDeafen)
+
+  useEffect(() => {
+    transport.setMuted(muted || deafened)
+    transport.setDeafened(deafened)
+  }, [transport, muted, deafened])
+
+  const micOff = muted || deafened
 
   return (
     <aside className="callminipip" role="complementary" aria-label={`Chamada ativa em ${channelName}`}>
@@ -85,16 +105,28 @@ export function CallMiniPip({ channelName, snapshot, transport, onExpand, onLeav
       <div className="callminipip__controls">
         <button
           className={`callminipip__action-btn ${micOff ? 'is-muted' : ''}`}
-          onClick={() => transport.setMuted(!snapshot.muted)}
+          onClick={toggleMute}
+          disabled={deafened}
           title={micOff ? 'Ligar microfone' : 'Desligar microfone'}
+          aria-label={micOff ? 'Ligar microfone' : 'Desligar microfone'}
         >
           {micOff ? <IconMicOff size={16} /> : <IconMic size={16} />}
+        </button>
+
+        <button
+          className={`callminipip__action-btn ${deafened ? 'is-muted' : ''}`}
+          onClick={toggleDeafen}
+          title={deafened ? 'Voltar a ouvir' : 'Ensurdecer'}
+          aria-label={deafened ? 'Voltar a ouvir' : 'Ensurdecer'}
+        >
+          {deafened ? <IconHeadphonesOff size={16} /> : <IconHeadphones size={16} />}
         </button>
 
         <button
           className="callminipip__action-btn callminipip__action-btn--leave"
           onClick={onLeave}
           title="Desconectar"
+          aria-label="Desconectar"
         >
           <IconLeave size={16} />
         </button>

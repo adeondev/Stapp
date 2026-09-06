@@ -2,11 +2,12 @@
 
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import { DEFAULT_VOICE_PREFERENCES } from '../voice/preferences'
 import { CallStage } from './CallStage'
 import { UserMenuProvider } from './UserMenu'
+import { useVoiceStore } from '../stores'
 
 const snapshot: VoiceSnapshot = {
   status: 'connected', channel: 'geral', muted: false, deafened: false,
@@ -45,6 +46,10 @@ function transport(): VoiceTransport {
 }
 
 describe('palco da chamada', () => {
+  beforeEach(() => {
+    useVoiceStore.setState({ muted: false, deafened: false })
+  })
+
   afterEach(() => {
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
   })
@@ -77,9 +82,23 @@ describe('palco da chamada', () => {
     await user.click(screen.getByRole('button', { name: 'voz e vídeo' }))
     await user.click(screen.getByRole('button', { name: 'desconectar' }))
     expect(media.setMuted).toHaveBeenCalledWith(true)
+    expect(useVoiceStore.getState().muted).toBe(true)
     expect(media.setCameraEnabled).toHaveBeenCalledWith(false)
     expect(settings).toHaveBeenCalled()
     expect(leave).toHaveBeenCalled()
+  })
+
+  it('sincroniza ensurdecer e mudo com o store a partir do dock', async () => {
+    const user = userEvent.setup()
+    const media = transport()
+    render(<CallStage channelName="Sala" snapshot={snapshot} transport={media}
+      onLeave={vi.fn()} onOpenSettings={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: 'ensurdecer' }))
+    expect(useVoiceStore.getState().deafened).toBe(true)
+    expect(useVoiceStore.getState().muted).toBe(true)
+    expect(media.setDeafened).toHaveBeenCalledWith(true)
+    expect(media.setMuted).toHaveBeenCalledWith(true)
   })
 
   it('escolhe a fonte no modal do Stapp antes de compartilhar no aplicativo', async () => {
