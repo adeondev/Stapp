@@ -30,7 +30,8 @@ async fn sends_roster_before_announcing_a_voice_join() {
     assert!(matches!(first_roster.target, Target::Peer(ref id) if id == &first));
     assert!(matches!(
         first_roster.msg,
-        ServerMsg::VoiceRoster { ref peers, .. } if peers.is_empty()
+        ServerMsg::VoiceRoster { ref channel, ref peers }
+            if channel == "voz-a" && peers.len() == 1 && peers[0].peer_id == first
     ));
     assert!(matches!(first_joined.target, Target::Except(ref id) if id == &first));
     assert!(matches!(
@@ -39,17 +40,65 @@ async fn sends_roster_before_announcing_a_voice_join() {
     ));
 
     join(&server.state, &second, "voz-a").await;
-    let second_roster = events.try_recv().unwrap();
+    let r1 = events.try_recv().unwrap();
+    let r2 = events.try_recv().unwrap();
     let second_joined = events.try_recv().unwrap();
-    assert!(matches!(
-        second_roster.msg,
-        ServerMsg::VoiceRoster { ref peers, .. }
-            if peers.len() == 1 && peers[0].peer_id == first
-    ));
+
+    let mut roster_recipients = vec![];
+    for env in [&r1, &r2] {
+        if let Target::Peer(ref p) = env.target {
+            roster_recipients.push(p.clone());
+        }
+        assert!(matches!(
+            env.msg,
+            ServerMsg::VoiceRoster { ref channel, ref peers }
+                if channel == "voz-a" && peers.len() == 2
+        ));
+    }
+    roster_recipients.sort();
+    assert_eq!(roster_recipients, vec!["first", "second"]);
+
     assert!(matches!(second_joined.target, Target::Except(ref id) if id == &second));
     assert!(matches!(
         second_joined.msg,
         ServerMsg::VoiceJoined { ref peer } if peer.peer_id == second
+    ));
+}
+
+#[tokio::test]
+async fn leave_broadcasts_voice_left_and_updated_roster() {
+    let server = TestServer::new(10, 4).await;
+    let first = "first".to_string();
+    let second = "second".to_string();
+    let first_account = server.account("First").await;
+    let second_account = server.account("Second").await;
+    server
+        .state
+        .register_session(&first, &first_account)
+        .await
+        .unwrap();
+    server
+        .state
+        .register_session(&second, &second_account)
+        .await
+        .unwrap();
+    join(&server.state, &first, "voz-a").await;
+    join(&server.state, &second, "voz-a").await;
+
+    let mut events = server.state.subscribe();
+    leave(&server.state, &first).await;
+
+    let left = events.try_recv().unwrap();
+    let roster = events.try_recv().unwrap();
+
+    assert!(matches!(left.target, Target::All));
+    assert!(matches!(left.msg, ServerMsg::VoiceLeft { ref peer_id } if peer_id == &first));
+
+    assert!(matches!(roster.target, Target::Peer(ref id) if id == &second));
+    assert!(matches!(
+        roster.msg,
+        ServerMsg::VoiceRoster { ref channel, ref peers }
+            if channel == "voz-a" && peers.len() == 1 && peers[0].peer_id == second
     ));
 }
 
