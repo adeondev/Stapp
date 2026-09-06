@@ -52,6 +52,7 @@ export class MeshTransport implements VoiceTransport {
 
   private readonly peers = new Map<PeerId, PeerLink>()
   private readonly playbackGraph = new PlaybackGraph()
+  private playbackAttenuated = false
   private readonly voiceVolumes = new Map<PeerId, number>()
   private readonly lastVoiceVolumes = new Map<PeerId, number>()
   private readonly monitors = new Map<PeerId, Monitor>()
@@ -299,9 +300,33 @@ export class MeshTransport implements VoiceTransport {
     }
   }
 
+  setPlaybackAttenuated(attenuated: boolean) {
+    this.playbackAttenuated = attenuated
+    this.playbackGraph.setAttenuated(attenuated, 0)
+    this.applyPlaybackState()
+  }
+
   async startMicrophoneTest(onLevel: (level: number) => void) {
+    this.setPlaybackAttenuated(true)
     const { startMicrophoneTest } = await import('./testMicrophone')
-    return startMicrophoneTest(this.audioConstraints(), onLevel, this.preferences.outputDeviceId || undefined)
+    let stopTest: () => void
+    try {
+      stopTest = await startMicrophoneTest(
+        this.audioConstraints(),
+        onLevel,
+        this.preferences.outputDeviceId || undefined,
+      )
+    } catch (error) {
+      this.setPlaybackAttenuated(false)
+      throw error
+    }
+    return () => {
+      try {
+        stopTest()
+      } finally {
+        this.setPlaybackAttenuated(false)
+      }
+    }
   }
 
   async startCameraPreview(element: HTMLVideoElement) {
@@ -570,12 +595,14 @@ export class MeshTransport implements VoiceTransport {
       this.playbackGraph.setMuted(peerId, this.deafened)
 
       if (!audio) return
-      audio.muted = this.deafened
-      audio.volume = clamp(
-        (this.getVoiceVolume(peerId) / 100) * (this.preferences.outputVolume / 100),
-        0,
-        1,
-      )
+      audio.muted = this.deafened || this.playbackAttenuated
+      audio.volume = this.playbackAttenuated
+        ? 0
+        : clamp(
+            (this.getVoiceVolume(peerId) / 100) * (this.preferences.outputVolume / 100),
+            0,
+            1,
+          )
       return
     }
     for (const [id, link] of this.peers) this.applyPlaybackState(link.audio, id)

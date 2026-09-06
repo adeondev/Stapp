@@ -78,6 +78,7 @@ export class LiveKitTransport implements VoiceTransport {
   private browserScreenAudioDiagnostic: BrowserScreenCapture['audioValidation'] | null = null
   private readonly listeners = new Set<(snapshot: VoiceSnapshot) => void>()
   private readonly playbackGraph = new PlaybackGraph()
+  private playbackAttenuated = false
   private readonly audioElements = new Map<string, HTMLAudioElement>()
   private readonly publicationOwners = new Map<string, PeerId>()
   private readonly audioSources = new Map<string, string>()
@@ -398,9 +399,33 @@ export class LiveKitTransport implements VoiceTransport {
     }
   }
 
+  setPlaybackAttenuated(attenuated: boolean) {
+    this.playbackAttenuated = attenuated
+    this.playbackGraph.setAttenuated(attenuated, 0)
+    this.applyPlaybackState()
+  }
+
   async startMicrophoneTest(onLevel: (level: number) => void) {
+    this.setPlaybackAttenuated(true)
     const { startMicrophoneTest } = await import('./testMicrophone')
-    return startMicrophoneTest(this.audioCaptureOptions(), onLevel, this.preferences.outputDeviceId || undefined)
+    let stopTest: () => void
+    try {
+      stopTest = await startMicrophoneTest(
+        this.audioCaptureOptions(),
+        onLevel,
+        this.preferences.outputDeviceId || undefined,
+      )
+    } catch (error) {
+      this.setPlaybackAttenuated(false)
+      throw error
+    }
+    return () => {
+      try {
+        stopTest()
+      } finally {
+        this.setPlaybackAttenuated(false)
+      }
+    }
   }
 
   async startCameraPreview(element: HTMLVideoElement) {
@@ -1248,8 +1273,8 @@ export class LiveKitTransport implements VoiceTransport {
     const isMuted = isScreenAudio ? false : this.state.deafened
 
     if (audio) {
-      audio.muted = isMuted
-      audio.volume = clamp((trackVolume / 100) * (master / 100), 0, 1)
+      audio.muted = isMuted || this.playbackAttenuated
+      audio.volume = this.playbackAttenuated ? 0 : clamp((trackVolume / 100) * (master / 100), 0, 1)
     }
 
     const targetGain = (trackVolume / 100) * (master / 100)

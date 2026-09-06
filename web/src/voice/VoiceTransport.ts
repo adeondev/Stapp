@@ -141,6 +141,7 @@ export interface VoiceTransport {
   updatePreferences(patch: Partial<VoicePreferences>): Promise<void>
   diagnosticReport(): Promise<DiagnosticReport>
   handleServerMessage(msg: ServerMsg): void
+  setPlaybackAttenuated?(attenuated: boolean): void
   updateSession?(selfPeerId: PeerId, send: (msg: ClientMsg) => boolean | void): void
   destroy(): void
 }
