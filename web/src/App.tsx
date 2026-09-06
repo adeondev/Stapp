@@ -266,7 +266,6 @@ export default function App() {
 
           if (voice.current && activeVoiceChannel) {
             voice.current.updateSession?.(msg.self_peer_id, (out) => connection.current?.send(out))
-            void voice.current.join(activeVoiceChannel)
           } else {
             voice.current?.destroy()
             unsubscribeVoice.current?.()

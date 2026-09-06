@@ -34,6 +34,7 @@ struct SessionEntry {
     username: String,
     voice: Option<membership::VoiceMembership>,
     pending_voice: Option<membership::VoiceReservation>,
+    disconnected: bool,
 }
 
 pub struct AppState {

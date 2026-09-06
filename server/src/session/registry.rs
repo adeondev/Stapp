@@ -34,7 +34,7 @@ impl AppState {
 
         let session_count = sessions
             .values()
-            .filter(|entry| entry.user_id == account.id)
+            .filter(|entry| entry.user_id == account.id && !entry.disconnected)
             .count();
         if session_count >= self.config.auth.max_sessions_per_user {
             return Err(SessionError::TooManySessions);
@@ -42,7 +42,35 @@ impl AppState {
 
         // O limite do servidor conta contas, nao conexoes: abrir o app no celular
         // e no PC nao ocupa duas vagas.
-        let first_session = session_count == 0;
+        let first_session = sessions
+            .values()
+            .filter(|entry| entry.user_id == account.id)
+            .count() == 0;
+
+        // Flapping de rede (Wi-Fi -> 4G -> VPN) deixa para tras sessoes zumbis da
+        // mesma conta: o socket ja morreu e elas so esperam o timer de queda expirar.
+        // A que ja perdeu a vaga de audio (takeover) nao guarda mais nada util, entao
+        // a reconexao a desaloja aqui em vez de conviver com ela ate o grace period.
+        // A que ainda segura voz fica: quem a desaloja e o takeover em `reserve_voice`,
+        // que sabe anunciar o `voice.left` para os outros participantes.
+        let stale: Vec<String> = sessions
+            .iter()
+            .filter(|(_, entry)| {
+                entry.user_id == account.id
+                    && entry.disconnected
+                    && entry.voice.is_none()
+                    && entry.pending_voice.is_none()
+            })
+            .map(|(id, _)| id.clone())
+            .collect();
+        for peer in stale {
+            tracing::info!(
+                peer = %peer,
+                user = %account.id,
+                "desalojando sessao zumbi da mesma conta na reconexao"
+            );
+            sessions.remove(&peer);
+        }
         if first_session {
             let online_accounts: HashSet<&str> = sessions
                 .values()
@@ -64,6 +92,7 @@ impl AppState {
                 username: account.username.clone(),
                 voice: None,
                 pending_voice: None,
+                disconnected: false,
             },
         );
 
@@ -126,5 +155,20 @@ impl AppState {
                 user_id: entry.user_id.clone(),
                 username: entry.username.clone(),
             })
+    }
+
+    pub async fn mark_session_disconnected(&self, peer_id: &str) {
+        let mut sessions = self.sessions.write().await;
+        if let Some(entry) = sessions.get_mut(peer_id) {
+            entry.disconnected = true;
+        }
+    }
+
+    pub async fn is_session_disconnected(&self, peer_id: &str) -> bool {
+        let sessions = self.sessions.read().await;
+        sessions
+            .get(peer_id)
+            .map(|entry| entry.disconnected)
+            .unwrap_or(false)
     }
 }

@@ -309,3 +309,53 @@ async fn is_in_voice_identifica_presenca_corretamente() {
     assert!(!server.state.is_in_voice(&"sess1".into()).await);
 }
 
+#[tokio::test]
+async fn reserve_voice_nao_conta_a_si_mesmo_ao_renegociar() {
+    use std::time::Duration;
+    // Sala com capacidade máxima para 2 participantes (estilo DM)
+    let server = TestServer::new(10, 2).await;
+    let alice = server.account("Alice").await;
+    let bob = server.account("Bob").await;
+
+    server.state.register_session("alice_peer", &alice).await.unwrap();
+    server.state.register_session("bob_peer", &bob).await.unwrap();
+
+    // Alice entra
+    server.state.join_voice(&"alice_peer".into(), "dm_call", 2).await.unwrap();
+
+    // Bob reserva uma vaga (sala fica com 2 ocupantes: 1 ativo + 1 reserva)
+    let res1 = server.state.reserve_voice(&"bob_peer".into(), "dm_call", 2, Duration::from_secs(15)).await;
+    assert!(res1.is_ok());
+
+    // Bob faz uma segunda reserva (ex: reconnect duplo do cliente) - não deve falhar com Full
+    let res2 = server.state.reserve_voice(&"bob_peer".into(), "dm_call", 2, Duration::from_secs(15)).await;
+    assert!(res2.is_ok(), "re-reserva do próprio peer não deve estourar limite");
+}
+
+#[tokio::test]
+async fn sessoes_desconectadas_nao_impedem_reconexao_por_limite_de_sessoes() {
+    let dir = crate::test_support::TestDir::new();
+    let mut config = crate::test_support::config(dir.database(), 10, 2);
+    config.auth.max_sessions_per_user = 2;
+    let server = TestServer::with_config(config).await;
+    let account = server.account("Daniel").await;
+
+    // Sessão 1 conecta e cai (fica desconectada em grace period)
+    server.state.register_session("sess1", &account).await.unwrap();
+    server.state.mark_session_disconnected("sess1").await;
+
+    // Sessão 2 conecta e cai (segunda queda rápida)
+    server.state.register_session("sess2", &account).await.unwrap();
+    server.state.mark_session_disconnected("sess2").await;
+
+    // Sessão 3 conecta: mesmo com 2 sessões antigas em grace period, nova conexão deve ser aceita
+    let reg = server.state.register_session("sess3", &account).await;
+    assert!(reg.is_ok(), "sessões desconectadas não devem bloquear nova sessão");
+
+    // E as zumbis sem vaga de voz saem do registro na reconexão, em vez de
+    // ficarem ocupando espaço até o timer de queda expirar.
+    assert!(server.state.identity_of("sess1").await.is_none());
+    assert!(server.state.identity_of("sess2").await.is_none());
+    assert!(server.state.identity_of("sess3").await.is_some());
+}
+

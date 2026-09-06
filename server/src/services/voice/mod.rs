@@ -137,7 +137,11 @@ async fn handle_takeover(state: &AppState, takeover: &crate::session::VoiceTakeo
             peer_id: takeover.old_peer_id.clone(),
         },
     );
-    let _ = state.remove_session(&takeover.old_peer_id).await;
+    // O takeover devolve a vaga de audio, nao a conexao: `reserve_voice`/`join_voice`
+    // ja fizeram `entry.voice.take()` na sessao antiga. Derrubar a sessao inteira aqui
+    // deixaria o cliente anterior com o socket aberto e sem identidade — uma sessao
+    // zumbi que continua lendo o chat e tem tudo que envia descartado em silencio.
+    // Quem encerra sessao e `handle_connection_drop`, que sabe anunciar `user.offline`.
 }
 
 pub async fn handle_connection_drop(state: Arc<AppState>, peer_id: PeerId) {
@@ -154,6 +158,8 @@ pub async fn handle_connection_drop(state: Arc<AppState>, peer_id: PeerId) {
         return;
     }
 
+    state.mark_session_disconnected(&peer_id).await;
+
     tokio::spawn(async move {
         tracing::info!(peer = %peer_id, "grace period de 20s para voz iniciado apos queda de conexao");
         tokio::time::sleep(Duration::from_secs(20)).await;
@@ -161,13 +167,13 @@ pub async fn handle_connection_drop(state: Arc<AppState>, peer_id: PeerId) {
         if state.is_in_voice(&peer_id).await {
             tracing::info!(peer = %peer_id, "grace period expirado sem reconexao; encerrando participacao de voz");
             leave(&state, &peer_id).await;
-            if let Some(removal) = state.remove_session(&peer_id).await {
-                if removal.last_session {
-                    crate::services::call::drop_for(&state, &removal.user_id).await;
-                    state.broadcast(ServerMsg::UserOffline {
-                        user_id: removal.user_id,
-                    });
-                }
+        }
+        if let Some(removal) = state.remove_session(&peer_id).await {
+            if removal.last_session {
+                crate::services::call::drop_for(&state, &removal.user_id).await;
+                state.broadcast(ServerMsg::UserOffline {
+                    user_id: removal.user_id,
+                });
             }
         }
     });

@@ -121,8 +121,8 @@ impl AppState {
         }
 
         let occupied = sessions
-            .values()
-            .filter(|entry| entry.is_in(channel))
+            .iter()
+            .filter(|(id, entry)| *id != peer_id && entry.is_in(channel))
             .count();
         if occupied >= max_peers {
             return Err(VoiceJoinError::Full);
@@ -200,13 +200,14 @@ impl AppState {
         }
 
         let occupied = sessions
-            .values()
-            .filter(|entry| {
-                entry.is_in(channel)
-                    || entry
-                        .pending_voice
-                        .as_ref()
-                        .is_some_and(|pending| pending.channel == channel)
+            .iter()
+            .filter(|(id, entry)| {
+                *id != peer_id
+                    && (entry.is_in(channel)
+                        || entry
+                            .pending_voice
+                            .as_ref()
+                            .is_some_and(|pending| pending.channel == channel))
             })
             .count();
         if occupied >= max_peers {

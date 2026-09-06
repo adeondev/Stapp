@@ -264,3 +264,30 @@ async fn join_livekit_sem_credenciais_recusa_com_unavailable() {
         .unwrap_or(false);
     assert!(recusou, "entrar em sala LiveKit sem credenciais tem que recusar com Unavailable");
 }
+
+#[tokio::test]
+async fn takeover_de_voz_preserva_a_sessao_de_chat_antiga() {
+    let server = TestServer::new(10, 4).await;
+    let desktop = "desktop".to_string();
+    let celular = "celular".to_string();
+    let account = server.account("Daniel").await;
+    server.state.register_session(&desktop, &account).await.unwrap();
+    server.state.register_session(&celular, &account).await.unwrap();
+
+    join(&server.state, &desktop, "voz-a").await;
+    join(&server.state, &celular, "voz-a").await;
+
+    // A vaga de audio e so do celular...
+    let peers = server.state.peers_in_voice("voz-a").await;
+    assert_eq!(peers, vec![celular.clone()]);
+
+    // ...mas o desktop continua conectado e com identidade: ele ainda le e escreve
+    // no chat. Derrubar a sessao aqui criava um socket sem identidade, cujas
+    // mensagens o servidor descartava em silencio.
+    let identidade = server.state.identity_of(&desktop).await;
+    assert!(
+        identidade.is_some(),
+        "takeover de voz nao pode encerrar a sessao de chat do cliente antigo"
+    );
+    assert_eq!(identidade.unwrap().user_id, account.id);
+}
