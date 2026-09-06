@@ -218,4 +218,37 @@ describe('SettingsModal', () => {
     await user.click(testMicBtn)
     expect(transport.startMicrophoneTest).toHaveBeenCalled()
   })
+
+  it('chama o cleanup do teste de microfone ao desmontar mesmo se a promise resolver apos o unmount', async () => {
+    let resolveCleanup!: (cleanup: () => void) => void
+    const cleanupSpy = vi.fn()
+    const transport = {
+      ...mockTransport(),
+      startMicrophoneTest: vi.fn(() => new Promise<() => void>((resolve) => {
+        resolveCleanup = resolve
+      })),
+    }
+    const { unmount } = render(
+      <SettingsModal
+        isOpen
+        initialTab="voice"
+        onClose={vi.fn()}
+        profile={mockProfile}
+        avatarBase="http://localhost:8080"
+        transport={transport}
+        snapshot={snapshot}
+      />
+    )
+
+    const user = userEvent.setup()
+    const testMicBtn = screen.getByRole('button', { name: /Testar microfone/i })
+    await user.click(testMicBtn)
+    expect(transport.startMicrophoneTest).toHaveBeenCalled()
+
+    unmount()
+    resolveCleanup(cleanupSpy)
+    await Promise.resolve()
+
+    expect(cleanupSpy).toHaveBeenCalled()
+  })
 })

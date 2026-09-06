@@ -494,13 +494,19 @@ function VoiceTab({
   // Teste de microfone
   useEffect(() => {
     if (!testing) return
+    let disposed = false
     let stop: (() => void) | undefined
     setTestError(null)
 
     if (transport) {
       void transport.startMicrophoneTest(setLevel).then((cleanup) => {
-        stop = cleanup
+        if (disposed) {
+          cleanup()
+        } else {
+          stop = cleanup
+        }
       }).catch((err) => {
+        if (disposed) return
         setTesting(false)
         const msg = err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'Permissão de microfone negada pelo navegador.'
@@ -512,8 +518,13 @@ function VoiceTab({
         ? { deviceId: { exact: preferences.inputDeviceId } }
         : {}
       void startMicrophoneTest(constraints, setLevel).then((cleanup) => {
-        stop = cleanup
+        if (disposed) {
+          cleanup()
+        } else {
+          stop = cleanup
+        }
       }).catch((err) => {
+        if (disposed) return
         setTesting(false)
         const msg = err instanceof DOMException && err.name === 'NotAllowedError'
           ? 'Permissão de microfone negada pelo navegador.'
@@ -522,7 +533,10 @@ function VoiceTab({
       })
     }
 
-    return () => stop?.()
+    return () => {
+      disposed = true
+      stop?.()
+    }
   }, [testing, transport, preferences.inputDeviceId])
 
   // Prévia da câmera
