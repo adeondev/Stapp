@@ -72,13 +72,6 @@ export function resetAudioExclusionValidationCache() {
 
 type CaptureEvent =
   | {
-      event: 'frame'
-      capture_id: number
-      width: number
-      height: number
-      frame: Uint8Array | ArrayBuffer | number[]
-    }
-  | {
       event: 'audio_format'
       capture_id: number
       sample_rate: number
@@ -295,9 +288,10 @@ export async function startNativeScreenCapture(options: {
     : undefined
   const includeAudio = options.includeAudio && (!fullScreenAudio || audioValidation?.safe === true)
   const channel = new Channel<CaptureEvent>()
+  const frameChannel = new Channel<ArrayBuffer | Uint8Array>()
   let captureId = 0
   let stopped = false
-  let latestFrame: Extract<CaptureEvent, { event: 'frame' }> | null = null
+  let latestFrame: { width: number; height: number; bytes: Uint8Array } | null = null
   let decoding = false
   let firstFrameDone = false
   let resolveFirstFrame!: () => void
@@ -343,9 +337,9 @@ export async function startNativeScreenCapture(options: {
       while (latestFrame && !stopped) {
         const frame = latestFrame
         latestFrame = null
-        const bytes = toUint8Array(frame.frame)
+        const blob = new Blob([frame.bytes as BlobPart], { type: 'image/jpeg' })
         const bitmap = await createImageBitmap(
-          new Blob([bytes as BlobPart], { type: 'image/jpeg' }),
+          blob,
           { imageOrientation: 'none', premultiplyAlpha: 'none' },
         )
         if (canvas.width !== frame.width || canvas.height !== frame.height) {
@@ -362,6 +356,27 @@ export async function startNativeScreenCapture(options: {
     } finally {
       decoding = false
     }
+  }
+
+  frameChannel.onmessage = (message) => {
+    if (stopped) return
+    const rawBytes = message instanceof Uint8Array
+      ? message
+      : new Uint8Array(message instanceof ArrayBuffer ? message : (message as ArrayBufferView).buffer)
+    if (rawBytes.byteLength < 12) return
+
+    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
+    const width = view.getUint32(0, true)
+    const height = view.getUint32(4, true)
+    const packetCaptureId = view.getUint32(8, true)
+    if (captureId > 0 && packetCaptureId !== captureId) return
+
+    latestFrame = {
+      width,
+      height,
+      bytes: rawBytes.subarray(12),
+    }
+    void drawLatest()
   }
 
   channel.onmessage = (event) => {
@@ -398,8 +413,6 @@ export async function startNativeScreenCapture(options: {
       audioPipeline.node.port.postMessage({ t: 'pcm', buffer }, [buffer])
       return
     }
-    latestFrame = event
-    void drawLatest()
   }
 
   try {
@@ -410,6 +423,7 @@ export async function startNativeScreenCapture(options: {
       fps: options.fps,
       includeAudio: includeAudio && Boolean(audioPipeline),
       channel,
+      frameChannel,
     })
   } catch (error) {
     await audioPipeline?.close()

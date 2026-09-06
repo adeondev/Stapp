@@ -11,7 +11,8 @@ use std::{
 };
 #[cfg(any(windows, test))]
 use std::collections::VecDeque;
-use tauri::ipc::Channel;
+use tauri::ipc::{Channel, Response};
+
 
 #[cfg(windows)]
 use wasapi::{
@@ -57,13 +58,6 @@ enum CaptureSource {
 #[derive(Serialize, Clone)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum CaptureEvent {
-    Frame {
-        capture_id: u32,
-        width: u32,
-        height: u32,
-        #[serde(with = "serde_bytes")]
-        frame: Vec<u8>,
-    },
     AudioFormat {
         capture_id: u32,
         sample_rate: u32,
@@ -186,6 +180,7 @@ pub fn start_screen_capture(
     fps: u32,
     include_audio: bool,
     channel: Channel<CaptureEvent>,
+    frame_channel: Channel<Response>,
 ) -> Result<u32, String> {
     let _ = include_audio;
     let locator = parse_source_id(&source_id)?;
@@ -206,6 +201,7 @@ pub fn start_screen_capture(
     let frames_per_second = fps.clamp(5, 30);
 
     let video_channel = channel.clone();
+    let video_frame_channel = frame_channel.clone();
     let worker = thread::Builder::new()
         .name(format!("stapp-screen-capture-{capture_id}"))
         .spawn(move || {
@@ -216,6 +212,7 @@ pub fn start_screen_capture(
                 height,
                 frames_per_second,
                 video_channel,
+                video_frame_channel,
                 worker_stop,
             )
         })
@@ -278,6 +275,7 @@ fn capture_loop(
     max_height: u32,
     fps: u32,
     channel: Channel<CaptureEvent>,
+    frame_channel: Channel<Response>,
     stop: Arc<AtomicBool>,
 ) {
     let window_id = match locator {
@@ -351,8 +349,11 @@ fn capture_loop(
             )
         };
         let rgb = image::DynamicImage::ImageRgba8(image).into_rgb8();
-        let mut jpeg = Vec::with_capacity((target_width * target_height) as usize);
-        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 72)
+        let mut packet = Vec::with_capacity(12 + (target_width * target_height) as usize);
+        packet.extend_from_slice(&target_width.to_le_bytes());
+        packet.extend_from_slice(&target_height.to_le_bytes());
+        packet.extend_from_slice(&capture_id.to_le_bytes());
+        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut packet, 72)
             .encode(
                 rgb.as_raw(),
                 target_width,
@@ -364,15 +365,7 @@ fn capture_loop(
             continue;
         }
 
-        if channel
-            .send(CaptureEvent::Frame {
-                capture_id,
-                width: target_width,
-                height: target_height,
-                frame: jpeg,
-            })
-            .is_err()
-        {
+        if frame_channel.send(Response::new(packet)).is_err() {
             break;
         }
 
