@@ -170,6 +170,9 @@ export function Chat({
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  const scrollContentRef = useRef<HTMLDivElement>(null)
+  const prevScrollHeightRef = useRef(0)
+  const prevScrollTopRef = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pinned = useRef(true)
   /** Enter apertado com anexo ainda subindo: manda sozinho quando terminar. */
@@ -436,7 +439,43 @@ export function Chat({
       setUnreadAnchor(null)
       markVisibleRead()
     }
+    prevScrollTopRef.current = el.scrollTop
+    prevScrollHeightRef.current = el.scrollHeight
   }
+
+  // Ancoragem e preservação de scroll com ResizeObserver:
+  // Ancore a rolagem na base quando o usuário estiver no fim da conversa e
+  // preserve a posição absoluta do scroll caso o usuário esteja lendo mensagens antigas no meio do histórico.
+  useEffect(() => {
+    const el = scroller.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+
+    prevScrollHeightRef.current = el.scrollHeight
+    prevScrollTopRef.current = el.scrollTop
+
+    const observer = new ResizeObserver(() => {
+      if (!scroller.current) return
+      const current = scroller.current
+      const newScrollHeight = current.scrollHeight
+
+      if (pinned.current) {
+        current.scrollTop = newScrollHeight
+        prevScrollTopRef.current = current.scrollTop
+      } else {
+        if (prevScrollTopRef.current > 0 && Math.abs(current.scrollTop - prevScrollTopRef.current) > 1) {
+          current.scrollTop = prevScrollTopRef.current
+        }
+      }
+      prevScrollHeightRef.current = newScrollHeight
+    })
+
+    observer.observe(el)
+    if (scrollContentRef.current) {
+      observer.observe(scrollContentRef.current)
+    }
+
+    return () => observer.disconnect()
+  }, [])
 
   async function handleFiles(files: FileList | File[]) {
     if (!serverUrl || !accessToken || !canSend) return
@@ -712,7 +751,8 @@ export function Chat({
       </header>
 
       <div className="chat__scroll" ref={scroller} onScroll={onScroll}>
-        {/* Comeco da conversa. Era uma linha de 14px em caixa baixa perdida no
+        <div className="chat__scroll-content" ref={scrollContentRef}>
+          {/* Comeco da conversa. Era uma linha de 14px em caixa baixa perdida no
             meio do vazio; agora e o mesmo bloco de boas-vindas do Discord —
             marca o topo do historico e diz de quem/do que e a conversa. */}
         {messages.length === 0 && (
@@ -917,6 +957,7 @@ export function Chat({
             </div>
           </article>
         ))}
+        </div>
       </div>
 
       {newWhileScrolled > 0 && (

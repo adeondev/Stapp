@@ -75,6 +75,12 @@
   padding: 16px 0 24px;
 }
 
+.chat__scroll-content {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
 /* Bloco de boas-vindas: o topo do historico, nao um aviso de lista vazia.
    Fica alinhado a esquerda como as mensagens — centralizado ele viraria uma
    tela de estado vazio e nao o comeco de uma conversa. */
