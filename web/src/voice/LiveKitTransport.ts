@@ -39,6 +39,7 @@ import {
   type VoiceProcessorSettings,
 } from './VoiceAudioProcessor'
 import { callSounds } from '../net/callSounds'
+import { PlaybackGraph } from './PlaybackGraph'
 
 type LiveKitModule = typeof import('livekit-client')
 
@@ -76,6 +77,7 @@ export class LiveKitTransport implements VoiceTransport {
   private screenAudioDiagnostic: NativeScreenCapture['audioValidation'] | null = null
   private browserScreenAudioDiagnostic: BrowserScreenCapture['audioValidation'] | null = null
   private readonly listeners = new Set<(snapshot: VoiceSnapshot) => void>()
+  private readonly playbackGraph = new PlaybackGraph()
   private readonly audioElements = new Map<string, HTMLAudioElement>()
   private readonly publicationOwners = new Map<string, PeerId>()
   private readonly audioSources = new Map<string, string>()
@@ -372,6 +374,7 @@ export class LiveKitTransport implements VoiceTransport {
   async setOutputDevice(deviceId: string) {
     this.preferences = { ...this.preferences, outputDeviceId: deviceId }
     saveVoicePreferences(this.preferences)
+    await this.playbackGraph.setOutputDevice(deviceId)
     if (this.room && deviceId) await this.room.switchActiveDevice('audiooutput', deviceId, true)
   }
 
@@ -612,6 +615,7 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   destroy() {
+    this.playbackGraph.destroy()
     this.leave()
     this.clearLocalPlaybackPreferences()
     this.listeners.clear()
@@ -622,6 +626,7 @@ export class LiveKitTransport implements VoiceTransport {
     if (!room) return false
     try {
       await room.startAudio()
+      await this.playbackGraph.resume()
       const played = await Promise.all(
         [...this.audioElements.values()].map((audio) => audio.play().then(() => true).catch(() => false)),
       )
@@ -1197,6 +1202,10 @@ export class LiveKitTransport implements VoiceTransport {
     audio.hidden = true
     document.body.append(audio)
     track.attach(audio)
+    const mediaStreamTrack = (track as { mediaStreamTrack?: MediaStreamTrack }).mediaStreamTrack
+    if (mediaStreamTrack) {
+      this.playbackGraph.attach(publication.trackSid, mediaStreamTrack)
+    }
     this.audioElements.set(publication.trackSid, audio)
     this.publicationOwners.set(publication.trackSid, owner)
     this.audioSources.set(publication.trackSid, String(publication.source))
@@ -1208,6 +1217,7 @@ export class LiveKitTransport implements VoiceTransport {
   }
 
   private detachAudio(publicationId: string) {
+    this.playbackGraph.detach(publicationId)
     const audio = this.audioElements.get(publicationId)
     const publication = this.findPublication(publicationId)
     if (audio) publication?.audioTrack?.detach(audio)
@@ -1225,7 +1235,6 @@ export class LiveKitTransport implements VoiceTransport {
 
   private applyVolume(publicationId: string) {
     const audio = this.audioElements.get(publicationId)
-    if (!audio) return
     const owner = this.publicationOwners.get(publicationId)
     const source = this.findPublication(publicationId)?.source
     const sdk = this.sdk
@@ -1236,8 +1245,16 @@ export class LiveKitTransport implements VoiceTransport {
         : 100
     const master = this.preferences.outputVolume
     const isScreenAudio = Boolean(sdk && source === sdk.Track.Source.ScreenShareAudio)
-    audio.muted = isScreenAudio ? false : this.state.deafened
-    audio.volume = clamp((trackVolume / 100) * (master / 100), 0, 1)
+    const isMuted = isScreenAudio ? false : this.state.deafened
+
+    if (audio) {
+      audio.muted = isMuted
+      audio.volume = clamp((trackVolume / 100) * (master / 100), 0, 1)
+    }
+
+    const targetGain = (trackVolume / 100) * (master / 100)
+    this.playbackGraph.setGain(publicationId, targetGain)
+    this.playbackGraph.setMuted(publicationId, isMuted)
   }
 
   private applyOwnerVolume(peerId: PeerId) {
@@ -1279,6 +1296,7 @@ export class LiveKitTransport implements VoiceTransport {
     this.audioRepairCooldowns.clear()
     this.inboundAudioDiagnostics = []
     for (const publicationId of [...this.audioElements.keys()]) this.detachAudio(publicationId)
+    this.playbackGraph.destroy()
     const room = this.room
     this.room = null
     this.sdk = null

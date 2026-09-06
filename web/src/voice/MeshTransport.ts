@@ -10,6 +10,7 @@ import type {
 import { loadVoicePreferences, saveVoicePreferences } from './preferences'
 import type { VoicePreferences } from './preferences'
 import { callSounds } from '../net/callSounds'
+import { PlaybackGraph } from './PlaybackGraph'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -50,6 +51,7 @@ export class MeshTransport implements VoiceTransport {
   private deafened = false
 
   private readonly peers = new Map<PeerId, PeerLink>()
+  private readonly playbackGraph = new PlaybackGraph()
   private readonly voiceVolumes = new Map<PeerId, number>()
   private readonly lastVoiceVolumes = new Map<PeerId, number>()
   private readonly monitors = new Map<PeerId, Monitor>()
@@ -196,6 +198,7 @@ export class MeshTransport implements VoiceTransport {
     this.options.send({ t: 'voice.leave' })
 
     for (const id of [...this.peers.keys()]) this.dropPeer(id)
+    this.playbackGraph.destroy()
 
     this.stopWatching(this.options.selfPeerId)
     this.local?.getTracks().forEach((track) => track.stop())
@@ -212,6 +215,7 @@ export class MeshTransport implements VoiceTransport {
 
   destroy() {
     this.leave()
+    this.playbackGraph.destroy()
     this.voiceVolumes.clear()
     this.lastVoiceVolumes.clear()
     if (this.ticker) clearInterval(this.ticker)
@@ -222,6 +226,7 @@ export class MeshTransport implements VoiceTransport {
   }
 
   async resumeAudio() {
+    await this.playbackGraph.resume()
     await this.audioCtx?.resume().catch(() => {})
     const results = await Promise.all(
       [...this.peers.values()].map((link) => link.audio.play()
@@ -269,6 +274,7 @@ export class MeshTransport implements VoiceTransport {
   async setOutputDevice(deviceId: string) {
     this.preferences.outputDeviceId = deviceId
     saveVoicePreferences(this.preferences)
+    await this.playbackGraph.setOutputDevice(deviceId)
     for (const link of this.peers.values()) {
       if ('setSinkId' in link.audio) {
         await (link.audio as HTMLAudioElement & { setSinkId(id: string): Promise<void> }).setSinkId(deviceId)
@@ -394,6 +400,7 @@ export class MeshTransport implements VoiceTransport {
       const stream = event.streams[0]
       if (!stream) return
       audio.srcObject = stream
+      this.playbackGraph.attach(peerId, stream)
       this.applyPlaybackState(audio, peerId)
       void audio.play().then(() => this.applyPlaybackState(audio, peerId)).catch(() => {})
       this.watch(peerId, stream)
@@ -457,6 +464,7 @@ export class MeshTransport implements VoiceTransport {
   }
 
   private dropPeer(peerId: PeerId) {
+    this.playbackGraph.detach(peerId)
     const link = this.peers.get(peerId)
     if (!link) return
     link.pc.close()
@@ -557,6 +565,10 @@ export class MeshTransport implements VoiceTransport {
   private applyPlaybackState(target?: HTMLAudioElement, peerId?: PeerId) {
     if (peerId) {
       const audio = target ?? this.peers.get(peerId)?.audio
+      const targetGain = (this.getVoiceVolume(peerId) / 100) * (this.preferences.outputVolume / 100)
+      this.playbackGraph.setGain(peerId, targetGain)
+      this.playbackGraph.setMuted(peerId, this.deafened)
+
       if (!audio) return
       audio.muted = this.deafened
       audio.volume = clamp(
