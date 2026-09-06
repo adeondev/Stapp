@@ -21,6 +21,76 @@ fn ssrf_permite_urls_publicas() {
 }
 
 #[test]
+fn ssrf_bloqueia_faixas_reservadas_alem_das_rfc1918() {
+    // CGNAT/Tailscale: 100.64.0.0/10.
+    assert!(!is_public_ip(&"100.64.0.1".parse().unwrap()));
+    assert!(!is_public_ip(&"100.127.255.254".parse().unwrap()));
+    // Radmin VPN: 26.0.0.0/8.
+    assert!(!is_public_ip(&"26.13.37.1".parse().unwrap()));
+    // "Este host, nesta rede": 0.0.0.0/8 inteiro, nao so 0.0.0.0.
+    assert!(!is_public_ip(&"0.1.2.3".parse().unwrap()));
+    // IETF Protocol Assignments 192.0.0.0/24.
+    assert!(!is_public_ip(&"192.0.0.8".parse().unwrap()));
+    // Benchmarking 198.18.0.0/15.
+    assert!(!is_public_ip(&"198.18.0.1".parse().unwrap()));
+    assert!(!is_public_ip(&"198.19.255.254".parse().unwrap()));
+    // Multicast 224.0.0.0/4 e reservado 240.0.0.0/4.
+    assert!(!is_public_ip(&"224.0.0.1".parse().unwrap()));
+    assert!(!is_public_ip(&"240.0.0.1".parse().unwrap()));
+    assert!(!is_public_ip(&"ff02::1".parse().unwrap()));
+
+    // Vizinhos legitimos das faixas acima seguem publicos.
+    assert!(is_public_ip(&"100.63.255.255".parse().unwrap()));
+    assert!(is_public_ip(&"100.128.0.1".parse().unwrap()));
+    assert!(is_public_ip(&"27.0.0.1".parse().unwrap()));
+    assert!(is_public_ip(&"192.0.1.1".parse().unwrap()));
+    assert!(is_public_ip(&"198.20.0.1".parse().unwrap()));
+    assert!(is_public_ip(&"223.255.255.255".parse().unwrap()));
+}
+
+#[test]
+fn ssrf_recusa_host_que_resolve_para_endereco_privado() {
+    // Um host publico com registro A apontando para dentro da rede passa pela
+    // peneira sintatica; quem o barra e a validacao dos IPs resolvidos.
+    assert!(is_safe_url("http://interno.exemplo.com/"));
+    assert!(!all_addrs_public(vec!["192.168.0.10".parse().unwrap()]));
+    assert!(!all_addrs_public(vec!["127.0.0.1".parse().unwrap()]));
+    assert!(!all_addrs_public(vec!["169.254.169.254".parse().unwrap()]));
+
+    // Basta um endereco privado no conjunto: quem escolhe a qual conectar e o
+    // sistema, entao um host misto continua sendo caminho para a rede interna.
+    assert!(!all_addrs_public(vec![
+        "8.8.8.8".parse().unwrap(),
+        "10.1.2.3".parse().unwrap(),
+    ]));
+
+    // Host que nao resolve para nada nao autoriza conexao.
+    assert!(!all_addrs_public(Vec::new()));
+
+    assert!(all_addrs_public(vec![
+        "8.8.8.8".parse().unwrap(),
+        "1.1.1.1".parse().unwrap(),
+    ]));
+}
+
+#[tokio::test]
+async fn ssrf_resolve_dns_antes_de_autorizar_conexao() {
+    // Exercita o resolvedor do sistema de verdade, sem depender de rede: o
+    // arquivo de hosts resolve "localhost" para loopback em toda plataforma.
+    assert!(!resolves_to_public_ip_only("http://localhost:8787/").await);
+
+    // Literais continuam validados sem passar pelo resolvedor.
+    assert!(!resolves_to_public_ip_only("http://169.254.169.254/latest/meta-data").await);
+    assert!(!resolves_to_public_ip_only("http://[::1]/").await);
+    assert!(resolves_to_public_ip_only("http://8.8.8.8/dns").await);
+
+    // Host inexistente falha fechado.
+    assert!(
+        !resolves_to_public_ip_only("http://nao-existe.invalid/").await
+    );
+}
+
+#[test]
 fn extrai_primeira_url_valida() {
     let text = "veja este link https://github.com e teste";
     assert_eq!(

@@ -128,6 +128,10 @@ async fn run_worker_loop(
         .connect_timeout(CRAWLER_CONNECT_TIMEOUT)
         .user_agent("StappBot/1.0 (+https://stapp.chat)")
         .pool_max_idle_per_host(5)
+        // Redirecionamento automatico pularia a validacao de SSRF de cada salto.
+        // Quem segue a cadeia e `fetch_validating_each_hop`, revalidando o host
+        // e os IPs resolvidos antes de cada conexao. Nao troque por Policy::limited.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
     {
         Ok(c) => c,

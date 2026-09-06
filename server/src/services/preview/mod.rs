@@ -26,6 +26,8 @@ pub async fn scrape_metadata(target_url: &str) -> Option<UrlPreview> {
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
         .user_agent("StappBot/1.0 (+https://stapp.chat)")
+        // Mesma politica do cliente do crawler: cada salto passa por validacao.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .ok()?;
     scrape_metadata_with_client(&client, target_url).await
@@ -46,7 +48,7 @@ pub async fn scrape_metadata_with_client(client: &Client, target_url: &str) -> O
         initial_site_name,
     ) = crawler::extract_video_metadata(target_url, None);
 
-    let response = client.get(target_url).send().await.ok();
+    let response = fetch_validating_each_hop(client, target_url).await;
     let is_ok = response.as_ref().map(|r| r.status().is_success()).unwrap_or(false);
 
     if !is_ok {
@@ -130,6 +132,45 @@ pub async fn scrape_metadata_with_client(client: &Client, target_url: &str) -> O
         video_width,
         video_height,
     })
+}
+
+/// Quantos redirecionamentos o crawler acompanha antes de desistir.
+const MAX_REDIRECTS: usize = 5;
+
+/// Busca a URL seguindo redirecionamentos **na mão**, revalidando cada salto.
+///
+/// O cliente do crawler é construído com `Policy::none()` justamente para que
+/// nenhum salto escape daqui: seguir redirect automaticamente devolvia o
+/// controle do destino para a página remota, e `https://encurtador/x` apontando
+/// para `http://169.254.169.254/latest/meta-data/` alcançava a rede interna
+/// sem passar por checagem nenhuma. Encurtadores são comuns demais para
+/// simplesmente recusar redirecionamento.
+async fn fetch_validating_each_hop(
+    client: &Client,
+    target_url: &str,
+) -> Option<reqwest::Response> {
+    let mut current = target_url.to_string();
+
+    for _ in 0..=MAX_REDIRECTS {
+        if !ssrf::is_safe_url(&current) || !ssrf::resolves_to_public_ip_only(&current).await {
+            tracing::debug!(url = %current, "salto de redirecionamento recusado pela politica de SSRF");
+            return None;
+        }
+
+        let response = client.get(&current).send().await.ok()?;
+        if !response.status().is_redirection() {
+            return Some(response);
+        }
+
+        let location = response.headers().get(reqwest::header::LOCATION)?;
+        let location = location.to_str().ok()?;
+        // Location relativo é legítimo e precisa ser resolvido contra o salto atual.
+        let next = url::Url::parse(&current).ok()?.join(location).ok()?;
+        current = next.to_string();
+    }
+
+    tracing::debug!(url = %target_url, "cadeia de redirecionamentos longa demais, desistindo");
+    None
 }
 
 fn extract_tag(document: &Html, selector_str: &str, attr: &str) -> Option<String> {
