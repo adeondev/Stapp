@@ -144,6 +144,7 @@ pnpm app:build    # Gera o instalador standalone
 ├── compose.yaml          # Orquestração Docker do stapp-server, livekit e caddy
 ├── server/               # Backend em Rust (Axum + Tokio + SQLite bundled)
 │   ├── Dockerfile        # Build multi-stage (Node SPA + Rust Release + Debian Runtime)
+│   ├── Dockerfile.release # Empacota o binário já compilado no CI (não compila nada)
 │   ├── src/              # Auth HTTP, WebSocket, presença, chat, chamadas e SQLite
 │   └── stapp.toml        # Arquivo de configuração padrão do servidor
 ├── web/                  # Frontend Vite + React + TypeScript

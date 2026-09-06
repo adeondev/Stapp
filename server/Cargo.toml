@@ -64,6 +64,11 @@ tokio-tungstenite = "0.29"
 tower = { version = "0.5", features = ["util"] }
 
 [profile.release]
-lto = true
-codegen-units = 1
+# Perfil calibrado para tempo de CI, nao para o ultimo 1% de performance.
+# `lto = "fat"` + `codegen-units = 1` deixavam a fase final de link em uma
+# unica thread e sozinhas respondiam por boa parte da hora de build.
+# "thin" faz LTO em paralelo e 16 unidades ocupam todos os nucleos da VM.
+debug = false
 strip = true
+lto = "thin"
+codegen-units = 16

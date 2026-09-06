@@ -12,6 +12,10 @@ concurrency:
 permissions:
   contents: write
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 3
+
 jobs:
   build-and-release:
     name: Build (${{ matrix.platform }})
@@ -61,23 +65,31 @@ jobs:
             libwayland-dev \
             patchelf
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
+      # pnpm/action-setup ANTES do setup-node: `cache: pnpm` procura o binario
+      # do pnpm para descobrir o store. Na ordem inversa o cache nao ativa.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
           version: 10
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      # Esta matriz roda em macOS/Windows/Linux e custa minutos caros: aqui so
+      # entra o crate do Tauri (`web/src-tauri`). O servidor NAO se compila
+      # nesta esteira — ele e exclusividade do release-server.yml, em Linux.
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './web/src-tauri -> target'
+          workspaces: 'web/src-tauri -> target'
+          key: ${{ matrix.platform }}
 
       - name: Install frontend dependencies
         working-directory: ./web

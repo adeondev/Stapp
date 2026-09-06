@@ -1,0 +1,66 @@
+# syntax=docker/dockerfile:1
+# =======================================================================
+# Imagem de release — esta imagem NAO compila nada.
+#
+# O binario `stapp-server` (com o SPA ja embutido pelo rust-embed) e compilado
+# no runner Ubuntu do GitHub Actions, reaproveitando o cache do Cargo do host,
+# e chega aqui pronto. Este Dockerfile so empacota: base enxuta + dependencias
+# de runtime + COPY + entrypoint.
+#
+# PROTOTYPE: `server/Dockerfile` (multi-stage, compila do zero) continua sendo
+# o caminho para desenvolvimento e `docker compose up --build`, onde nao existe
+# binario pre-compilado. Invariante: as duas imagens tem que produzir o MESMO
+# runtime — usuario 10001, /app/data como volume, mesmas variaveis STAPP_* e o
+# mesmo entrypoint. Mexeu em uma, confere a outra.
+#
+# Contexto esperado (montado pelo workflow em `docker-ctx/`):
+#   stapp.toml
+#   linux/amd64/stapp-server
+#   linux/arm64/stapp-server
+#
+# Build manual:
+#   docker buildx build -f server/Dockerfile.release \
+#     --platform linux/amd64,linux/arm64 -t stapp:local docker-ctx
+# =======================================================================
+FROM debian:bookworm-slim
+
+# Preenchido pelo BuildKit: "amd64" | "arm64". E o que escolhe qual binario
+# entra na imagem de cada plataforma — sem isso o build multi-arch copiaria
+# o mesmo executavel para as duas.
+ARG TARGETARCH
+
+# Uma unica camada: tudo que e imutavel entre releases fica cacheado e nao
+# precisa reexecutar sob emulacao QEMU no build arm64.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libssl3 \
+        curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && groupadd -g 10001 stapp \
+    && useradd -u 10001 -g stapp -d /app -s /usr/sbin/nologin stapp \
+    && mkdir -p /app/data/attachments /app/data/acme \
+    && chown -R stapp:stapp /app
+
+WORKDIR /app
+
+COPY --chown=stapp:stapp stapp.toml /app/stapp.toml
+
+# `--chmod` e obrigatorio: o artifact do GitHub Actions e um zip e nao preserva
+# o bit de execucao. Sem isso a imagem sobe e morre com "permission denied".
+COPY --chmod=0755 linux/${TARGETARCH}/stapp-server /usr/local/bin/stapp-server
+
+USER stapp
+
+ENV STAPP_SERVER_BIND=0.0.0.0 \
+    STAPP_SERVER_PORT=8787 \
+    STAPP_STORAGE_DATABASE=/app/data/stapp.db \
+    STAPP_STORAGE_ATTACHMENTS_DIR=/app/data/attachments
+
+EXPOSE 8787
+
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://127.0.0.1:8787/health || exit 1
+
+VOLUME ["/app/data"]
+
+ENTRYPOINT ["/usr/local/bin/stapp-server", "--config", "/app/stapp.toml"]

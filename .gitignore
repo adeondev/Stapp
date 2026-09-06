@@ -25,6 +25,10 @@ node_modules/
 /infra/livekit/*.pid
 /server/stapp.livekit.toml
 
+# Empacotamento de release (contexto do Dockerfile.release, arquivos gerados)
+/docker-ctx/
+/dist-pkg/
+
 # OS / editor
 .DS_Store
 Thumbs.db

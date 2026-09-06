@@ -14,9 +14,61 @@ permissions:
   contents: write
   packages: write
 
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_NET_RETRY: 3
+  RUST_BACKTRACE: 1
+
 jobs:
+  # ---------------------------------------------------------------------
+  # A SPA e compilada UMA vez e viaja como artifact. Antes cada perna da
+  # matriz reinstalava node_modules e rodava `pnpm build` de novo — trabalho
+  # identico repetido em cada runner.
+  # ---------------------------------------------------------------------
+  build-web:
+    name: Build Web SPA
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # pnpm/action-setup ANTES do setup-node: `cache: pnpm` procura o binario
+      # do pnpm para descobrir o store. Na ordem inversa o cache nao ativa.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: ./web
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build frontend web client
+        working-directory: ./web
+        run: pnpm build
+
+      - name: Upload web dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
+          if-no-files-found: error
+          retention-days: 1
+
+  # ---------------------------------------------------------------------
+  # Backend Rust. So compila Rust: nada de Node, nada de pnpm — a `web/dist`
+  # ja vem pronta do job acima (o rust-embed so precisa dos arquivos no lugar).
+  # ---------------------------------------------------------------------
   build-binaries:
     name: Build Binary (${{ matrix.target }})
+    needs: build-web
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -28,8 +80,17 @@ jobs:
             archive_name: stapp-server-${{ github.ref_name }}-x86_64-pc-windows-msvc.zip
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            docker_arch: amd64
             artifact_name: stapp-server-linux-x86_64
             archive_name: stapp-server-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+          # Runner ARM nativo (gratuito em repositorio publico). Compilar aqui
+          # substitui a emulacao QEMU que antes rodava dentro do build da
+          # imagem arm64 e sozinha custava dezenas de minutos.
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            docker_arch: arm64
+            artifact_name: stapp-server-linux-aarch64
+            archive_name: stapp-server-${{ github.ref_name }}-aarch64-unknown-linux-gnu.tar.gz
 
     steps:
       - name: Checkout repository
@@ -41,34 +102,24 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y build-essential pkg-config
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10
-
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
+      # Um workspace por job: aqui so existe `server`. Cache separado por
+      # triple, senao amd64 e aarch64 disputariam a mesma chave.
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './server -> target'
+          workspaces: server -> target
           key: ${{ matrix.target }}
 
-      - name: Install frontend dependencies
-        working-directory: ./web
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Build frontend web client
-        working-directory: ./web
-        run: pnpm build
+      - name: Download web dist
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: web/dist
 
       - name: Build standalone server binary
         run: cargo build --manifest-path server/Cargo.toml --release --bin stapp-server --target ${{ matrix.target }}
@@ -97,6 +148,23 @@ jobs:
           path: ${{ matrix.archive_name }}
           if-no-files-found: error
 
+      # O binario cru (fora do tar) vira o contexto do build da imagem.
+      - name: Stage binary for the container image
+        if: matrix.docker_arch != ''
+        run: |
+          mkdir -p "docker-ctx/linux/${{ matrix.docker_arch }}"
+          cp "server/target/${{ matrix.target }}/release/stapp-server" \
+             "docker-ctx/linux/${{ matrix.docker_arch }}/stapp-server"
+
+      - name: Upload container binary
+        if: matrix.docker_arch != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-bin-${{ matrix.docker_arch }}
+          path: docker-ctx
+          if-no-files-found: error
+          retention-days: 1
+
   publish-release:
     name: Publish GitHub Release
     needs: build-binaries
@@ -105,6 +173,7 @@ jobs:
       - name: Download all binary artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: stapp-server-*
           merge-multiple: true
           path: release-assets
 
@@ -116,6 +185,10 @@ jobs:
           files: release-assets/*
           generate_release_notes: true
 
+  # ---------------------------------------------------------------------
+  # Empacotamento puro: sem toolchain Rust, sem Node, sem multi-stage. So
+  # baixa os binarios ja compilados e monta a imagem final.
+  # ---------------------------------------------------------------------
   build-and-push-docker:
     name: Build & Push GHCR Container
     needs: build-binaries
@@ -124,8 +197,24 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Download prebuilt server binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: docker-bin-*
+          merge-multiple: true
+          path: docker-ctx
+
+      - name: Assemble Docker build context
+        run: |
+          cp server/stapp.toml docker-ctx/stapp.toml
+          ls -lR docker-ctx
+
+      # Emulacao ainda e necessaria, mas so para o `apt-get` da imagem arm64 —
+      # segundos, nao a compilacao inteira do Rust como antes.
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -150,8 +239,8 @@ jobs:
       - name: Build and push multi-arch Docker image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: server/Dockerfile
+          context: docker-ctx
+          file: server/Dockerfile.release
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
