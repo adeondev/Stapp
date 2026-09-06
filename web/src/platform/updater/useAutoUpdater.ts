@@ -19,6 +19,8 @@ export function useAutoUpdater() {
   const [isDownloading, setIsDownloading] = useState(false)
   const [progress, setProgress] = useState<UpdateDownloadProgress | null>(null)
   const [isReadyToRelaunch, setIsReadyToRelaunch] = useState(false)
+  /** Falha ao reiniciar: `isReadyToRelaunch` deixa de ser estado terminal. */
+  const [relaunchFailed, setRelaunchFailed] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [mandatoryRequirement, setMandatoryRequirement] = useState<MandatoryRequirement | null>(null)
@@ -133,6 +135,7 @@ export function useAutoUpdater() {
     setIsDownloading(true)
     setError(null)
     setProgress(null)
+    setRelaunchFailed(false)
 
     try {
       let targetUpdate = availableUpdate
@@ -160,16 +163,24 @@ export function useAutoUpdater() {
     try {
       await updaterService.relaunch()
     } catch (err) {
+      // Instalador pedindo elevacao, antivirus segurando o .exe, arquivo em uso:
+      // o relaunch falha e "Reiniciar e aplicar" era o unico botao da tela. Sem
+      // devolver a saida, o usuario ficava preso na splash com uma mensagem de
+      // erro e nenhuma acao — trancado fora do proprio app.
       setError(err instanceof Error ? err.message : 'Erro ao reiniciar o aplicativo.')
+      setRelaunchFailed(true)
     }
   }, [])
 
   const dismissModal = useCallback(() => {
-    if (!isDownloading && !isReadyToRelaunch) {
+    // `relaunchFailed` reabre a saida: a atualizacao ja foi baixada e sera
+    // aplicada na proxima abertura do app, entao seguir usando a versao atual
+    // e melhor do que nao abrir.
+    if ((!isDownloading && !isReadyToRelaunch) || relaunchFailed) {
       setIsModalOpen(false)
       setBootPhase('ready')
     }
-  }, [isDownloading, isReadyToRelaunch])
+  }, [isDownloading, isReadyToRelaunch, relaunchFailed])
 
   return {
     isDesktop,
@@ -180,6 +191,7 @@ export function useAutoUpdater() {
     isDownloading,
     progress,
     isReadyToRelaunch,
+    relaunchFailed,
     error,
     isModalOpen,
     mandatoryRequirement,

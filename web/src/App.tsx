@@ -636,6 +636,7 @@ export default function App() {
         isDownloading={updater.isDownloading}
         progress={updater.progress}
         isReadyToRelaunch={updater.isReadyToRelaunch}
+        relaunchFailed={updater.relaunchFailed}
         error={updater.error}
         onClose={updater.dismissModal}
         onStartUpdate={updater.startUpdate}
@@ -674,6 +675,7 @@ export default function App() {
           isDownloading={updater.isDownloading}
           progress={updater.progress}
           isReadyToRelaunch={updater.isReadyToRelaunch}
+          relaunchFailed={updater.relaunchFailed}
           error={updater.error}
           onClose={updater.dismissModal}
           onStartUpdate={updater.startUpdate}
@@ -902,6 +904,7 @@ export default function App() {
         isDownloading={updater.isDownloading}
         progress={updater.progress}
         isReadyToRelaunch={updater.isReadyToRelaunch}
+        relaunchFailed={updater.relaunchFailed}
         error={updater.error}
         onClose={updater.dismissModal}
         onStartUpdate={updater.startUpdate}

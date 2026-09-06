@@ -10,6 +10,7 @@ export interface SplashScreenProps {
   isDownloading?: boolean
   progress?: UpdateDownloadProgress | null
   isReadyToRelaunch?: boolean
+  relaunchFailed?: boolean
   error?: string | null
   onClose?: () => void
   onStartUpdate?: () => void | Promise<void>
@@ -23,6 +24,7 @@ export function SplashScreen({
   isDownloading = false,
   progress = null,
   isReadyToRelaunch = false,
+  relaunchFailed = false,
   error = null,
   onClose = () => {},
   onStartUpdate = () => {},
@@ -66,6 +68,7 @@ export function SplashScreen({
           isDownloading={isDownloading}
           progress={progress}
           isReadyToRelaunch={isReadyToRelaunch}
+          relaunchFailed={relaunchFailed}
           error={error}
           onClose={onClose}
           onStartUpdate={onStartUpdate}

@@ -110,6 +110,36 @@ describe('useAutoUpdater', () => {
     })
 
     expect(updaterService.relaunch).toHaveBeenCalledOnce()
+    expect(result.current.relaunchFailed).toBe(false)
+  })
+
+  it('libera o boot quando o relaunch falha, em vez de prender na splash', async () => {
+    vi.mocked(updaterService.checkForUpdate).mockResolvedValue(mockUpdate)
+    vi.mocked(updaterService.relaunch).mockRejectedValueOnce(new Error('instalador em uso'))
+    const { result } = renderHook(() => useAutoUpdater())
+    await act(async () => {})
+
+    // Com atualizacao encontrada o boot fica retido de proposito sob o modal.
+    expect(result.current.bootPhase).toBe('checking')
+
+    await act(async () => {
+      await result.current.startUpdate()
+    })
+    expect(result.current.isReadyToRelaunch).toBe(true)
+
+    // Antes da correcao, dismissModal era no-op daqui em diante e a unica saida
+    // era um relaunch que acabara de falhar.
+    await act(async () => {
+      await result.current.relaunch()
+    })
+    expect(result.current.relaunchFailed).toBe(true)
+    expect(result.current.error).toBe('instalador em uso')
+
+    act(() => {
+      result.current.dismissModal()
+    })
+    expect(result.current.isModalOpen).toBe(false)
+    expect(result.current.bootPhase).toBe('ready')
   })
 
   it('inicia em checking no desktop e transiciona para ready ao resolver sem atualizacao', async () => {
