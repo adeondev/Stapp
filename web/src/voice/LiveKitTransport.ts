@@ -61,6 +61,23 @@ const SCREEN_PRESETS = {
   original: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 8_000_000 },
 } as const
 
+async function applySenderDegradationPreference(
+  publication: TrackPublication | undefined,
+  preference: RTCDegradationPreference,
+) {
+  const sender = (publication?.track as unknown as { sender?: RTCRtpSender })?.sender
+  if (!sender?.setParameters || !sender?.getParameters) return
+  try {
+    const params = sender.getParameters()
+    if (params.degradationPreference !== preference) {
+      params.degradationPreference = preference
+      await sender.setParameters(params)
+    }
+  } catch {
+    // Non-fatal if degradationPreference is unsupported by the platform/mock
+  }
+}
+
 export class LiveKitTransport implements VoiceTransport {
   private room: Room | null = null
   private sdk: LiveKitModule | null = null
@@ -218,6 +235,11 @@ export class LiveKitTransport implements VoiceTransport {
       }
 
       const quality = SCREEN_PRESETS[preset]
+      const contentHint = preset === 'fluid' ? 'motion' : 'detail'
+      const degradationPreference: RTCDegradationPreference = preset === 'fluid'
+        ? 'maintain-framerate'
+        : 'maintain-resolution'
+
       if (isTauriRuntime()) {
         if (!sourceId) {
           this.fail('Escolha uma tela ou janela no seletor do Stapp.')
@@ -229,13 +251,15 @@ export class LiveKitTransport implements VoiceTransport {
           maxHeight: quality.height,
           fps: quality.frameRate,
           includeAudio: includeAudio && this.config.screen_audio,
+          contentHint,
         })
         this.nativeScreenCapture = capture
         this.screenAudioDiagnostic = capture.audioValidation ?? null
         this.browserScreenAudioDiagnostic = null
         const streamName = `stapp-screen-${capture.track.id || 'native'}`
+        let screenPublication: TrackPublication | undefined
         try {
-          await room.localParticipant.publishTrack(capture.track, {
+          screenPublication = await room.localParticipant.publishTrack(capture.track, {
             source: sdk.Track.Source.ScreenShare,
             name: 'stapp-screen',
             stream: streamName,
@@ -252,6 +276,7 @@ export class LiveKitTransport implements VoiceTransport {
           await capture.stop()
           throw error
         }
+        await applySenderDegradationPreference(screenPublication, degradationPreference)
         let hasAudio = false
         if (capture.audioTrack) {
           try {
@@ -291,14 +316,15 @@ export class LiveKitTransport implements VoiceTransport {
         maxHeight: quality.height,
         fps: quality.frameRate,
         includeAudio: includeAudio && this.config.screen_audio,
-        contentHint: preset === 'fluid' ? 'motion' : 'detail',
+        contentHint,
       })
       this.browserScreenCapture = capture
       this.browserScreenAudioDiagnostic = capture.audioValidation ?? null
       this.screenAudioDiagnostic = null
       const streamName = `stapp-screen-${capture.stream.id || capture.track.id || 'web'}`
+      let screenPublication: TrackPublication | undefined
       try {
-        await room.localParticipant.publishTrack(capture.track, {
+        screenPublication = await room.localParticipant.publishTrack(capture.track, {
           source: sdk.Track.Source.ScreenShare,
           name: 'stapp-screen',
           stream: streamName,
@@ -315,6 +341,7 @@ export class LiveKitTransport implements VoiceTransport {
         await capture.stop()
         throw error
       }
+      await applySenderDegradationPreference(screenPublication, degradationPreference)
       let hasAudio = false
       if (capture.audioTrack) {
         try {

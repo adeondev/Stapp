@@ -320,6 +320,7 @@ export async function startNativeScreenCapture(options: {
   maxHeight: number
   fps: number
   includeAudio: boolean
+  contentHint?: 'detail' | 'motion'
 }): Promise<NativeScreenCapture> {
   if (!isTauriRuntime()) throw new Error('captura nativa disponivel somente no aplicativo')
 
@@ -494,7 +495,7 @@ export async function startNativeScreenCapture(options: {
     await audioPipeline?.close()
     throw new Error('nao foi possivel criar a faixa de video da captura')
   }
-  track.contentHint = 'detail'
+  track.contentHint = options.contentHint ?? (options.fps >= 60 ? 'motion' : 'detail')
 
   let hasAudio = false
   if (includeAudio && audioPipeline) {

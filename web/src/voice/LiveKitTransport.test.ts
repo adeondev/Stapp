@@ -363,7 +363,7 @@ describe('LiveKitTransport', () => {
     const room = sdk.Room.instances[0]
     expect(await transport.setScreenShareEnabled(true, { preset: 'balanced', sourceId: 'screen:7:0' })).toBe(true)
     expect(screenPlatform.start).toHaveBeenCalledWith({
-      sourceId: 'screen:7:0', maxWidth: 1920, maxHeight: 1080, fps: 30, includeAudio: true,
+      sourceId: 'screen:7:0', maxWidth: 1920, maxHeight: 1080, fps: 30, includeAudio: true, contentHint: 'detail',
     })
     expect(room.localParticipant.publishTrack).toHaveBeenCalledWith(
       screenPlatform.track,
@@ -375,6 +375,37 @@ describe('LiveKitTransport', () => {
     expect(await transport.setScreenShareEnabled(false)).toBe(true)
     expect(screenPlatform.stop).toHaveBeenCalled()
     expect(transport.snapshot().screenSharing).toBe(false)
+    transport.destroy()
+  })
+
+  it('aplica contentHint motion e degradationPreference maintain-framerate no modo fluido', async () => {
+    screenPlatform.tauri = true
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn(),
+    })
+    await transport.join('sala')
+    transport.handleServerMessage({
+      t: 'voice.grant', channel: 'sala', url: 'ws://sfu', token: 'jwt', expires_at: Date.now() + 60_000,
+    })
+    await vi.waitFor(() => expect(transport.snapshot().status).toBe('connected'))
+
+    const sdk = await import('livekit-client') as unknown as { Room: { instances: Array<any> }; Track: any }
+    const room = sdk.Room.instances[0]
+    const sender = {
+      getParameters: vi.fn(() => ({ degradationPreference: 'balanced' })),
+      setParameters: vi.fn(async () => {}),
+    }
+    const publication = { trackSid: 'screen-fluid', track: { sender } }
+    room.localParticipant.publishTrack.mockResolvedValueOnce(publication)
+
+    expect(await transport.setScreenShareEnabled(true, { preset: 'fluid', sourceId: 'screen:0:0' })).toBe(true)
+    expect(screenPlatform.start).toHaveBeenCalledWith(expect.objectContaining({
+      fps: 60,
+      contentHint: 'motion',
+    }))
+    expect(sender.setParameters).toHaveBeenCalledWith(expect.objectContaining({
+      degradationPreference: 'maintain-framerate',
+    }))
     transport.destroy()
   })
 
