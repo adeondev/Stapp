@@ -114,6 +114,9 @@ interface StappDisplayMediaOptions extends DisplayMediaStreamOptions {
   surfaceSwitching?: 'include' | 'exclude'
   systemAudio?: 'include' | 'exclude'
   windowAudio?: 'exclude' | 'system' | 'window'
+  video?: boolean | (MediaTrackConstraints & {
+    cursor?: 'always' | 'motion' | 'never'
+  })
 }
 
 interface DisplayAudioSettings extends MediaTrackSettings {
@@ -152,6 +155,7 @@ export async function startBrowserScreenCapture(options: {
       width: { ideal: options.maxWidth },
       height: { ideal: options.maxHeight },
       frameRate: { ideal: options.fps },
+      cursor: 'always',
     },
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'include',

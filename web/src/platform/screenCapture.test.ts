@@ -62,6 +62,36 @@ describe('captura web segura', () => {
     expect(stream.removeTrack).toHaveBeenCalledWith(audioTrack)
     expect(audioTrack.stop).toHaveBeenCalledOnce()
   })
+
+  it('solicita cursor sempre visivel na captura via navegador', async () => {
+    const videoTrack = {
+      kind: 'video', contentHint: '', stop: vi.fn(), addEventListener: vi.fn(),
+      getSettings: vi.fn(() => ({ displaySurface: 'monitor' })),
+    }
+    const stream = {
+      id: 'display-stream',
+      getVideoTracks: () => [videoTrack], getAudioTracks: () => [],
+      getTracks: () => [videoTrack], removeTrack: vi.fn(),
+    }
+    const getDisplayMedia = vi.fn(async () => stream)
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: { getDisplayMedia, getSupportedConstraints: () => ({}) },
+    })
+
+    await startBrowserScreenCapture({
+      maxWidth: 1280, maxHeight: 720, fps: 60, includeAudio: false, contentHint: 'motion',
+    })
+
+    expect(getDisplayMedia).toHaveBeenCalledWith(expect.objectContaining({
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 60 },
+        cursor: 'always',
+      },
+    }))
+  })
 })
 
 describe('validacao nativa de exclusao de audio', () => {
