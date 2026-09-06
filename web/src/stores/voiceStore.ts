@@ -154,7 +154,7 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
           peersByUserId.set(peer.user_id, peer)
         }
         if (
-          get().callChannel === msg.channel &&
+          get().call?.channel === msg.channel &&
           presence.selfUserId &&
           presence.selfPeerId &&
           !peersByUserId.has(presence.selfUserId)

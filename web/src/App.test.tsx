@@ -198,7 +198,7 @@ describe('App', () => {
     const gearBtn = screen.getByRole('button', { name: 'Configurações' })
     await user.click(gearBtn)
 
-    expect(screen.getByText('Stapp Desktop v0.1.0-beta.5')).toBeTruthy()
+    expect(screen.getByText('Stapp Desktop v0.1.0-beta.6')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Minha Conta/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Voz & Vídeo/i })).toBeTruthy()
   })

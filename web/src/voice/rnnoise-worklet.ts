@@ -146,6 +146,8 @@ class StappRnnoiseProcessor extends AudioWorkletProcessor {
       message: error instanceof Error ? error.message : String(error),
     })
   }
+}
+
 registerProcessor('stapp-rnnoise', StappRnnoiseProcessor)
 
 /**

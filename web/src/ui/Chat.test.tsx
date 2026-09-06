@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { render, act } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { describe, expect, it, beforeEach } from 'vitest'
 import { Chat } from './Chat'
 
 describe('Chat scroll anchoring with ResizeObserver', () => {
