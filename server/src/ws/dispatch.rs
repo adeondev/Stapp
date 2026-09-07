@@ -113,7 +113,8 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
             display_name,
             accent,
             bio,
-        } => profile::update(state, peer_id, display_name, accent, bio).await,
+            banner_color,
+        } => profile::update(state, peer_id, display_name, accent, bio, banner_color).await,
 
         ClientMsg::ProfileFetch { user_id } => profile::detail(state, peer_id, user_id).await,
 

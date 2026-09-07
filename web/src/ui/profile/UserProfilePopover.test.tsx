@@ -32,8 +32,16 @@ function Alvo({ userId }: { userId: UserId }) {
   return <span {...gatilho}>abrir {userId}</span>
 }
 
-function montar(over: Partial<React.ComponentProps<typeof UserProfileProvider>> = {}) {
-  const profiles = { self: perfil('self', 'Deon'), alice: perfil('alice', 'Alice', { bio: 'oi', created_at: 1_600_000_000_000 }) }
+function montar(
+  over: Partial<React.ComponentProps<typeof UserProfileProvider>> = {},
+  extraProfiles: Record<string, Profile> = {},
+  extraAlvos: string[] = [],
+) {
+  const profiles = {
+    self: perfil('self', 'Deon'),
+    alice: perfil('alice', 'Alice', { bio: 'oi', created_at: 1_600_000_000_000 }),
+    ...extraProfiles,
+  }
   usePresenceStore.setState({ profiles, profileDetails: {} })
   const props = {
     selfUserId: 'self' as UserId,
@@ -55,6 +63,9 @@ function montar(over: Partial<React.ComponentProps<typeof UserProfileProvider>> 
           <Alvo userId="alice" />
           <Alvo userId="self" />
           <Alvo userId="fantasma" />
+          {extraAlvos.map((id) => (
+            <Alvo key={id} userId={id} />
+          ))}
           <button type="button">fora</button>
         </UserProfileProvider>
       </MenuHost>
@@ -163,5 +174,81 @@ describe('UserProfilePopover', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Editar perfil' }))
     expect(props.onEditSelf).toHaveBeenCalledOnce()
+  })
+
+  it('renderiza banner com cor sólida customizada (banner_color)', async () => {
+    const { container } = montar(
+      {
+        members: [{ user_id: 'bob', username: 'bob', relationship: 'none', can_start_dm: false, has_conversation: false }],
+      },
+      {
+        bob: perfil('bob', 'Bob', { banner_color: '#123456' }),
+      },
+      ['bob'],
+    )
+
+    await userEvent.click(screen.getByText('abrir bob'))
+    const dialog = await screen.findByRole('dialog', { name: 'Perfil' })
+    const bannerEl = dialog.querySelector('.profile-card__banner') as HTMLElement
+    expect(bannerEl).toBeTruthy()
+    expect(bannerEl.style.backgroundColor).toBe('rgb(18, 52, 86)') // #123456
+  })
+
+  it('renderiza banner com banner_url customizado', async () => {
+    montar(
+      {
+        members: [{ user_id: 'carol', username: 'carol', relationship: 'none', can_start_dm: false, has_conversation: false }],
+      },
+      {
+        carol: perfil('carol', 'Carol', { banner_url: 'https://cdn.example.com/banner.gif' }),
+      },
+      ['carol'],
+    )
+
+    await userEvent.click(screen.getByText('abrir carol'))
+    const dialog = await screen.findByRole('dialog', { name: 'Perfil' })
+
+    const bannerImg = dialog.querySelector('.profile-card__banner-img') as HTMLImageElement
+    expect(bannerImg).toBeTruthy()
+    expect(bannerImg.src).toBe('https://cdn.example.com/banner.gif')
+  })
+
+  it('exibe badges de status online e nome do servidor', async () => {
+    const profiles = {
+      self: perfil('self', 'Deon'),
+      alice: perfil('alice', 'Alice'),
+    }
+    usePresenceStore.setState({ profiles, profileDetails: {} })
+    montar({
+      members: [{
+        user_id: 'alice',
+        username: 'alice',
+        relationship: 'friend',
+        can_start_dm: true,
+        has_conversation: true,
+        server_name: 'Stapp Oficial',
+      }],
+      onlineIds: new Set<UserId>(['alice']),
+    })
+
+    await userEvent.click(screen.getByText('abrir alice'))
+    await screen.findByRole('dialog', { name: 'Perfil' })
+
+    expect(screen.getByText('Online')).toBeTruthy()
+    expect(screen.getByText('Stapp Oficial')).toBeTruthy()
+  })
+
+  it('abre modal de perfil completo ao clicar em Ver perfil completo', async () => {
+    montar()
+    await userEvent.click(screen.getByText('abrir alice'))
+    await screen.findByRole('dialog', { name: 'Perfil' })
+
+    const btnVerCompleto = screen.getByRole('button', { name: 'Ver perfil completo' })
+    expect(btnVerCompleto).toBeTruthy()
+    await userEvent.click(btnVerCompleto)
+
+    // O modal com classe profile-full deve abrir
+    const modal = await screen.findByRole('dialog', { name: 'Perfil' })
+    expect(modal.classList.contains('profile-full')).toBe(true)
   })
 })

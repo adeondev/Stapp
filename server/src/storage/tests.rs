@@ -219,7 +219,7 @@ async fn perfil_editado_sobrevive_a_reabertura_do_banco() {
             .create_account("Daniel".into(), "daniel".into(), "hash".into())
             .await
             .unwrap();
-        db.update_profile(&conta.id, Some("Deon"), Some("purple"), Some("oi"), 777)
+        db.update_profile(&conta.id, Some("Deon"), Some("purple"), Some("oi"), None, 777)
             .await
             .unwrap();
         conta.id

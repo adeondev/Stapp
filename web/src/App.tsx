@@ -619,12 +619,6 @@ export default function App() {
     connection.current?.send({ t: 'profile.fetch', user_id: userId })
   }, [])
 
-  /* Manda a mensagem sem sair da tela em que a pessoa estava. E o mesmo
-     `dm.send` do chat — nao existe caminho paralelo de envio. */
-  const quickMessage = useCallback((userId: UserId, text: string) => {
-    connection.current?.send({ t: 'dm.send', user_id: userId, text })
-  }, [])
-
   const markServerAsRead = useCallback((server?: SavedServer) => {
     if (!server || server.url === active?.profile.url) {
       for (const [channelId, msgs] of Object.entries(state.messages)) {
@@ -657,6 +651,12 @@ export default function App() {
     setView({ kind: 'direct', userId })
     connection.current?.send({ t: 'dm.open', user_id: userId })
   }, [])
+
+  /* Redirecionamento imediato para a DM enviando a mensagem rápida. */
+  const quickMessage = useCallback((userId: UserId, text: string) => {
+    selectDirect(userId)
+    connection.current?.send({ t: 'dm.send', user_id: userId, text })
+  }, [selectDirect])
 
   const openServerCallView = useCallback((channelId: string) => {
     const current = viewRef.current

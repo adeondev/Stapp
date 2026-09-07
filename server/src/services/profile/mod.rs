@@ -32,6 +32,7 @@ pub async fn update(
     display_name: Option<String>,
     accent: Option<String>,
     bio: Option<String>,
+    banner_color: Option<String>,
 ) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
@@ -58,11 +59,26 @@ pub async fn update(
         None => None,
     };
 
+    let banner_color = match banner_color {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                Some(String::new())
+            } else if validar_cor_hex(trimmed) {
+                Some(trimmed.to_lowercase())
+            } else {
+                return refuse(state, peer_id, "cor de banner invalida; use formato hexadecimal como #123456");
+            }
+        }
+        None => None,
+    };
+
     if let Err(err) = state.db.update_profile(
         &me.user_id,
         display_name.as_deref(),
         accent.as_deref(),
         bio.as_deref(),
+        banner_color.as_deref(),
         now_ms(),
     ).await {
         tracing::error!(%err, "falha gravando o perfil");
@@ -70,6 +86,14 @@ pub async fn update(
     }
 
     announce(state, &me.user_id).await;
+}
+
+fn validar_cor_hex(cor: &str) -> bool {
+    if !cor.starts_with('#') {
+        return false;
+    }
+    let hex = &cor[1..];
+    (hex.len() == 3 || hex.len() == 6 || hex.len() == 8) && hex.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// O que so aparece quando alguem ABRE um perfil.

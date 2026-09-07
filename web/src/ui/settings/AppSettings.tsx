@@ -40,7 +40,7 @@ export interface AppSettingsProps {
 
   profile: Profile
   avatarBase: string | null
-  onSaveProfile(change: { display_name: string; accent: AccentName; bio: string }): void
+  onSaveProfile(change: { display_name: string; accent: AccentName; bio: string; banner_color?: string }): void
   onAvatar(file: File | null): Promise<void>
   onBanner(file: File | null): Promise<void>
 

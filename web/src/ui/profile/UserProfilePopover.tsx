@@ -100,7 +100,7 @@ export function UserProfileProvider({
       isSelf,
       online: isSelf || onlineIds.has(userId),
       relation: membro
-        ? { relationship: membro.relationship, canStartDm: membro.can_start_dm }
+        ? { relationship: membro.relationship, canStartDm: membro.can_start_dm, serverName: membro.server_name }
         : undefined,
       mutualFriends: isSelf ? [] : detalhes[userId]?.mutualFriends,
       // O perfil pode simplesmente nao existir (conta apagada, id de mensagem
@@ -117,7 +117,10 @@ export function UserProfileProvider({
       fechar()
       onCall(id, profiles[id]?.username ?? '')
     },
-    onQuickMessage: (id: UserId, texto: string) => onQuickMessage(id, texto),
+    onQuickMessage: (id: UserId, texto: string) => {
+      fechar()
+      onQuickMessage(id, texto)
+    },
     onAddFriend: (id: UserId) => onAction('request', id),
     onAcceptFriend: (id: UserId) => onAction('accept', id),
     onUnblock: (id: UserId) => onAction('unblock', id),

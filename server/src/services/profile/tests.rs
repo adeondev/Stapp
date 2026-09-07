@@ -41,6 +41,7 @@ async fn editar_grava_e_conta_para_todo_mundo() {
         Some("  Deon da Silva  ".into()),
         Some("green".into()),
         Some("jogando desde sempre".into()),
+        None,
     )
     .await;
 
@@ -69,6 +70,7 @@ async fn campo_ausente_nao_mexe_no_que_ja_estava() {
         Some("Deon".into()),
         Some("red".into()),
         None,
+        None,
     )
     .await;
     // So a bio desta vez.
@@ -78,6 +80,7 @@ async fn campo_ausente_nao_mexe_no_que_ja_estava() {
         None,
         None,
         Some("mudei so a bio".into()),
+        None,
     )
     .await;
 
@@ -93,7 +96,7 @@ async fn nome_vazio_volta_para_o_username() {
     let daniel = server.account("Daniel").await;
     server.state.register_session("d1", &daniel).await.unwrap();
 
-    update(&server.state, "d1", Some("Deon".into()), None, None).await;
+    update(&server.state, "d1", Some("Deon".into()), None, None, None).await;
     assert_eq!(
         server
             .state
@@ -107,7 +110,7 @@ async fn nome_vazio_volta_para_o_username() {
     );
 
     // Vazio nao e "nao mexe": e apagar a escolha.
-    update(&server.state, "d1", Some("   ".into()), None, None).await;
+    update(&server.state, "d1", Some("   ".into()), None, None, None).await;
     assert_eq!(
         server
             .state
@@ -133,6 +136,7 @@ async fn cor_fora_da_paleta_e_recusada_sem_gravar_nada() {
         "d1",
         Some("Deon".into()),
         Some("rosa-choque".into()),
+        None,
         None,
     )
     .await;
@@ -160,12 +164,50 @@ async fn texto_longo_demais_e_cortado_no_limite() {
         Some("N".repeat(200)),
         None,
         Some("B".repeat(500)),
+        None,
     )
     .await;
 
     let perfil = server.state.db.profile_of(&daniel.id).await.unwrap().unwrap();
     assert_eq!(perfil.display_name.chars().count(), MAX_DISPLAY_NAME);
     assert_eq!(perfil.bio.chars().count(), MAX_BIO);
+}
+
+#[tokio::test]
+async fn banner_color_valida_e_grava_hex() {
+    let server = TestServer::new(10, 4).await;
+    let daniel = server.account("Daniel").await;
+    server.state.register_session("d1", &daniel).await.unwrap();
+
+    update(
+        &server.state,
+        "d1",
+        None,
+        None,
+        None,
+        Some("#ff5500".into()),
+    )
+    .await;
+
+    let perfil = server.state.db.profile_of(&daniel.id).await.unwrap().unwrap();
+    assert_eq!(perfil.banner_color, Some("#ff5500".into()));
+
+    // Hex inválido é recusado
+    let mut events = server.state.subscribe();
+    update(
+        &server.state,
+        "d1",
+        None,
+        None,
+        None,
+        Some("nao-e-hex".into()),
+    )
+    .await;
+    let recusou = events
+        .try_recv()
+        .map(|envelope| matches!(envelope.msg, ServerMsg::Error { .. }))
+        .unwrap_or(false);
+    assert!(recusou);
 }
 
 #[tokio::test]

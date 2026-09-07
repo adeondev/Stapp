@@ -121,9 +121,42 @@
   font-size: var(--fs-base);
 }
 
-.profile-card__relation {
-  align-self: flex-start;
+.profile-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin-top: var(--space-2);
+}
+
+.profile-card__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-3);
+  border-radius: var(--radius-pill);
+  background: var(--modifier-hover);
+  color: var(--text-soft);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+}
+
+.profile-card__badge.is-online {
+  color: var(--online);
+  background: color-mix(in srgb, var(--online) 15%, transparent);
+}
+
+.profile-card__badge.is-offline {
+  color: var(--text-muted);
+}
+
+.profile-card__badge--server {
+  color: var(--text-dim);
+}
+
+.profile-card__relation {
+  display: inline-flex;
+  align-items: center;
   padding: 2px var(--space-4);
   border-radius: var(--radius-pill);
   background: var(--modifier-hover);

@@ -13,6 +13,7 @@ const SELECT: &str = "SELECT u.id,
                              COALESCE(p.bio, '') AS bio,
                              p.avatar_ext,
                              p.banner_ext,
+                             p.banner_color,
                              u.created_at,
                              COALESCE(p.updated_at, 0) AS updated_at
                         FROM users u
@@ -27,6 +28,7 @@ struct RawProfile {
     bio: String,
     avatar_ext: Option<String>,
     banner_ext: Option<String>,
+    banner_color: Option<String>,
     created_at: i64,
     updated_at: i64,
 }
@@ -62,7 +64,7 @@ impl From<RawProfile> for Profile {
             avatar_gif_url,
             has_banner: r.banner_ext.is_some(),
             banner_url,
-            banner_color: None,
+            banner_color: r.banner_color,
             created_at: r.created_at,
             updated_at: r.updated_at,
         }
@@ -93,21 +95,24 @@ impl Db {
         display_name: Option<&str>,
         accent: Option<&str>,
         bio: Option<&str>,
+        banner_color: Option<&str>,
         now: i64,
     ) -> Result<()> {
         sqlx::query(
-            "INSERT INTO user_profiles (user_id, display_name, accent, bio, updated_at)
-             VALUES ($1, $2, COALESCE($3, 'blue'), COALESCE($4, ''), $5)
+            "INSERT INTO user_profiles (user_id, display_name, accent, bio, banner_color, updated_at)
+             VALUES ($1, $2, COALESCE($3, 'blue'), COALESCE($4, ''), NULLIF($5, ''), $6)
              ON CONFLICT(user_id) DO UPDATE SET
                  display_name = COALESCE($2, display_name),
                  accent       = COALESCE($3, accent),
                  bio          = COALESCE($4, bio),
-                 updated_at   = $5",
+                 banner_color = CASE WHEN $5 IS NOT NULL THEN NULLIF($5, '') ELSE banner_color END,
+                 updated_at   = $6",
         )
         .bind(user_id)
         .bind(display_name)
         .bind(accent)
         .bind(bio)
+        .bind(banner_color)
         .bind(now)
         .execute(&self.pool)
         .await?;

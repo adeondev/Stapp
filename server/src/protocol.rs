@@ -523,6 +523,8 @@ pub enum ClientMsg {
         accent: Option<String>,
         #[serde(default)]
         bio: Option<String>,
+        #[serde(default)]
+        banner_color: Option<String>,
     },
 
     #[serde(rename = "call.start")]

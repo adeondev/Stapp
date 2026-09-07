@@ -68,6 +68,29 @@
 
 .profile-settings__banner-img { width: 100%; height: 100%; display: block; object-fit: cover; }
 
+.profile-settings__banner-cor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.profile-settings__color-input {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: transparent;
+}
+
+.profile-settings__hex-input {
+  width: 120px !important;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+}
+
 .profile-settings__imagem-acoes { display: flex; flex-wrap: wrap; gap: var(--space-3); }
 
 /* ── Cores ───────────────────────────────────────────────────────────────── */

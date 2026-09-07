@@ -40,7 +40,7 @@ const NOME_DA_COR: Record<AccentName, string> = {
 export interface ProfileSettingsProps {
   profile: Profile
   avatarBase: string | null
-  onSave(change: { display_name: string; accent: AccentName; bio: string }): void
+  onSave(change: { display_name: string; accent: AccentName; bio: string; banner_color?: string }): void
   /** `null` remove a imagem e volta ao avatar gerado. */
   onAvatar(file: File | null): Promise<void>
   /** `null` remove o banner e volta a faixa de cor. */
@@ -54,6 +54,7 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
   const [nome, setNome] = useState(escolheu ? profile.display_name : '')
   const [accent, setAccent] = useState<AccentName>(profile.accent)
   const [bio, setBio] = useState(profile.bio)
+  const [bannerColor, setBannerColor] = useState(profile.banner_color ?? '')
   const [avatarNovo, setAvatarNovo] = useState<File | null>(null)
   const [bannerNovo, setBannerNovo] = useState<File | null>(null)
   const [removerAvatar, setRemoverAvatar] = useState(false)
@@ -85,6 +86,7 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
     setNome(profile.display_name !== profile.username ? profile.display_name : '')
     setAccent(profile.accent)
     setBio(profile.bio)
+    setBannerColor(profile.banner_color ?? '')
     setAvatarNovo(null)
     setBannerNovo(null)
     setRemoverAvatar(false)
@@ -96,6 +98,7 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
     nome.trim() !== (escolheu ? profile.display_name : '')
     || accent !== profile.accent
     || bio.trim() !== profile.bio
+    || bannerColor.trim() !== (profile.banner_color ?? '')
     || avatarNovo !== null
     || bannerNovo !== null
     || removerAvatar
@@ -115,6 +118,7 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
     display_name: nome.trim() || profile.username,
     accent,
     bio: bio.trim(),
+    banner_color: bannerColor.trim() || undefined,
     has_avatar: Boolean(avatarDaPrevia),
     has_banner: Boolean(previaBanner) || (profile.has_banner && !removerBanner),
   }
@@ -138,7 +142,12 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
       setEnviando(false)
     }
 
-    onSave({ display_name: nome.trim(), accent, bio: bio.trim() })
+    onSave({
+      display_name: nome.trim(),
+      accent,
+      bio: bio.trim(),
+      banner_color: bannerColor.trim() || undefined,
+    })
   }
 
   return (
@@ -198,7 +207,7 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
               description="Cortado em 8:3 e reduzido para 960px. Sem imagem, vira uma faixa na sua cor. Até 4MB."
               control={
                 <div className="profile-settings__imagem">
-                  <span className="profile-settings__banner" style={{ background: `var(--accent-${accent})` }}>
+                  <span className="profile-settings__banner" style={{ background: bannerColor || `var(--accent-${accent})` }}>
                     {rascunho.has_banner && (previaBanner || avatarBase) && (
                       <img
                         className="profile-settings__banner-img"
@@ -219,6 +228,36 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
                       }}>Remover</SettingsButton>
                     )}
                   </div>
+                </div>
+              }
+            />
+
+            <SettingsRow
+              label="Cor do banner"
+              description="Personalize a cor sólida de fundo do seu banner quando não houver imagem. Formato hexadecimal."
+              control={
+                <div className="profile-settings__banner-cor">
+                  <input
+                    type="color"
+                    value={bannerColor.startsWith('#') && (bannerColor.length === 7 || bannerColor.length === 4) ? bannerColor : '#5865f2'}
+                    onChange={(event) => setBannerColor(event.target.value)}
+                    className="profile-settings__color-input"
+                    aria-label="Selecionar cor do banner"
+                  />
+                  <input
+                    type="text"
+                    value={bannerColor}
+                    onChange={(event) => setBannerColor(event.target.value)}
+                    placeholder="#5865f2"
+                    maxLength={9}
+                    className="profile-settings__hex-input"
+                    aria-label="Código hexadecimal da cor do banner"
+                  />
+                  {bannerColor && (
+                    <SettingsButton size="sm" onClick={() => setBannerColor('')}>
+                      Limpar
+                    </SettingsButton>
+                  )}
                 </div>
               }
             />
@@ -311,6 +350,7 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
               setNome(escolheu ? profile.display_name : '')
               setAccent(profile.accent)
               setBio(profile.bio)
+              setBannerColor(profile.banner_color ?? '')
               setAvatarNovo(null)
               setBannerNovo(null)
               setRemoverAvatar(false)

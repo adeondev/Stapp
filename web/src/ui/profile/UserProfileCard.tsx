@@ -35,6 +35,7 @@ export type ProfileCardVariant =
 export interface ProfileCardRelation {
   relationship: RelationshipState
   canStartDm: boolean
+  serverName?: string
 }
 
 export interface ProfileCardActions {
@@ -99,7 +100,7 @@ export function UserProfileCard({
   useEffect(() => setRascunho(''), [userId])
 
   const banner = bannerPreview
-    ?? (profile.has_banner && avatarBase ? bannerUrl(avatarBase, profile.user_id, profile.updated_at) : null)
+    ?? (profile.banner_url ? profile.banner_url : (profile.has_banner && avatarBase ? bannerUrl(avatarBase, profile.user_id, profile.updated_at) : null))
   const desde = membroDesde(profile.created_at)
   const rotuloRelacao = relation ? RELACAO[relation.relationship] : null
   const somenteLeitura = variant === 'preview'
@@ -123,9 +124,11 @@ export function UserProfileCard({
 
   return (
     <section className={`profile-card profile-card--${variant} ${className}`} style={estilo}>
-      {/* Sem imagem, a faixa e a cor de destaque da pessoa. Nao e placeholder:
-          e o banner padrao, e por isso nunca aparece vazio nem cinza. */}
-      <div className={`profile-card__banner ${banner ? 'has-image' : 'profile-card__banner--flat'}`}>
+      {/* Sem imagem, a faixa e a cor de destaque da pessoa ou banner_color customizada. */}
+      <div
+        className={`profile-card__banner ${banner ? 'has-image' : 'profile-card__banner--flat'}`}
+        style={profile.banner_color ? { backgroundColor: profile.banner_color } : undefined}
+      >
         {banner && <img src={banner} alt="" className="profile-card__banner-img" />}
       </div>
 
@@ -152,7 +155,17 @@ export function UserProfileCard({
         <header className="profile-card__names">
           <h3 className="profile-card__display">{profile.display_name}</h3>
           <span className="profile-card__handle">@{profile.username}</span>
-          {rotuloRelacao && <span className="profile-card__relation">{rotuloRelacao}</span>}
+          <div className="profile-card__badges">
+            <span className={`profile-card__badge ${online ? 'is-online' : 'is-offline'}`}>
+              {online ? 'Online' : 'Offline'}
+            </span>
+            {rotuloRelacao && <span className="profile-card__relation">{rotuloRelacao}</span>}
+            {relation?.serverName && (
+              <span className="profile-card__badge profile-card__badge--server">
+                {relation.serverName}
+              </span>
+            )}
+          </div>
         </header>
 
         {profile.bio && (
@@ -255,7 +268,7 @@ export function UserProfileCard({
             <input
               value={rascunho}
               onChange={(event) => setRascunho(event.target.value)}
-              placeholder={`Mensagem para @${profile.username}`}
+              placeholder={`Conversar com @${profile.username}`}
               aria-label={`Mensagem para ${profile.display_name}`}
               maxLength={2000}
             />
