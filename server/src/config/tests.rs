@@ -353,6 +353,7 @@ fn validates_min_client_version() {
 
 #[test]
 fn bootstrap_cria_arquivo_e_diretorios_quando_ausente() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new();
     let config_path = dir.path().join("subpasta").join("stapp.toml");
     assert!(!config_path.exists());
