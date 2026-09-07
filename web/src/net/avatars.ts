@@ -26,6 +26,25 @@ export function avatarBaseFromWs(serverUrl: string): string {
  * muda o endereco, entao o cache do navegador pode ser longo sem segurar a
  * imagem velha.
  */
+/**
+ * Resolve uma URL que o servidor mandou relativa contra a base HTTP dele.
+ *
+ * O `Profile` carrega `avatar_static_url`, `avatar_gif_url` e `banner_url` na
+ * forma `/avatars/<id>?v=...` — relativa **ao servidor**. Usar isso direto num
+ * `<img src>` funciona so quando a pagina e servida pelo proprio Stapp; no app
+ * Tauri a origem e `tauri://localhost` e no dev o web roda em `:5173`, entao a
+ * imagem era buscada no lugar errado e o banner simplesmente nao aparecia.
+ *
+ * O que ja vem absoluto (`http:`, `https:`, `blob:`, `data:`) passa intacto —
+ * previa local de arquivo escolhido e um `blob:`, e nao pode ganhar prefixo.
+ */
+export function resolveMediaUrl(base: string | null | undefined, url?: string | null): string | undefined {
+  if (!url) return undefined
+  if (/^(https?:|blob:|data:)/.test(url)) return url
+  if (!base) return url
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
 export function avatarUrl(base: string, userId: string, version: number): string {
   return `${base}/avatars/${encodeURIComponent(userId)}?v=${version}`
 }

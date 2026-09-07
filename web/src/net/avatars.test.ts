@@ -5,6 +5,7 @@ import {
   avatarUrl,
   comRenovacao,
   removeAvatar,
+  resolveMediaUrl,
   uploadAvatar,
 } from './avatars'
 
@@ -78,5 +79,42 @@ describe('renovacao de sessao no upload', () => {
 
     expect(renovar).toHaveBeenCalledTimes(1)
     expect(executar).toHaveBeenCalledWith('token-novo')
+  })
+})
+
+/* O `Profile` traz `avatar_static_url`, `avatar_gif_url` e `banner_url`
+   RELATIVAS ao servidor. Usadas cruas num `<img src>` elas sao resolvidas
+   contra a origem da PAGINA: `tauri://localhost` no app desktop e `:5173` no
+   dev. Foi assim que o banner sumiu no desktop com a imagem salva. */
+describe('resolveMediaUrl', () => {
+  it('prefixa o que veio relativo', () => {
+    expect(resolveMediaUrl('https://servidor.exemplo', '/banners/u1?v=7'))
+      .toBe('https://servidor.exemplo/banners/u1?v=7')
+  })
+
+  it('nao come a barra de quem veio sem ela', () => {
+    expect(resolveMediaUrl('https://servidor.exemplo', 'banners/u1'))
+      .toBe('https://servidor.exemplo/banners/u1')
+  })
+
+  it('deixa passar o que ja e absoluto', () => {
+    for (const url of [
+      'https://outro/img.webp',
+      'http://outro/img.webp',
+      'blob:https://app/1234',
+      'data:image/png;base64,AAAA',
+    ]) {
+      expect(resolveMediaUrl('https://servidor.exemplo', url)).toBe(url)
+    }
+  })
+
+  it('sem URL nao inventa endereco nenhum', () => {
+    expect(resolveMediaUrl('https://servidor.exemplo', undefined)).toBeUndefined()
+    expect(resolveMediaUrl('https://servidor.exemplo', null)).toBeUndefined()
+    expect(resolveMediaUrl('https://servidor.exemplo', '')).toBeUndefined()
+  })
+
+  it('sem base devolve o que veio, em vez de quebrar a tela', () => {
+    expect(resolveMediaUrl(null, '/banners/u1')).toBe('/banners/u1')
   })
 })

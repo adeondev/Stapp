@@ -8,7 +8,7 @@ import {
   IconFullscreen, IconHeadphones, IconHeadphonesOff, IconLeave,
   IconMic, IconMicOff, IconMinimize, IconMore, IconScreen,
 } from './Icons'
-import { avatarGifUrl, avatarStaticUrl, avatarUrl } from '../net/avatars'
+import { avatarGifUrl, avatarStaticUrl, avatarUrl, resolveMediaUrl } from '../net/avatars'
 
 export interface CallTileAvatarUser {
   avatar_gif_url?: string
@@ -88,11 +88,7 @@ export function CallTile({
   const isSpeaking = tile.kind === 'avatar' ? tile.speaking : false
 
   const user = useMemo<CallTileAvatarUser>(() => {
-    const resolve = (url?: string | null) => {
-      if (!url) return undefined
-      if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) return url
-      return avatarBase ? `${avatarBase}${url.startsWith('/') ? '' : '/'}${url}` : url
-    }
+    const resolve = (url?: string | null) => resolveMediaUrl(avatarBase, url)
     const isGif = Boolean(profile.avatar_gif || (profile.avatar_gif_url && profile.avatar_gif_url.length > 0))
     const defaultStatic = profile.has_avatar && avatarBase
       ? (isGif ? avatarStaticUrl(avatarBase, profile.user_id, profile.updated_at) : avatarUrl(avatarBase, profile.user_id, profile.updated_at))
