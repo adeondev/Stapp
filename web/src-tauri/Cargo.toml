@@ -1,6 +1,6 @@
 [package]
 name = "stapp-desktop"
-version = "0.1.0-beta.6"
+version = "0.1.0-beta.7"
 description = "Cliente desktop privado do Stapp"
 authors = ["Stapp"]
 license = ""
@@ -22,12 +22,13 @@ serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"
 log = "0.4"
-tauri = { version = "2.11.3", features = [] }
+tauri = { version = "2.11.3", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-global-shortcut = "2.3.1"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
+tauri-plugin-notification = "2"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 xcap = "0.9.8"

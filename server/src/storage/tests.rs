@@ -219,7 +219,7 @@ async fn perfil_editado_sobrevive_a_reabertura_do_banco() {
             .create_account("Daniel".into(), "daniel".into(), "hash".into())
             .await
             .unwrap();
-        db.update_profile(&conta.id, Some("Deon"), Some("purple"), Some("oi"), 777)
+        db.update_profile(&conta.id, Some("Deon"), Some("purple"), Some("oi"), None, 777)
             .await
             .unwrap();
         conta.id
@@ -354,4 +354,67 @@ async fn cria_vota_e_encerra_enquete() {
 
     let closed = db.close_poll(&poll.id, &author.id).await.unwrap();
     assert!(closed.closed);
+}
+
+/* Amigos em comum sai de um `INTERSECT` sobre `friendships`, que guarda o par
+   JA ORDENADO (`user_a < user_b`). E facil escrever essa consulta olhando so
+   uma coluna e perder metade das amizades sem perceber — por isso os casos
+   abaixo montam amizades nas duas ordens possiveis. */
+
+#[tokio::test]
+async fn amigos_em_comum_acha_a_interseccao_nos_dois_sentidos_do_par() {
+    let dir = TestDir::new();
+    let db = Db::open(&dir.database()).await.unwrap();
+    let ana = account(&db, "ana").await;
+    let bia = account(&db, "bia").await;
+    let caio = account(&db, "caio").await;
+    let davi = account(&db, "davi").await;
+
+    // Caio e amigo das duas; Davi so da Ana.
+    db.request_friend(&ana.id, &caio.id).await.unwrap();
+    db.accept_friend(&caio.id, &ana.id).await.unwrap();
+    db.request_friend(&caio.id, &bia.id).await.unwrap();
+    db.accept_friend(&bia.id, &caio.id).await.unwrap();
+    db.request_friend(&davi.id, &ana.id).await.unwrap();
+    db.accept_friend(&ana.id, &davi.id).await.unwrap();
+
+    let comuns = db.mutual_friends(&ana.id, &bia.id).await.unwrap();
+    assert_eq!(comuns, vec![caio.id.clone()]);
+
+    // A resposta nao pode depender da ordem dos argumentos.
+    let invertido = db.mutual_friends(&bia.id, &ana.id).await.unwrap();
+    assert_eq!(invertido, vec![caio.id]);
+}
+
+#[tokio::test]
+async fn sem_amizade_em_comum_a_lista_volta_vazia() {
+    let dir = TestDir::new();
+    let db = Db::open(&dir.database()).await.unwrap();
+    let ana = account(&db, "ana").await;
+    let bia = account(&db, "bia").await;
+    let caio = account(&db, "caio").await;
+
+    db.request_friend(&ana.id, &caio.id).await.unwrap();
+    db.accept_friend(&caio.id, &ana.id).await.unwrap();
+
+    assert!(db.mutual_friends(&ana.id, &bia.id).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn perfil_traz_membro_desde_e_a_marca_do_banner() {
+    let dir = TestDir::new();
+    let db = Db::open(&dir.database()).await.unwrap();
+    let conta = account(&db, "ana").await;
+
+    let perfil = db.profile_of(&conta.id).await.unwrap().unwrap();
+    assert_eq!(perfil.created_at, conta.created_at);
+    assert!(!perfil.has_banner);
+
+    db.set_banner(&conta.id, Some("webp"), 42).await.unwrap();
+    let com_banner = db.profile_of(&conta.id).await.unwrap().unwrap();
+    assert!(com_banner.has_banner);
+    assert_eq!(com_banner.created_at, conta.created_at);
+
+    db.set_banner(&conta.id, None, 43).await.unwrap();
+    assert!(!db.profile_of(&conta.id).await.unwrap().unwrap().has_banner);
 }

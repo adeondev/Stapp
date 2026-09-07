@@ -1,258 +1,226 @@
 import {
-  Add01Icon,
-  ArrowRight01Icon,
-  ArrowTurnBackwardIcon,
-  Call02Icon,
-  Cancel01Icon,
-  Delete02Icon,
-  Edit02Icon,
-  HashtagIcon,
-  HeadphoneMuteIcon,
-  HeadphonesIcon,
-  HelpCircleIcon,
-  Home01Icon,
-  LockPasswordIcon,
-  Logout01Icon,
-  Mic01Icon,
-  MicOff01Icon,
-  ServerStack01Icon,
-  Setting07Icon,
-  Shield01Icon,
-  SmileIcon,
-  UserAccountIcon,
-  UserGroupIcon,
-  ViewIcon,
-  ViewOffSlashIcon,
-  VolumeHighIcon,
-  VolumeLowIcon,
-  VolumeOffIcon,
-} from 'hugeicons-react'
+  type RemixiconComponentType,
+  RiAccountCircleFill, RiAccountCircleLine, RiAddLine, RiAlertFill, RiAlertLine,
+  RiArrowDownSFill, RiArrowDownSLine, RiArrowLeftSFill, RiArrowLeftSLine,
+  RiArrowRightSFill, RiArrowRightSLine, RiArrowUpSFill, RiArrowUpSLine,
+  RiAspectRatioFill, RiAspectRatioLine, RiAtFill, RiAtLine,
+  RiBarChartBoxFill, RiBarChartBoxLine, RiChat1Fill, RiChat1Line, RiCheckLine,
+  RiCloseLine, RiCollapseDiagonalFill, RiCollapseDiagonalLine, RiComputerFill, RiComputerLine,
+  RiDeleteBinFill, RiDeleteBinLine, RiDownloadFill, RiDownloadLine,
+  RiEditFill, RiEditLine, RiEmotionFill, RiEmotionLine, RiEqualizerFill, RiEqualizerLine,
+  RiErrorWarningFill, RiErrorWarningLine, RiExpandDiagonalFill, RiExpandDiagonalLine,
+  RiExternalLinkFill, RiExternalLinkLine, RiEyeFill, RiEyeLine, RiEyeOffFill, RiEyeOffLine,
+  RiFileCodeFill, RiFileCodeLine, RiFileFill, RiFileGifFill, RiFileGifLine, RiFileLine,
+  RiFilePdfFill, RiFilePdfLine, RiFileTextFill, RiFileTextLine,
+  RiFileUnknowFill, RiFileUnknowLine, RiFileZipFill, RiFileZipLine,
+  RiFilmFill, RiFilmLine, RiFullscreenFill, RiFullscreenLine,
+  RiGroupFill, RiGroupLine, RiHashtag, RiHeadphoneFill, RiHeadphoneLine,
+  RiHomeFill, RiHomeLine, RiImageFill, RiImageLine, RiInformationFill, RiInformationLine,
+  RiLayoutGridFill, RiLayoutGridLine, RiLayoutRightFill, RiLayoutRightLine,
+  RiLoader4Line, RiLockFill, RiLockLine, RiLogoutBoxRFill, RiLogoutBoxRLine,
+  RiMicFill, RiMicLine, RiMicOffFill, RiMicOffLine, RiMoreFill, RiMoreLine,
+  RiMusicFill, RiMusicLine, RiPaletteFill, RiPaletteLine, RiPauseFill, RiPauseLine,
+  RiPhoneFill, RiPhoneLine, RiPictureInPictureFill, RiPictureInPictureLine,
+  RiPlayFill, RiPlayLine, RiPushpinFill, RiPushpinLine, RiQuestionFill, RiQuestionLine,
+  RiRefreshFill, RiRefreshLine, RiReplyFill, RiReplyLine, RiRestartFill, RiRestartLine,
+  RiSearchFill, RiSearchLine, RiSendPlane2Fill, RiSendPlane2Line,
+  RiServerFill, RiServerLine, RiSettings3Fill, RiSettings3Line,
+  RiShieldFill, RiShieldLine, RiSignalTowerFill, RiSignalTowerLine,
+  RiSpeedFill, RiSpeedLine, RiStarFill, RiStarLine, RiHeartFill, RiHeartLine,
+  RiSubtractLine, RiTimeFill, RiTimeLine,
+  RiUploadCloud2Fill, RiUploadCloud2Line, RiUserFill, RiUserLine, RiVidiconFill, RiVidiconLine,
+  RiVideoOffFill, RiVideoOffLine, RiVolumeDownFill, RiVolumeDownLine,
+  RiVolumeMuteFill, RiVolumeMuteLine, RiVolumeUpFill, RiVolumeUpLine,
+  RiZoomInLine, RiZoomOutLine,
+} from '@remixicon/react'
 
-interface IconProps {
-  size?: number
+/**
+ * A iconografia do Stapp, em um lugar so.
+ *
+ * Antes daqui saiam tres familias ao mesmo tempo — `hugeicons-react`, SVG a mao
+ * com traco 2, e SVG a mao com traco 1.8/2.5/2.8 — em 18 tamanhos diferentes, e
+ * ainda sobravam `✕`, `×`, `‹`, `›` e `!` espalhados como se fossem icone. Agora
+ * existe uma fonte so, o Remix Icon, que traz o par `-line`/`-fill` de todo desenho.
+ *
+ * ## A convencao do app
+ *
+ * - `outlined` (padrao) — acao inativa, secundaria ou neutra;
+ * - `filled` — acao selecionada, ativa, ou que precisa de mais peso visual;
+ * - **destrutivo nao se marca com preenchimento**, e sim com a cor `--danger`.
+ *   Preencher e sinal de "ligado", nao de "perigoso"; confundir os dois foi o que
+ *   fez a camera *desligada* parecer um erro na barra de chamada.
+ *
+ * O tamanho e um dos cinco degraus e nada mais. `IconSize` e uma uniao fechada
+ * de proposito: um `size={17}` solto nao compila, entao a barra de ferramentas
+ * nao volta a ter cinco glifos de alturas diferentes.
+ */
+export type IconSize =
+  /** dentro de texto, item de lista, chip */
+  | 16
+  /** barra de acao da mensagem, botao pequeno */
+  | 18
+  /** toolbar, dock de chamada, player */
+  | 20
+  /** destaque, cabecalho, tile de chamada */
+  | 24
+  /** ilustracao de estado vazio — nao e botao, e desenho */
+  | 32
+
+export interface IconProps {
+  size?: IconSize
+  /** `true` = variante preenchida. Ver a convencao no topo do arquivo. */
+  filled?: boolean
   className?: string
+  /**
+   * So quando o icone E o rotulo — ou seja, quando quem o envolve nao tem texto
+   * nem `aria-label`. Com titulo ele vira `role="img"`; sem titulo ele some para
+   * o leitor de tela, que e o certo quando o botao ao redor ja se nomeia.
+   */
+  title?: string
 }
 
-export function IconHash({ size = 16, className }: IconProps) {
-  return <HashtagIcon size={size} className={className} />
+/** Junta o par outlined/filled num componente so, com a API do app. */
+function par(nome: string, Line: RemixiconComponentType, Fill: RemixiconComponentType) {
+  function Icone({ size = 16, filled = false, className, title }: IconProps) {
+    const Desenho = filled ? Fill : Line
+    return (
+      <Desenho
+        size={size}
+        className={className}
+        role={title ? 'img' : undefined}
+        aria-label={title}
+        aria-hidden={title ? undefined : true}
+        focusable="false"
+      />
+    )
+  }
+  Icone.displayName = nome
+  return Icone
 }
 
-export function IconAt({ size = 16, className }: IconProps) {
+/* ── Navegacao e estrutura ─────────────────────────────────────────────── */
+export const IconHash = par('IconHash', RiHashtag, RiHashtag)
+export const IconAt = par('IconAt', RiAtLine, RiAtFill)
+export const IconHome = par('IconHome', RiHomeLine, RiHomeFill)
+export const IconServer = par('IconServer', RiServerLine, RiServerFill)
+export const IconUsers = par('IconUsers', RiGroupLine, RiGroupFill)
+export const IconUser = par('IconUser', RiUserLine, RiUserFill)
+export const IconAccount = par('IconAccount', RiAccountCircleLine, RiAccountCircleFill)
+/**
+ * Abre e fecha a coluna de membros. E o painel da direita, nao a silhueta de
+ * pessoa: com a silhueta ele viraria o mesmo icone do menu de perfil. Preenchido
+ * quando a coluna esta aberta — assim o par outlined/filled ja diz o estado.
+ */
+export const IconMembers = par('IconMembers', RiLayoutRightLine, RiLayoutRightFill)
+export const IconSearch = par('IconSearch', RiSearchLine, RiSearchFill)
+export const IconSettings = par('IconSettings', RiSettings3Line, RiSettings3Fill)
+export const IconHelp = par('IconHelp', RiQuestionLine, RiQuestionFill)
+export const IconInfo = par('IconInfo', RiInformationLine, RiInformationFill)
+export const IconShield = par('IconShield', RiShieldLine, RiShieldFill)
+export const IconLock = par('IconLock', RiLockLine, RiLockFill)
+export const IconLogout = par('IconLogout', RiLogoutBoxRLine, RiLogoutBoxRFill)
+export const IconPalette = par('IconPalette', RiPaletteLine, RiPaletteFill)
+export const IconTime = par('IconTime', RiTimeLine, RiTimeFill)
+
+/* ── Setas e controles genericos ───────────────────────────────────────── */
+export const IconChevronDown = par('IconChevronDown', RiArrowDownSLine, RiArrowDownSFill)
+export const IconChevronUp = par('IconChevronUp', RiArrowUpSLine, RiArrowUpSFill)
+export const IconChevronLeft = par('IconChevronLeft', RiArrowLeftSLine, RiArrowLeftSFill)
+export const IconChevronRight = par('IconChevronRight', RiArrowRightSLine, RiArrowRightSFill)
+export const IconArrowRight = par('IconArrowRight', RiArrowRightSLine, RiArrowRightSFill)
+export const IconPlus = par('IconPlus', RiAddLine, RiAddLine)
+export const IconMinus = par('IconMinus', RiSubtractLine, RiSubtractLine)
+export const IconX = par('IconX', RiCloseLine, RiCloseLine)
+export const IconCheck = par('IconCheck', RiCheckLine, RiCheckLine)
+export const IconMore = par('IconMore', RiMoreLine, RiMoreFill)
+export const IconRefresh = par('IconRefresh', RiRefreshLine, RiRefreshFill)
+export const IconAlert = par('IconAlert', RiAlertLine, RiAlertFill)
+export const IconError = par('IconError', RiErrorWarningLine, RiErrorWarningFill)
+export const IconSpinner = par('IconSpinner', RiLoader4Line, RiLoader4Line)
+export const IconExternal = par('IconExternal', RiExternalLinkLine, RiExternalLinkFill)
+export const IconDownload = par('IconDownload', RiDownloadLine, RiDownloadFill)
+export const IconUpload = par('IconUpload', RiUploadCloud2Line, RiUploadCloud2Fill)
+
+/* ── Conversa ──────────────────────────────────────────────────────────── */
+export const IconChat = par('IconChat', RiChat1Line, RiChat1Fill)
+export const IconReply = par('IconReply', RiReplyLine, RiReplyFill)
+export const IconEdit = par('IconEdit', RiEditLine, RiEditFill)
+export const IconTrash = par('IconTrash', RiDeleteBinLine, RiDeleteBinFill)
+export const IconReaction = par('IconReaction', RiEmotionLine, RiEmotionFill)
+export const IconSend = par('IconSend', RiSendPlane2Line, RiSendPlane2Fill)
+export const IconGif = par('IconGif', RiFileGifLine, RiFileGifFill)
+export const IconStar = par('IconStar', RiStarLine, RiStarFill)
+export const IconHeart = par('IconHeart', RiHeartLine, RiHeartFill)
+export const IconPin = par('IconPin', RiPushpinLine, RiPushpinFill)
+export const IconPoll = par('IconPoll', RiBarChartBoxLine, RiBarChartBoxFill)
+
+/* ── Voz, video e chamada ──────────────────────────────────────────────── */
+export const IconMic = par('IconMic', RiMicLine, RiMicFill)
+export const IconMicOff = par('IconMicOff', RiMicOffLine, RiMicOffFill)
+export const IconHeadphones = par('IconHeadphones', RiHeadphoneLine, RiHeadphoneFill)
+/** Ensurdecido: nao e o fone que sumiu, e o som que parou de sair. */
+export const IconHeadphonesOff = par('IconHeadphonesOff', RiVolumeMuteLine, RiVolumeMuteFill)
+export const IconSpeaker = par('IconSpeaker', RiVolumeUpLine, RiVolumeUpFill)
+export const IconVolumeLow = par('IconVolumeLow', RiVolumeDownLine, RiVolumeDownFill)
+export const IconVolumeOff = par('IconVolumeOff', RiVolumeMuteLine, RiVolumeMuteFill)
+export const IconPhone = par('IconPhone', RiPhoneLine, RiPhoneFill)
+export const IconCamera = par('IconCamera', RiVidiconLine, RiVidiconFill)
+export const IconCameraOff = par('IconCameraOff', RiVideoOffLine, RiVideoOffFill)
+export const IconScreen = par('IconScreen', RiComputerLine, RiComputerFill)
+export const IconSignal = par('IconSignal', RiSignalTowerLine, RiSignalTowerFill)
+export const IconGrid = par('IconGrid', RiLayoutGridLine, RiLayoutGridFill)
+export const IconEqualizer = par('IconEqualizer', RiEqualizerLine, RiEqualizerFill)
+
+/* ── Midia ─────────────────────────────────────────────────────────────── */
+export const IconPlay = par('IconPlay', RiPlayLine, RiPlayFill)
+export const IconPause = par('IconPause', RiPauseLine, RiPauseFill)
+export const IconReplay = par('IconReplay', RiRestartLine, RiRestartFill)
+export const IconSpeed = par('IconSpeed', RiSpeedLine, RiSpeedFill)
+export const IconFullscreen = par('IconFullscreen', RiFullscreenLine, RiFullscreenFill)
+export const IconMinimize = par('IconMinimize', RiCollapseDiagonalLine, RiCollapseDiagonalFill)
+export const IconExpand = par('IconExpand', RiExpandDiagonalLine, RiExpandDiagonalFill)
+export const IconPictureInPicture = par('IconPictureInPicture', RiPictureInPictureLine, RiPictureInPictureFill)
+export const IconFitScreen = par('IconFitScreen', RiAspectRatioLine, RiAspectRatioFill)
+export const IconZoomIn = par('IconZoomIn', RiZoomInLine, RiZoomInLine)
+export const IconZoomOut = par('IconZoomOut', RiZoomOutLine, RiZoomOutLine)
+export const IconEye = par('IconEye', RiEyeLine, RiEyeFill)
+export const IconEyeOff = par('IconEyeOff', RiEyeOffLine, RiEyeOffFill)
+
+/* ── Tipos de arquivo ──────────────────────────────────────────────────── */
+export const IconFile = par('IconFile', RiFileLine, RiFileFill)
+export const IconFileImage = par('IconFileImage', RiImageLine, RiImageFill)
+export const IconFileVideo = par('IconFileVideo', RiFilmLine, RiFilmFill)
+export const IconFileAudio = par('IconFileAudio', RiMusicLine, RiMusicFill)
+export const IconFileText = par('IconFileText', RiFileTextLine, RiFileTextFill)
+export const IconFilePdf = par('IconFilePdf', RiFilePdfLine, RiFilePdfFill)
+export const IconFileZip = par('IconFileZip', RiFileZipLine, RiFileZipFill)
+export const IconFileCode = par('IconFileCode', RiFileCodeLine, RiFileCodeFill)
+export const IconFileUnknown = par('IconFileUnknown', RiFileUnknowLine, RiFileUnknowFill)
+
+/**
+ * Desligar / recusar chamada.
+ *
+ * O Remix nao tem "telefone no gancho", e o desenho universal disso e o proprio
+ * fone girado 135 graus. Girar aqui e mais honesto do que escolher um icone de
+ * porta ou de X, que diriam outra coisa — e mantem o par com `IconPhone`, que e
+ * o mesmo desenho em pe.
+ */
+export function IconLeave({ size = 16, filled = true, className, title }: IconProps) {
+  const Desenho = filled ? RiPhoneFill : RiPhoneLine
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
+    <Desenho
+      size={size}
       className={className}
-      aria-hidden="true"
-    >
-      <circle cx="12" cy="12" r="4" />
-      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
-    </svg>
+      style={{ transform: 'rotate(135deg)' }}
+      role={title ? 'img' : undefined}
+      aria-label={title}
+      aria-hidden={title ? undefined : true}
+      focusable="false"
+    />
   )
 }
 
-export function IconSpeaker({ size = 16, className }: IconProps) {
-  return <VolumeHighIcon size={size} className={className} />
-}
-
-export function IconMic({ size = 16, className }: IconProps) {
-  return <Mic01Icon size={size} className={className} />
-}
-
-export function IconMicOff({ size = 16, className }: IconProps) {
-  return <MicOff01Icon size={size} className={className} />
-}
-
-export function IconHeadphones({ size = 16, className }: IconProps) {
-  return <HeadphonesIcon size={size} className={className} />
-}
-
-export function IconHeadphonesOff({ size = 16, className }: IconProps) {
-  return <HeadphoneMuteIcon size={size} className={className} />
-}
-
-export function IconPhone({ size = 16, className }: IconProps) {
-  return <Call02Icon size={size} className={className} />
-}
-
-export function IconLeave({ size = 16, className }: IconProps) {
-  return <Logout01Icon size={size} className={className} />
-}
-
-export function IconCheck({ size = 13, className }: IconProps) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className={className}
-      aria-hidden="true"
-    >
-      <path d="M2.5 7.5L5.5 10.5L11.5 3.5" />
-    </svg>
-  )
-}
-
-export function IconHome({ size = 16, className }: IconProps) {
-  return <Home01Icon size={size} className={className} />
-}
-
-export function IconUsers({ size = 16, className }: IconProps) {
-  return <UserGroupIcon size={size} className={className} />
-}
-
-export function IconPlus({ size = 16, className }: IconProps) {
-  return <Add01Icon size={size} className={className} />
-}
-
-export function IconSettings({ size = 16, className }: IconProps) {
-  return <Setting07Icon size={size} className={className} />
-}
-
-export function IconEye({ size = 16, className }: IconProps) {
-  return <ViewIcon size={size} className={className} />
-}
-
-export function IconEyeOff({ size = 16, className }: IconProps) {
-  return <ViewOffSlashIcon size={size} className={className} />
-}
-
-export function IconUser({ size = 16, className }: IconProps) {
-  return <UserAccountIcon size={size} className={className} />
-}
-
-export function IconLock({ size = 16, className }: IconProps) {
-  return <LockPasswordIcon size={size} className={className} />
-}
-
-export function IconServer({ size = 16, className }: IconProps) {
-  return <ServerStack01Icon size={size} className={className} />
-}
-
-export function IconArrowRight({ size = 15, className }: IconProps) {
-  return <ArrowRight01Icon size={size} className={className} />
-}
-
-export function IconHelp({ size = 16, className }: IconProps) {
-  return <HelpCircleIcon size={size} className={className} />
-}
-
-export function IconX({ size = 14, className }: IconProps) {
-  return <Cancel01Icon size={size} className={className} />
-}
-
-export function IconShield({ size = 16, className }: IconProps) {
-  return <Shield01Icon size={size} className={className} />
-}
-
-function StrokeIcon({ size = 18, className, children }: IconProps & { children: React.ReactNode }) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}
-    aria-hidden="true">{children}</svg>
-}
-
-export function IconCamera({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}><rect x="3" y="6" width="13" height="12" rx="2" />
-    <path d="m16 10 5-3v10l-5-3" /></StrokeIcon>
-}
-
-export function IconCameraOff({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}><path d="M3 3l18 18" />
-    <path d="M10 6h4a2 2 0 0 1 2 2v4m0 4H5a2 2 0 0 1-2-2V8c0-.6.3-1.2.7-1.5" />
-    <path d="m16 10 5-3v10l-3-1.8" /></StrokeIcon>
-}
-
-export function IconScreen({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}><rect x="3" y="4" width="18" height="13" rx="2" />
-    <path d="M8 21h8m-4-4v4" /></StrokeIcon>
-}
-
-export function IconMinimize({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}><path d="M8 3v5H3m18 0h-5V3M3 16h5v5m8 0v-5h5" /></StrokeIcon>
-}
-
-export function IconFullscreen({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}><path d="M3 8V3h5m8 0h5v5m0 8v5h-5M8 21H3v-5" /></StrokeIcon>
-}
-
-export function IconPictureInPicture({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}><rect x="3" y="5" width="18" height="14" rx="2" />
-    <rect x="12" y="11" width="7" height="5" rx="1" /></StrokeIcon>
-}
-
-export function IconMore({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}><circle cx="5" cy="12" r="1" fill="currentColor" />
-    <circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="19" cy="12" r="1" fill="currentColor" /></StrokeIcon>
-}
-
-export function IconSignal({ size = 16, className }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
-      <rect x="3" y="16" width="3" height="5" rx="1" />
-      <rect x="8" y="12" width="3" height="9" rx="1" />
-      <rect x="13" y="8" width="3" height="13" rx="1" />
-      <rect x="18" y="4" width="3" height="17" rx="1" />
-    </svg>
-  )
-}
-
-export function IconChat({ size = 18, className }: IconProps) {
-  return (
-    <StrokeIcon size={size} className={className}>
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-    </StrokeIcon>
-  )
-}
-
-export function IconGrid({ size = 18, className }: IconProps) {
-  return (
-    <StrokeIcon size={size} className={className}>
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-    </StrokeIcon>
-  )
-}
-
-export function IconChevronDown({ size = 14, className }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="m6 9 6 6 6-6" />
-    </svg>
-  )
-}
-
-export function IconChevronUp({ size = 14, className }: IconProps) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden="true">
-      <path d="m18 15-6-6-6 6" />
-    </svg>
-  )
-}
-
-export function IconExpand({ size = 16, className }: IconProps) {
-  return (
-    <StrokeIcon size={size} className={className}>
-      <polyline points="15 3 21 3 21 9" />
-      <polyline points="9 21 3 21 3 15" />
-      <line x1="21" y1="3" x2="14" y2="10" />
-      <line x1="3" y1="21" x2="10" y2="14" />
-    </StrokeIcon>
-  )
-}
-
+/** A marca. Nao vem de biblioteca nenhuma e nao tem variante preenchida. */
 export function IconStappLogo({ size = 48, className }: { size?: number; className?: string }) {
   return (
     <svg
@@ -261,74 +229,10 @@ export function IconStappLogo({ size = 48, className }: { size?: number; classNa
       viewBox="0 0 239 220"
       fill="currentColor"
       aria-hidden="true"
+      focusable="false"
       className={className}
     >
       <path d="M126.31 0C-30.1899 0 -28.6903 219.5 62.3097 219.5C153.31 219.5 161.31 102.5 126.31 102.5C91.3096 102.5 95.9784 131.704 65.81 127C35.6415 122.295 64.8985 45.7406 132.31 53.4998C214.31 70.4998 154.31 191 197.31 191C258.31 191 263.31 0 126.31 0Z" />
     </svg>
   )
-}
-
-// Barra de acoes que aparece no hover da mensagem.
-export function IconReply({ size = 16, className }: IconProps) {
-  return <ArrowTurnBackwardIcon size={size} className={className} />
-}
-
-export function IconEdit({ size = 16, className }: IconProps) {
-  return <Edit02Icon size={size} className={className} />
-}
-
-export function IconTrash({ size = 16, className }: IconProps) {
-  return <Delete02Icon size={size} className={className} />
-}
-
-export function IconReaction({ size = 16, className }: IconProps) {
-  return <SmileIcon size={size} className={className} />
-}
-
-export function IconVolumeLow({ size = 16, className }: IconProps) {
-  return <VolumeLowIcon size={size} className={className} />
-}
-
-export function IconVolumeOff({ size = 16, className }: IconProps) {
-  return <VolumeOffIcon size={size} className={className} />
-}
-
-// Barra de canais e cabecalho da conversa.
-export function IconSearch({ size = 16, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}><circle cx="11" cy="11" r="7" />
-    <path d="m20 20-3.6-3.6" /></StrokeIcon>
-}
-
-/** Abre e fecha a coluna de membros. E um painel com gente dentro, nao a
-    silhueta generica de pessoa — o desenho precisa dizer "coluna", senao vira
-    o mesmo icone do menu de perfil. */
-export function IconMembers({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}>
-    <rect x="3" y="4" width="18" height="16" rx="2.5" />
-    <path d="M15 4v16" />
-    <circle cx="8.6" cy="10" r="1.9" />
-    <path d="M5.4 15.6c.5-1.5 1.7-2.3 3.2-2.3s2.7.8 3.2 2.3" />
-  </StrokeIcon>
-}
-
-export function IconSend({ size = 16, className }: IconProps) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
-    className={className} aria-hidden="true">
-    <path d="M3.4 20.4 21 12 3.4 3.6 3.4 10.1 15.5 12 3.4 13.9z" />
-  </svg>
-}
-
-export function IconGif({ size = 18, className }: IconProps) {
-  return <svg width={size} height={size} viewBox="0 0 24 24" className={className} aria-hidden="true">
-    <rect x="2.5" y="5" width="19" height="14" rx="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    <text x="12" y="15.4" textAnchor="middle" fill="currentColor"
-      fontSize="7.4" fontWeight="700" fontFamily="inherit">GIF</text>
-  </svg>
-}
-
-export function IconPin({ size = 18, className }: IconProps) {
-  return <StrokeIcon size={size} className={className}>
-    <path d="M14.5 2.5 21.5 9.5l-2.6 1a4 4 0 0 0-2 1.6l-2 3.3-6.3-6.3 3.3-2a4 4 0 0 0 1.6-2z" />
-    <path d="M8.6 15.4 3 21" />
-  </StrokeIcon>
 }

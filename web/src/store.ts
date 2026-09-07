@@ -370,12 +370,16 @@ export function reduce(state: StappState, msg: StappAction): StappState {
     case 'call.ringing':
     case 'call.accepted':
     case 'call.ended':
+    case 'voice.invite':
     case 'voice.grant':
     case 'voice.denied':
     case 'rtc.signal':
     case 'error':
     case 'dm.denied':
     case 'telemetry.pong':
+    /* `profile.detail` nao vive aqui: amigos em comum sao a resposta a UM par de
+       contas, entao ficam no `presenceStore`, ao lado do perfil que os pediu. */
+    case 'profile.detail':
       return state
   }
 }
@@ -499,10 +503,11 @@ export function directChannelPartner(state: StappState, channel: string): string
   if (!outro) return null
 
   return (
-    state.conversations[outro]?.username ??
-    state.socialMembers.find((entry) => entry.user_id === outro)?.username ??
-    state.directory.find((entry) => entry.user_id === outro)?.username ??
-    state.users.find((user) => user.user_id === outro)?.username ??
+    state.profiles[outro]?.display_name ||
+    state.conversations[outro]?.username ||
+    state.socialMembers.find((entry) => entry.user_id === outro)?.username ||
+    state.directory.find((entry) => entry.user_id === outro)?.username ||
+    state.users.find((user) => user.user_id === outro)?.username ||
     null
   )
 }
@@ -528,6 +533,8 @@ export function resolveProfile(
     accent: 'blue',
     bio: '',
     has_avatar: false,
+    has_banner: false,
+    created_at: 0,
     updated_at: 0,
   }
 }

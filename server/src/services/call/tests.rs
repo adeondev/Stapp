@@ -26,7 +26,7 @@ async fn dupla() -> (TestServer, crate::storage::Account, crate::storage::Accoun
 
 #[tokio::test]
 async fn ligar_toca_do_outro_lado_e_confirma_para_quem_ligou() {
-    let (server, _daniel, alice) = dupla().await;
+    let (server, daniel, alice) = dupla().await;
     let mut events = server.state.subscribe();
 
     start(&server.state, "d1", alice.id.clone()).await;
@@ -36,10 +36,16 @@ async fn ligar_toca_do_outro_lado_e_confirma_para_quem_ligou() {
         peer == "a1"
             && matches!(msg, ServerMsg::CallIncoming { username, .. } if username == "Daniel")
     });
+    let convidou = eventos.iter().any(|(peer, msg)| {
+        peer == "a1"
+            && matches!(msg, ServerMsg::VoiceInvite { from_user_id, channel_id }
+                if from_user_id == &daniel.id && channel_id == &voice::direct_channel(&daniel.id, &alice.id))
+    });
     let confirmou = eventos
         .iter()
         .any(|(peer, msg)| peer == "d1" && matches!(msg, ServerMsg::CallRinging { .. }));
     assert!(tocou, "tinha que tocar para a alice");
+    assert!(convidou, "tinha que enviar convite de voz para a alice");
     assert!(confirmou, "quem ligou precisa saber que esta tocando");
 }
 
@@ -98,7 +104,32 @@ async fn recusar_avisa_os_dois_e_deixa_rastro_na_conversa() {
 }
 
 #[tokio::test]
-async fn ligar_para_quem_esta_offline_nem_toca() {
+async fn cancelar_grava_chamada_perdida_com_horario() {
+    let (server, daniel, alice) = dupla().await;
+    start(&server.state, "d1", alice.id.clone()).await;
+
+    let mut events = server.state.subscribe();
+    cancel(&server.state, "d1", alice.id.clone()).await;
+
+    let eventos = coletar(&mut events);
+    assert!(eventos.iter().any(|(peer, msg)| peer == "a1"
+        && matches!(
+            msg,
+            ServerMsg::CallEnded {
+                reason: CallEndReason::Canceled,
+                ..
+            }
+        )));
+
+    let conversa = conversation_id(&daniel.id, &alice.id);
+    let historico = server.state.db.direct_history(&conversa, 10).await.unwrap();
+    assert_eq!(historico.len(), 1);
+    assert_eq!(historico[0].kind, DirectMessageKind::Call);
+    assert!(historico[0].text.starts_with("Chamada perdida às "));
+}
+
+#[tokio::test]
+async fn ligar_para_quem_esta_offline_grava_chamada_perdida_na_dm() {
     let server = TestServer::new(10, 4).await;
     let daniel = server.account("Daniel").await;
     let alice = server.account("Alice").await;
@@ -117,16 +148,20 @@ async fn ligar_para_quem_esta_offline_nem_toca() {
                 ..
             }
         )));
-    // Nao chegou a tocar, entao nao vira linha na conversa.
+    // Registra chamada perdida imediatamente na DM para o usuario offline.
     let conversa = conversation_id(&daniel.id, &alice.id);
+    let historico = server
+        .state
+        .db
+        .direct_history(&conversa, 10)
+        .await
+        .unwrap();
+    assert_eq!(historico.len(), 1);
+    assert_eq!(historico[0].kind, DirectMessageKind::Call);
     assert!(
-        server
-            .state
-            .db
-            .direct_history(&conversa, 10)
-            .await
-            .unwrap()
-            .is_empty()
+        historico[0].text.starts_with("Chamada perdida às "),
+        "texto gravado: {}",
+        historico[0].text
     );
 }
 

@@ -1,0 +1,54 @@
+/* A hitbox e do botao, o desenho e do icone. Duas medidas separadas de
+   proposito: e o que faz uma barra com glifos de 16, 18 e 20 continuar alinhada. */
+
+.icon-button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  place-items: center;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--interactive);
+  line-height: 0;
+  transition: 
+    background var(--dur-fast) ease,
+    color var(--dur-fast) ease;
+}
+
+.icon-button--sm { width: 28px; height: 28px; }
+.icon-button--md { width: 32px; height: 32px; }
+/* O dock da chamada e alvo grande de mouse, com o app em tela cheia. */
+.icon-button--lg { width: 44px; height: 44px; border-radius: var(--radius); }
+
+.icon-button:hover:not(:disabled) { background: var(--modifier-hover); color: var(--interactive-active); }
+.icon-button:active:not(:disabled) { background: var(--modifier-active); }
+.icon-button:disabled { color: var(--text-faint); cursor: not-allowed; }
+
+.icon-button--accent { color: var(--accent); }
+.icon-button--accent:hover:not(:disabled) { color: var(--accent-hover); }
+
+.icon-button--active { background: var(--modifier-selected); color: var(--interactive-active); }
+.icon-button--active:hover:not(:disabled) { background: var(--modifier-selected); }
+
+/* Capturando agora. Vermelho como "isto esta no ar, clique para parar" — nao
+   como erro. Antes a camera *desligada* e que aparecia vermelha, e o significado
+   dos dois estados era o mesmo `is-off`. */
+.icon-button--capturing { background: var(--danger); color: var(--on-danger); }
+.icon-button--capturing:hover:not(:disabled) { background: var(--danger); filter: brightness(1.12); }
+
+.icon-button--danger { background: var(--danger); color: var(--on-danger); }
+.icon-button--danger:hover:not(:disabled) { background: var(--danger); filter: brightness(1.12); }
+
+.icon-button.is-busy { cursor: progress; }
+
+.icon-button__spinner { animation: icon-button-spin 800ms linear infinite; }
+
+@keyframes icon-button-spin {
+  to { transform: rotate(360deg); }
+}
+
+.icon-button-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}

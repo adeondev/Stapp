@@ -1,0 +1,57 @@
+/* Medidor de nivel. A barra e um bloco afundado com o preenchimento pintado por
+   cima — sem elemento extra, sem borda. */
+.voicevideo__meter {
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-input);
+}
+
+.voicevideo__meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--online);
+  /* Curto de proposito: o medidor precisa parecer imediato, e nao animado. */
+  transition: width 60ms linear;
+}
+
+/* A previa nasce com altura zero para nao empurrar a pagina antes de existir. */
+.voicevideo__camera {
+  height: 0;
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--call-video);
+  transition: height var(--dur-slow) var(--motion-smooth);
+}
+
+.voicevideo__camera.is-visible { height: 200px; }
+.voicevideo__camera video { width: 100%; height: 100%; display: block; object-fit: cover; }
+.voicevideo__camera.is-mirrored video { transform: scaleX(-1); }
+
+.voicevideo__status {
+  color: var(--text-soft);
+  font-size: var(--fs-md);
+}
+
+.voicevideo__report {
+  max-height: 240px;
+  margin: 0;
+  padding: var(--space-4);
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--bg-canvas);
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+.voicevideo__processor {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}
+
+.voicevideo__processor.is-active { color: var(--online); }
+.voicevideo__processor.is-fallback { color: var(--warning); }

@@ -1,33 +1,38 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import stappLogo from '../assets/imgs/svg/stapp_logo.svg'
-import { AuthApi, AuthApiError } from './net/auth'
+import { AuthApi, AuthApiError, clearSavedToken, getSavedToken, saveToken } from './net/auth'
 import { Connection, type ConnectionStatus } from './net/connection'
 import { IncomingRequestTracker, notificationSound } from './net/notifications'
 import { callSounds } from './net/callSounds'
 import { hasPendingLogout, lastServer, loadServers, markLogoutPending, normalizeServerUrl,
   removeServer, saveServer, setPendingLogout, type SavedServer } from './net/servers'
-import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
+import type { AuthMode, AuthSession, CallEndReason, PeerId, UserId } from './protocol'
 import { PROTOCOL_VERSION } from './protocol'
 import { directChannelPartner, directChannelPartnerId, profileOf, totalUnread, type StappState } from './store'
 import { dispatchServerMessage, resetAllStores, useChatStore, usePresenceStore, useVoiceStore } from './stores'
 import { AccountBar } from './ui/AccountBar'
-import { avatarBaseFromWs, comRenovacao, removeAvatar, uploadAvatar } from './net/avatars'
+import {
+  avatarBaseFromWs, comRenovacao, removeAvatar, removeBanner, uploadAvatar, uploadBanner,
+} from './net/avatars'
 import { ProfileProvider } from './ui/Avatar'
 import { CallPanel } from './ui/CallPanel'
 import { Chat } from './ui/Chat'
 import { Connect, type AuthInfo } from './ui/Connect'
 import { FriendsHome, type SocialAction } from './ui/FriendsHome'
+import { JoinServerModal } from './ui/JoinServerModal'
 import { MembersPanel } from './ui/MembersPanel'
 import { ServerRail } from './ui/ServerRail'
 import { Sidebar, sidebarModeFor, type View } from './ui/Sidebar'
 import { VoiceBar } from './ui/VoiceBar'
 import { CallStage } from './ui/CallStage'
 import { CallMiniPip } from './ui/CallMiniPip'
-import { SettingsModal, type SettingsTab } from './ui/SettingsModal'
+import { AppSettings } from './ui/settings/AppSettings'
 import { UserMenuProvider } from './ui/UserMenu'
+import { UserProfileProvider } from './ui/profile/UserProfilePopover'
 import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
 import { useAutoUpdater } from './platform/updater/useAutoUpdater'
+import { notifyIncomingCall, notifyNewDm, notifyMention } from './platform/notifications'
 import { UpdateModal } from './ui/updater/UpdateModal'
 import { MandatoryUpdateLock } from './ui/updater/MandatoryUpdateLock'
 import { SplashScreen } from './ui/updater/SplashScreen'
@@ -56,6 +61,11 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
+  const [isJoinServerOpen, setIsJoinServerOpen] = useState(false)
+  const [hasInitialToken, setHasInitialToken] = useState(() => {
+    const profile = lastServer()
+    return profile ? Boolean(getSavedToken(profile.url)) : false
+  })
   const attemptedUsername = useRef(active?.profile.username ?? '')
 
   const selfPeerId = usePresenceStore((s) => s.selfPeerId)
@@ -81,6 +91,19 @@ export default function App() {
     voice.current?.setMuted(muted || deafened)
     voice.current?.setDeafened(deafened)
   }, [muted, deafened])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) return
+    let unlisten: (() => void) | undefined
+    void import('@tauri-apps/api/event').then(async ({ listen }) => {
+      unlisten = await listen('stapp:toggle-mute', () => {
+        useVoiceStore.getState().toggleMute()
+      })
+    }).catch(() => {})
+    return () => {
+      unlisten?.()
+    }
+  }, [])
   const voiceSnapshot = useVoiceStore((s) => s.voiceSnapshot)
   const setVoiceSnapshot = useVoiceStore((s) => s.setVoiceSnapshot)
   const voiceConfig = useVoiceStore((s) => s.voiceConfig)
@@ -130,18 +153,30 @@ export default function App() {
   // deixa a citacao saber se e voce sem remontar a conexao a cada render.
   const selfUserIdRef = useRef<UserId | null>(null)
   selfUserIdRef.current = selfUserId
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
-  const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
+  /* Antes eram dois estados e dois modais: um para "configuracoes de voz" e
+     outro para "editar perfil". Agora e uma tela so, e o que muda e a categoria
+     em que ela abre. `null` = fechada. */
+  const [settings, setSettings] = useState<string | null>(null)
   const [_voicePreferences, setVoicePreferences] = useState<VoicePreferences>(loadVoicePreferences)
   const [ringing, setRinging] = useState<Ringing | null>(null)
-  const [editingProfile, setEditingProfile] = useState(false)
+  /* O servidor diz no `welcome` se o servico de voz esta ligado. Sem isso a
+     categoria de voz nas configuracoes nao sabe distinguir "desligado neste
+     servidor" de "ainda nao subiu nesta sessao". */
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean | null>(null)
   const [membersOpen, setMembersOpen] = useState(true)
 
   const connection = useRef<Connection | null>(null)
   const authApi = useRef<AuthApi | null>(null)
   const voice = useRef<VoiceTransport | null>(null)
   const unsubscribeVoice = useRef<(() => void) | null>(null)
+  const outgoingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearOutgoingTimeout = useCallback(() => {
+    if (outgoingTimeoutRef.current) {
+      clearTimeout(outgoingTimeoutRef.current)
+      outgoingTimeoutRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const preventNativeContextMenu = (event: MouseEvent) => {
@@ -153,6 +188,7 @@ export default function App() {
   }, [])
 
   const resetRoom = useCallback(() => {
+    clearOutgoingTimeout()
     callSounds.stopAll()
     voice.current?.destroy()
     voice.current = null
@@ -162,10 +198,10 @@ export default function App() {
     setAuthenticated(false)
     setView(null)
     previousServerView.current = null
-    setSettingsOpen(false)
-    setVoiceSettingsOpen(false)
+    setSettings(null)
     setRinging(null)
     setNotice(null)
+    setVoiceEnabled(null)
   }, [])
 
   const updateActiveProfile = useCallback((patch: Partial<SavedServer>) => {
@@ -244,12 +280,21 @@ export default function App() {
             setAuthError(`Versão incompatível: servidor ${msg.protocol_version}, aplicativo ${PROTOCOL_VERSION}.`)
             return
           }
-          if (!conn.hasAccess()) void attemptRefresh()
+          if (!conn.hasAccess()) {
+            const savedToken = getSavedToken(serverUrl)
+            if (savedToken && !active.profile.logoutPending) {
+              conn.authenticate(savedToken)
+            } else {
+              void attemptRefresh()
+            }
+          }
           return
         }
 
         if (msg.t === 'auth.error') {
           conn.clearAccess()
+          clearSavedToken(serverUrl)
+          setHasInitialToken(false)
           setAuthBusy(false)
           setAuthError(msg.message)
           if (msg.code === 'client_outdated') {
@@ -261,9 +306,14 @@ export default function App() {
         }
 
         if (msg.t === 'welcome') {
+          setVoiceEnabled(msg.voice_enabled ?? true)
           setAuthBusy(false)
           setAuthError(null)
           setAuthenticated(true)
+          setHasInitialToken(true)
+          if (activeRef.current?.profile.url) {
+            localStorage.setItem('stapp.last-server.v2', activeRef.current.profile.url)
+          }
           updateActiveProfile({ username: attemptedUsername.current, lastUsed: Date.now(), logoutPending: undefined })
 
           const currentCall = useVoiceStore.getState().call
@@ -308,17 +358,44 @@ export default function App() {
           const eu = selfUserIdRef.current
           const meChama =
             (eu !== null && msg.msg.mentions?.includes(eu)) || Boolean(msg.msg.mentions_everyone)
-          if (meChama && msg.msg.author_id !== eu) notificationSound.play()
+          if (meChama && msg.msg.author_id !== eu) {
+            notificationSound.play()
+            const ch = usePresenceStore.getState().channels.find((c) => c.id === msg.channel)
+            const author = usePresenceStore.getState().users.find((u) => u.user_id === msg.msg.author_id)
+            const authorProfile = usePresenceStore.getState().profiles[msg.msg.author_id]
+            const authorName = authorProfile?.display_name || author?.username || msg.msg.author_id
+            notifyMention(authorName, ch?.name || 'chat', msg.msg.text)
+          }
         }
         if (msg.t === 'dm.new') {
-          if (msg.unread > 0 && msg.msg.kind === 'text') notificationSound.play()
+          if (msg.unread > 0 && msg.msg.kind === 'text') {
+            notificationSound.play()
+            const author = usePresenceStore.getState().users.find((u) => u.user_id === msg.msg.author_id)
+            const authorProfile = usePresenceStore.getState().profiles[msg.msg.author_id]
+            const authorName = authorProfile?.display_name || author?.username || msg.msg.author_id
+            notifyNewDm(authorName, msg.msg.text)
+          }
         }
         if (msg.t === 'dm.denied') setNotice('Essa pessoa aceita novas conversas apenas de amigos.')
         if (msg.t === 'call.incoming') {
           setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
           callSounds.playRingtone()
+          notifyIncomingCall(msg.username || msg.user_id)
+        }
+        if (msg.t === 'voice.invite') {
+          const user = usePresenceStore.getState().users.find((u) => u.user_id === msg.from_user_id)
+          const username = user?.username || msg.from_user_id
+          setRinging((current) => {
+            if (!current) {
+              callSounds.playRingtone()
+              notifyIncomingCall(username)
+              return { userId: msg.from_user_id, username, direction: 'incoming' }
+            }
+            return current
+          })
         }
         if (msg.t === 'call.accepted') {
+          clearOutgoingTimeout()
           callSounds.stopLoop()
           setRinging(null)
           void voice.current?.join(msg.channel).then((started) => {
@@ -328,12 +405,17 @@ export default function App() {
               voice.current?.setMuted(m || d)
               voice.current?.setDeafened(d)
               setCall({ channel: msg.channel, muted: m, deafened: d })
+              useVoiceStore.getState().setVoip((prev) =>
+                prev ? { ...prev, status: 'connected' } : null
+              )
             }
           })
         }
         if (msg.t === 'call.ended') {
+          clearOutgoingTimeout()
           callSounds.stopLoop()
           setRinging(null)
+          useVoiceStore.getState().setVoip(null)
           setNotice(CALL_REASON[msg.reason])
         }
         if (msg.t === 'error') setNotice(msg.message)
@@ -350,6 +432,7 @@ export default function App() {
 
     return () => {
       disposed = true
+      clearOutgoingTimeout()
       voice.current?.destroy()
       voice.current = null
       conn.close()
@@ -413,6 +496,10 @@ export default function App() {
     setAuthError(null)
     try {
       const session = await api.authenticate(mode, username, password, remember)
+      if (active?.profile.url) {
+        saveToken(active.profile.url, session.access_token, remember)
+        setHasInitialToken(true)
+      }
       connection.current?.authenticate(session.access_token)
       updateActiveProfile({ username, lastUsed: Date.now() })
     } catch (error) {
@@ -423,11 +510,13 @@ export default function App() {
         setAuthError(error instanceof Error ? error.message : 'Não foi possível autenticar.')
       }
     }
-  }, [updateActiveProfile])
+  }, [active?.profile.url, updateActiveProfile])
 
   const logout = useCallback(async () => {
     const profile = active?.profile
     if (!profile) return
+    clearSavedToken(profile.url)
+    setHasInitialToken(false)
     const revoked = await authApi.current?.logout()
     const next = markLogoutPending(profile, revoked !== true)
     setPendingLogout(profile.url, revoked !== true)
@@ -444,6 +533,18 @@ export default function App() {
     setAuthInfo(null)
     setAuthError(null)
   }, [resetRoom])
+
+  const handleJoinServerSuccess = useCallback((profile: SavedServer, session?: AuthSession) => {
+    setIsJoinServerOpen(false)
+    if (session?.access_token) {
+      saveToken(profile.url, session.access_token, true)
+      setHasInitialToken(true)
+    }
+    const next = saveServer(profile)
+    setServers(next)
+    setActive({ profile, persisted: true })
+    setConnectionEpoch((value) => value + 1)
+  }, [])
 
   const sendMessage = useCallback(
     (text: string, attachmentIds?: string[], replyTo?: string, clientNonce?: string) => {
@@ -514,6 +615,30 @@ export default function App() {
     })
   }, [])
 
+  /* O cartao de perfil pede o detalhe (amigos em comum) ao ABRIR, nao a cada
+     avatar desenhado. Uma consulta por clique, e nao por linha de lista. */
+  const fetchProfileDetail = useCallback((userId: UserId) => {
+    connection.current?.send({ t: 'profile.fetch', user_id: userId })
+  }, [])
+
+  const markServerAsRead = useCallback((server?: SavedServer) => {
+    if (!server || server.url === active?.profile.url) {
+      for (const [channelId, msgs] of Object.entries(state.messages)) {
+        if (msgs.length > 0) {
+          const lastMsg = msgs[msgs.length - 1]
+          connection.current?.send({ t: 'chat.read', channel: channelId, message_id: lastMsg.id })
+        }
+      }
+      for (const [userId, dms] of Object.entries(state.directMessages)) {
+        if (dms.length > 0) {
+          const lastDm = dms[dms.length - 1]
+          connection.current?.send({ t: 'dm.read', user_id: userId, message_id: lastDm.id })
+        }
+      }
+      useChatStore.getState().markAllAsRead()
+    }
+  }, [active?.profile.url, state.messages, state.directMessages])
+
   const selectHome = useCallback(() => {
     setView({ kind: 'home' })
   }, [])
@@ -528,6 +653,12 @@ export default function App() {
     setView({ kind: 'direct', userId })
     connection.current?.send({ t: 'dm.open', user_id: userId })
   }, [])
+
+  /* Redirecionamento imediato para a DM enviando a mensagem rápida. */
+  const quickMessage = useCallback((userId: UserId, text: string) => {
+    selectDirect(userId)
+    connection.current?.send({ t: 'dm.send', user_id: userId, text })
+  }, [selectDirect])
 
   const openServerCallView = useCallback((channelId: string) => {
     const current = viewRef.current
@@ -566,36 +697,89 @@ export default function App() {
   }, [call?.channel, joinCall, openServerCallView])
 
   const startCall = useCallback((userId: UserId, username: string) => {
+    clearOutgoingTimeout()
+    const selfId = selfUserIdRef.current ?? ''
+    const channelId = `dm:${[selfId, userId].sort().join(':')}`
     setRinging({ userId, username, direction: 'outgoing' })
+    useVoiceStore.getState().setVoip({
+      status: 'ringing',
+      userId,
+      username,
+      direction: 'outgoing',
+      channel: channelId,
+    })
     connection.current?.send({ t: 'call.start', user_id: userId })
+    connection.current?.send({ t: 'voice.invite', target_user_id: userId, channel_id: channelId })
     callSounds.playCalling()
-  }, [])
-  const acceptCall = useCallback(() => setRinging((current) => {
-    if (current) {
+
+    outgoingTimeoutRef.current = setTimeout(() => {
       callSounds.stopLoop()
-      connection.current?.send({ t: 'call.accept', user_id: current.userId })
-    }
-    return current
-  }), [])
-  const dismissCall = useCallback(() => setRinging((current) => {
-    if (current) {
-      callSounds.stopLoop()
-      connection.current?.send(current.direction === 'incoming'
-        ? { t: 'call.decline', user_id: current.userId }
-        : { t: 'call.cancel', user_id: current.userId })
-    }
-    return null
-  }), [])
-  /** `null` remove. O token vem do Connection para nao ter duas fontes. */
-  const enviarAvatar = useCallback(
-    async (file: File | null) => {
+      setRinging((current) => {
+        if (current && current.direction === 'outgoing' && current.userId === userId) {
+          connection.current?.send({ t: 'call.cancel', user_id: userId })
+          useVoiceStore.getState().setVoip(null)
+          setNotice('Chamada não atendida')
+          return null
+        }
+        return current
+      })
+    }, 30000)
+  }, [clearOutgoingTimeout])
+
+  const acceptCall = useCallback(() => {
+    clearOutgoingTimeout()
+    setRinging((current) => {
+      if (current) {
+        callSounds.stopLoop()
+        connection.current?.send({ t: 'call.accept', user_id: current.userId })
+        useVoiceStore.getState().setVoip((prev) =>
+          prev ? { ...prev, status: 'connecting' } : {
+            status: 'connecting',
+            userId: current.userId,
+            username: current.username,
+            direction: 'incoming',
+          }
+        )
+      }
+      return current
+    })
+  }, [clearOutgoingTimeout])
+
+  const dismissCall = useCallback(() => {
+    clearOutgoingTimeout()
+    setRinging((current) => {
+      if (current) {
+        callSounds.stopLoop()
+        connection.current?.send(current.direction === 'incoming'
+          ? { t: 'call.decline', user_id: current.userId }
+          : { t: 'call.cancel', user_id: current.userId })
+        useVoiceStore.getState().setVoip(null)
+      }
+      return null
+    })
+  }, [clearOutgoingTimeout])
+  /**
+   * Sobe (ou remove) uma imagem de perfil. `null` remove.
+   *
+   * O token vem do `Connection` para nao existirem duas fontes, e a renovacao e
+   * a mesma do avatar: o access token dura 15 minutos e pode vencer com o
+   * WebSocket ainda vivo — o upload vai por HTTP e levaria um token velho.
+   */
+  const enviarImagemDePerfil = useCallback(
+    async (kind: 'avatar' | 'banner', file: File | null) => {
       const servidor = active?.profile.url
       if (!servidor) throw new Error('sua sessão expirou, entre de novo')
       const base = avatarBaseFromWs(servidor)
 
       const tentar = async (token: string) => {
-        if (file) await uploadAvatar(base, token, file)
-        else await removeAvatar(base, token)
+        if (kind === 'avatar') {
+          if (file) await uploadAvatar(base, token, file)
+          else await removeAvatar(base, token)
+        } else if (file) {
+          await uploadBanner(base, token, file)
+        } else {
+          await removeBanner(base, token)
+        }
       }
 
       await comRenovacao(tentar, connection.current?.token ?? null, async () => {
@@ -608,11 +792,21 @@ export default function App() {
     [active?.profile.url],
   )
 
+  const enviarAvatar = useCallback(
+    (file: File | null) => enviarImagemDePerfil('avatar', file),
+    [enviarImagemDePerfil],
+  )
+  const enviarBanner = useCallback(
+    (file: File | null) => enviarImagemDePerfil('banner', file),
+    [enviarImagemDePerfil],
+  )
+
   const leaveCall = useCallback(() => {
     callSounds.stopLoop()
     callSounds.playLeave()
     voice.current?.leave()
     setCall(null)
+    useVoiceStore.getState().setVoip(null)
     setView((current) => current?.kind === 'voice'
       ? (previousServerView.current ?? { kind: 'home' })
       : current)
@@ -663,6 +857,12 @@ export default function App() {
   }
 
   if (!active || !authenticated) {
+    if (active && hasInitialToken && authBusy && !authError) {
+      return (
+        <div className="app app--loading" style={{ display: 'grid', placeItems: 'center', height: '100vh', background: 'var(--bg-canvas)' }} aria-label="Conectando..." />
+      )
+    }
+
     return (
       <>
         <Connect serverUrl={active?.profile.url ?? null} serverProfile={active?.profile ?? null}
@@ -717,12 +917,18 @@ export default function App() {
     <ProfileProvider profiles={state.profiles} avatarBase={avatarBase}>
     <UserMenuProvider members={state.socialMembers} selfUserId={state.selfUserId}
       onMessage={selectDirect} onCall={startCall} onAction={socialAction}
-      onEditSelf={() => setEditingProfile(true)}
+      onEditSelf={() => setSettings('profile')}
       updater={updater}>
+    <UserProfileProvider selfUserId={state.selfUserId} members={state.socialMembers}
+      onlineIds={onlineIds} avatarBase={avatarBase}
+      onMessage={selectDirect} onCall={startCall} onQuickMessage={quickMessage}
+      onAction={socialAction} onEditSelf={() => setSettings('profile')}
+      onFetchDetail={fetchProfileDetail}>
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
       <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
         homeNotificationCount={homeNotificationCount}
-        onHome={selectHome} onSelect={selectServer} onAdd={backToServers} />
+        onHome={selectHome} onSelect={selectServer} onAdd={() => setIsJoinServerOpen(true)}
+        onMarkAsRead={markServerAsRead} onRemoveServer={(srv) => removeSaved(srv.url)} />
       <Sidebar state={state} status={status} view={view} mode={sidebarMode}
         onSelectHome={selectHome}
         onSelectChannel={selectChannel} onSelectDirect={selectDirect}
@@ -735,24 +941,15 @@ export default function App() {
               else if (call?.channel) openServerCallView(call.channel)
             }} />}
           <AccountBar
-            onOpenProfile={() => {
-              setSettingsTab('account')
-              setSettingsOpen(true)
-            }}
+            onOpenProfile={() => setSettings('profile')}
             userId={state.selfUserId}
             username={self?.username ?? attemptedUsername.current}
             muted={muted}
             deafened={deafened}
             onToggleMute={toggleMute}
             onToggleDeafen={toggleDeafen}
-            onOpenSettings={() => {
-              setSettingsTab('account')
-              setSettingsOpen(true)
-            }}
-            onOpenVoiceSettings={() => {
-              setSettingsTab('voice')
-              setSettingsOpen(true)
-            }}
+            onOpenSettings={() => setSettings('profile')}
+            onOpenVoiceSettings={() => setSettings('voice')}
           />
         </div>} />
 
@@ -764,10 +961,7 @@ export default function App() {
             snapshot={voiceSnapshot}
             transport={voice.current}
             onLeave={leaveCall}
-            onOpenSettings={() => {
-              setSettingsTab('voice')
-              setSettingsOpen(true)
-            }}
+            onOpenSettings={() => setSettings('voice')}
             resolveUserId={resolveUserId}
             selfUserId={state.selfUserId}
             variant="fullscreen"
@@ -781,10 +975,7 @@ export default function App() {
                 snapshot={voiceSnapshot}
                 transport={voice.current}
                 onLeave={leaveCall}
-                onOpenSettings={() => {
-                  setSettingsTab('voice')
-                  setSettingsOpen(true)
-                }}
+                onOpenSettings={() => setSettings('voice')}
                 resolveUserId={resolveUserId}
                 selfUserId={state.selfUserId}
                 variant="embedded"
@@ -793,6 +984,7 @@ export default function App() {
 
             {view?.kind === 'home' ? (
               <FriendsHome members={state.socialMembers} onlineIds={onlineIds}
+                serverName={state.serverName}
                 onOpenDirect={selectDirect} onAction={socialAction} />
             ) : channel ? (
               <Chat
@@ -871,32 +1063,31 @@ export default function App() {
       )}
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
-        selfUserId={state.selfUserId} selfUsername={self?.username ?? attemptedUsername.current}
-        onEditSelf={() => {
-          setSettingsTab('account')
-          setSettingsOpen(true)
-        }} />}
+        selfUserId={state.selfUserId} selfUsername={self?.username ?? attemptedUsername.current} />}
+      {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
+        onAccept={acceptCall} onDecline={dismissCall} />}
 
-      <SettingsModal
-        isOpen={settingsOpen || editingProfile || voiceSettingsOpen}
-        initialTab={voiceSettingsOpen ? 'voice' : settingsTab}
-        onClose={() => {
-          setSettingsOpen(false)
-          setEditingProfile(false)
-          setVoiceSettingsOpen(false)
-        }}
+      {/* Uma tela so, montada sempre — nao mais escondida atras de `voice.current`.
+          Quem depende de voz e a categoria de voz, que se desabilita sozinha. */}
+      <AppSettings
+        open={settings !== null}
+        initialCategory={settings ?? undefined}
+        onClose={() => setSettings(null)}
         profile={meuPerfil}
         avatarBase={avatarBase}
         onSaveProfile={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
-        onAvatarChange={enviarAvatar}
+        onAvatar={enviarAvatar}
+        onBanner={enviarBanner}
         transport={voice.current}
         snapshot={voiceSnapshot}
-        voicePreferences={_voicePreferences}
-        onVoicePreferencesChange={setVoicePreferences}
+        onPreferencesChange={setVoicePreferences}
+        voiceUnavailable={voiceEnabled === false
+          ? 'Este servidor está com a voz desligada.'
+          : 'A voz ainda não subiu nesta sessão. Reconecte e tente de novo.'}
+        updater={updater}
+        serverName={state.serverName}
+        protocolVersion={PROTOCOL_VERSION}
       />
-
-      {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
-        onAccept={acceptCall} onDecline={dismissCall} />}
 
       <UpdateModal
         isOpen={updater.isModalOpen}
@@ -910,7 +1101,16 @@ export default function App() {
         onStartUpdate={updater.startUpdate}
         onRelaunch={updater.relaunch}
       />
+
+      {isJoinServerOpen && (
+        <JoinServerModal
+          open={isJoinServerOpen}
+          onClose={() => setIsJoinServerOpen(false)}
+          onSuccess={handleJoinServerSuccess}
+        />
+      )}
     </div>
+    </UserProfileProvider>
     </UserMenuProvider>
     </ProfileProvider>
   )

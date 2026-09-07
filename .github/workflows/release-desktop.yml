@@ -88,7 +88,9 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: 'web/src-tauri -> target'
+          workspaces: |
+            server -> target
+            web/src-tauri -> web/src-tauri/target
           key: ${{ matrix.platform }}
 
       - name: Install frontend dependencies

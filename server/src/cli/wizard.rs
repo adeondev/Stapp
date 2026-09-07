@@ -50,7 +50,7 @@ pub fn ensure_parent_dirs(path: &Path) -> Result<()> {
 
 fn run_interactive_wizard(path: &Path) -> Result<Config> {
     println!("\n==================================================================");
-    println!("              Bem-vindo ao Stapp — Servidor Portatil              ");
+    println!("        Bem-vindo ao Stapp v{} — Servidor Portatil        ", env!("CARGO_PKG_VERSION"));
     println!("==================================================================");
     println!(" Nenhum arquivo de configuracao foi encontrado em: {}", path.display());
     println!();

@@ -1,8 +1,10 @@
 import { Avatar, ProfileName } from './Avatar'
 import { useMemo, useState } from 'react'
 import type { SocialMember, UserId } from '../protocol'
-import { IconAt, IconCheck, IconUsers, IconX } from './Icons'
+import { IconAt, IconCheck, IconChevronDown, IconServer, IconUsers, IconX } from './Icons'
 import { useUserMenu } from './UserMenu'
+import { useProfileTrigger } from './profile/UserProfilePopover'
+import { loadDmsAccordions, saveDmsAccordion } from './dmsAccordions'
 import './friends.css'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add'
@@ -14,12 +16,14 @@ interface Props {
   onlineIds: ReadonlySet<UserId>
   onOpenDirect(userId: UserId): void
   onAction(action: SocialAction, userId: UserId): void
+  serverName?: string
 }
 
-export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Props) {
+export function FriendsHome({ members, onlineIds, onOpenDirect, onAction, serverName }: Props) {
   const [tab, setTab] = useState<Tab>('online')
   const [query, setQuery] = useState('')
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [collapsedMap, setCollapsedMap] = useState<Record<string, boolean>>(loadDmsAccordions)
   const incoming = members.filter((member) => member.relationship === 'incoming')
   const outgoing = members.filter((member) => member.relationship === 'outgoing')
   const shown = useMemo(() => members.filter((member) => {
@@ -29,6 +33,17 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
     if (tab === 'blocked') return member.relationship === 'blocked'
     return false
   }), [members, onlineIds, tab])
+
+  const groupedByServer = useMemo(() => {
+    const map = new Map<string, SocialMember[]>()
+    for (const member of shown) {
+      const serverKey = member.server_name || serverName || 'Servidor'
+      const list = map.get(serverKey) ?? []
+      list.push(member)
+      map.set(serverKey, list)
+    }
+    return map
+  }, [shown, serverName])
 
   function addFriend(event: React.FormEvent) {
     event.preventDefault()
@@ -43,7 +58,7 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
   return (
     <section className="friends">
       <header className="friends__head">
-        <div className="friends__title"><IconUsers size={19} /><strong>Amigos</strong></div>
+        <div className="friends__title"><IconUsers size={18} /><strong>Amigos</strong></div>
         {/* A aba ativa se marca com o proprio fundo. A pilula que deslizava
             atras dos rotulos precisava medir o DOM a cada troca e a cada
             resize — muito maquinario para dizer "voce esta aqui". */}
@@ -84,12 +99,46 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
                 onAction={onAction} />
             ) : (
               <>
-                <h2>{shown.length} pessoas</h2>
+                <h2>{shown.length} {shown.length === 1 ? 'pessoa' : 'pessoas'}</h2>
                 <div className="friends__list">
-                  {shown.map((member) => (
-                    <FriendRow key={member.user_id} member={member} online={onlineIds.has(member.user_id)}
-                      onOpenDirect={onOpenDirect} onAction={onAction} />
-                  ))}
+                  {Array.from(groupedByServer.entries()).map(([sName, groupMembers]) => {
+                    const collapsed = collapsedMap[sName] === true
+                    return (
+                      <div key={sName} className="friends__accordion">
+                        <button
+                          type="button"
+                          className="friends__accordion-head"
+                          aria-expanded={!collapsed}
+                          onClick={() => {
+                            const next = !collapsed
+                            saveDmsAccordion(sName, next)
+                            setCollapsedMap((prev) => ({ ...prev, [sName]: next }))
+                          }}
+                        >
+                          <IconChevronDown
+                            size={16}
+                            className={`friends__accordion-chevron ${collapsed ? 'is-collapsed' : ''}`}
+                          />
+                          <IconServer size={18} className="friends__accordion-icon" />
+                          <span className="friends__accordion-title">{sName}</span>
+                          <span className="friends__accordion-badge">{groupMembers.length}</span>
+                        </button>
+                        {!collapsed && (
+                          <div className="friends__accordion-items">
+                            {groupMembers.map((member) => (
+                              <FriendRow
+                                key={member.user_id}
+                                member={member}
+                                online={onlineIds.has(member.user_id)}
+                                onOpenDirect={onOpenDirect}
+                                onAction={onAction}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                   {shown.length === 0 && <div className="friends__empty">Nada por aqui ainda.</div>}
                 </div>
               </>
@@ -146,28 +195,35 @@ interface FriendRowProps {
 
 function FriendRow({ member, online, request, onOpenDirect, onAction }: FriendRowProps) {
   const userMenu = useUserMenu()
+  const gatilhoPerfil = useProfileTrigger(member.user_id)
   const detail = request === 'incoming' ? 'Quer adicionar você'
     : request === 'outgoing' ? 'Pedido enviado' : online ? 'Online' : 'Offline'
   return (
     <article className="friends__row"
       onContextMenu={(event) => userMenu.open(event, { userId: member.user_id, name: member.username })}>
-      <Avatar userId={member.user_id} className="friends__avatar" fallbackName={member.username} />
-      <span className="friends__person"><strong><ProfileName userId={member.user_id} fallbackName={member.username} /></strong><small>{detail}</small></span>
+      {/* A linha inteira nao vira botao: ela ja carrega botoes de acao a
+          direita, e botao dentro de botao nao e HTML valido. Quem abre o cartao
+          e o par avatar + nome, que e o alvo que a pessoa mira. */}
+      <Avatar interactive userId={member.user_id} className="friends__avatar" fallbackName={member.username} />
+      <span className="friends__person" {...gatilhoPerfil}>
+        <strong><ProfileName userId={member.user_id} fallbackName={member.username} /></strong>
+        <small>{detail}</small>
+      </span>
       <div className="friends__actions">
         {request === 'incoming' && (
           <>
             <button className="friends__icon-action is-accept" type="button"
               aria-label={`Aceitar pedido de ${member.username}`} title="Aceitar pedido"
-              onClick={() => onAction('accept', member.user_id)}><IconCheck size={15} /></button>
+              onClick={() => onAction('accept', member.user_id)}><IconCheck size={16} /></button>
             <button className="friends__icon-action is-cancel" type="button"
               aria-label={`Recusar pedido de ${member.username}`} title="Recusar pedido"
-              onClick={() => onAction('decline', member.user_id)}><IconX size={15} /></button>
+              onClick={() => onAction('decline', member.user_id)}><IconX size={16} /></button>
           </>
         )}
         {request === 'outgoing' && (
           <button className="friends__icon-action is-cancel" type="button"
             aria-label={`Cancelar pedido para ${member.username}`} title="Cancelar pedido"
-            onClick={() => onAction('cancel', member.user_id)}><IconX size={15} /></button>
+            onClick={() => onAction('cancel', member.user_id)}><IconX size={16} /></button>
         )}
         {!request && (
           <>

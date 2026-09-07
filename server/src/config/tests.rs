@@ -353,6 +353,7 @@ fn validates_min_client_version() {
 
 #[test]
 fn bootstrap_cria_arquivo_e_diretorios_quando_ausente() {
+    let _guard = ENV_LOCK.lock().unwrap();
     let dir = TestDir::new();
     let config_path = dir.path().join("subpasta").join("stapp.toml");
     assert!(!config_path.exists());
@@ -608,4 +609,71 @@ fn carrega_variaveis_de_arquivo_dotenv() {
 
     assert_eq!(config.server.port, 9876);
     assert_eq!(config.voice.api_key.as_deref(), Some("key_from_dotenv"));
+}
+
+#[test]
+fn s3_config_is_configured_valida_credenciais() {
+    let empty = S3Config {
+        endpoint: "http://127.0.0.1:9000".into(),
+        bucket: "".into(),
+        region: "auto".into(),
+        access_key: "".into(),
+        secret_key: "".into(),
+        public_url: None,
+    };
+    assert!(!empty.is_configured());
+
+    let partial = S3Config {
+        endpoint: "http://127.0.0.1:9000".into(),
+        bucket: "stapp".into(),
+        region: "auto".into(),
+        access_key: "key".into(),
+        secret_key: "".into(),
+        public_url: None,
+    };
+    assert!(!partial.is_configured());
+
+    let valid = S3Config {
+        endpoint: "https://<account_id>.r2.cloudflarestorage.com".into(),
+        bucket: "stapp-media".into(),
+        region: "auto".into(),
+        access_key: "r2_key".into(),
+        secret_key: "r2_secret".into(),
+        public_url: Some("https://pub.r2.dev".into()),
+    };
+    assert!(valid.is_configured());
+}
+
+#[test]
+fn sobrescreve_storage_s3_via_variaveis_de_ambiente() {
+    let _guard = ENV_LOCK.lock().unwrap();
+    let mut config = test_config(PathBuf::from("test.db"), 20, 6);
+    assert!(config.storage.s3.is_none());
+
+    unsafe {
+        std::env::set_var("STAPP_S3_BUCKET", "bucket-via-env");
+        std::env::set_var("STAPP_S3_ACCESS_KEY", "access-via-env");
+        std::env::set_var("STAPP_S3_SECRET_KEY", "secret-via-env");
+        std::env::set_var("STAPP_S3_ENDPOINT", "https://s3.env.local");
+        std::env::set_var("STAPP_STORAGE_UPLOADS_DIR", "data/custom_uploads");
+    }
+
+    config.apply_env_overrides();
+
+    unsafe {
+        std::env::remove_var("STAPP_S3_BUCKET");
+        std::env::remove_var("STAPP_S3_ACCESS_KEY");
+        std::env::remove_var("STAPP_S3_SECRET_KEY");
+        std::env::remove_var("STAPP_S3_ENDPOINT");
+        std::env::remove_var("STAPP_STORAGE_UPLOADS_DIR");
+    }
+
+    assert!(config.storage.s3.is_some());
+    let s3 = config.storage.s3.unwrap();
+    assert_eq!(s3.bucket, "bucket-via-env");
+    assert_eq!(s3.access_key, "access-via-env");
+    assert_eq!(s3.secret_key, "secret-via-env");
+    assert_eq!(s3.endpoint, "https://s3.env.local");
+    assert!(s3.is_configured());
+    assert_eq!(config.storage.attachments_dir, PathBuf::from("data/custom_uploads"));
 }

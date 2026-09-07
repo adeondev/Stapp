@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { isOnlyEmojis, parseShortcodesToUnicode } from './twemoji'
 
 describe('twemoji parser utility', () => {
-  it('identifica jumboji para mensagens contendo apenas de 1 a 3 emojis', () => {
+  it('identifica jumboji para mensagens contendo apenas de 1 a 10 emojis', () => {
     expect(isOnlyEmojis('😀')).toBe(true)
     expect(isOnlyEmojis('😀 🚀')).toBe(true)
     expect(isOnlyEmojis('😀 🚀 🔥')).toBe(true)
-    // Mais de 3 ou com texto junto não deve ser jumboji
-    expect(isOnlyEmojis('😀 🚀 🔥 🎉')).toBe(false)
+    expect(isOnlyEmojis('😀 🚀 🔥 🎉 🎈 🌟 💖 👍 🤖 🍕')).toBe(true)
+    // Mais de 10 ou com texto junto não deve ser jumboji
+    expect(isOnlyEmojis('😀 🚀 🔥 🎉 🎈 🌟 💖 👍 🤖 🍕 ⚡')).toBe(false)
     expect(isOnlyEmojis('olá 😀')).toBe(false)
     expect(isOnlyEmojis('')).toBe(false)
   })

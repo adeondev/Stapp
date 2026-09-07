@@ -112,7 +112,9 @@ jobs:
       - name: Cache Rust dependencies
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: server -> target
+          workspaces: |
+            server -> target
+            web/src-tauri -> web/src-tauri/target
           key: ${{ matrix.target }}
 
       - name: Download web dist

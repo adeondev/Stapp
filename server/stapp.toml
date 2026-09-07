@@ -69,9 +69,22 @@ max_attachments_per_message = 10
 [storage]
 database      = "data/stapp.db"
 history_limit = 200
+# Pasta local de armazenamento de midias e anexos (padrao quando S3 nao for configurado).
 attachments_dir = "data/attachments"
 
-# S3/MinIO e opcional e so entra em builds `cargo build --features s3`.
+# Armazenamento em nuvem (S3 / Cloudflare R2 / MinIO).
+# Habilitado por padrao no binario. Se esta secao for omitida ou suas credenciais
+# estiverem vazias, o servidor ativa automaticamente o armazenamento local em disco
+# (`attachments_dir` ou `./data/uploads/`) criando os diretorios necessarios.
+#
+# Para usar S3/Cloudflare R2, descomente abaixo e preencha suas chaves (ou use variaveis de ambiente):
+# [storage.s3]
+# endpoint   = "https://<account_id>.r2.cloudflarestorage.com"
+# bucket     = "stapp-media"
+# region     = "auto"
+# access_key = "SUA_ACCESS_KEY"
+# secret_key = "SEU_SECRET_KEY"
+# public_url = "https://pub-<hash>.r2.dev" # opcional para entrega publica direta
 
 [tls]
 # Ativa terminacao TLS direta no executavel do Stapp (ACME Let's Encrypt ou certificados manuais).

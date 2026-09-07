@@ -2,14 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PeerId, UserId } from '../protocol'
 import type { VoiceMediaState, VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import type { ScreenPreset } from '../voice/preferences'
-import { Avatar } from './Avatar'
+import { CallTile } from './CallTile'
 import { ScreenSharePicker } from './ScreenSharePicker'
-import { useUserMenu, type UserMenuRequest } from './UserMenu'
 import { MenuDivider, MenuItem, MenuLabel, PopupMenu, type MenuPosition } from './Menu'
 import {
   IconCamera, IconCameraOff, IconChevronDown, IconChevronUp,
-  IconFullscreen, IconHeadphones, IconHeadphonesOff, IconLeave, IconMic, IconMicOff,
-  IconMinimize, IconMore, IconScreen, IconSettings, IconSignal,
+  IconHeadphones, IconHeadphonesOff, IconLeave, IconMic, IconMicOff,
+  IconScreen, IconSettings, IconSignal,
 } from './Icons'
 import { useVoiceStore } from '../stores'
 import { calculateCallGridLayout } from './callGridLayout'
@@ -26,7 +25,7 @@ interface Props {
   variant?: 'embedded' | 'fullscreen'
 }
 
-type Tile =
+export type Tile =
   | { id: string; kind: 'media'; media: VoiceMediaState; userId?: UserId }
   | { id: string; kind: 'avatar'; peerId: PeerId; userId?: UserId; name: string; local: boolean; speaking: boolean; muted: boolean }
 
@@ -45,7 +44,7 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
 
   const [focused, setFocused] = useState<string | null>(null)
   const [sharePicker, setSharePicker] = useState(false)
-  const [quickMenu, setQuickMenu] = useState<{ kind: 'audio' | 'camera'; position: MenuPosition } | null>(null)
+  const [quickMenu, setQuickMenu] = useState<{ kind: 'audio' | 'camera' | 'call'; position: MenuPosition } | null>(null)
   const [pingMs, setPingMs] = useState<number | null>(null)
 
   const [devices, setDevices] = useState<{ inputs: MediaDeviceInfo[]; outputs: MediaDeviceInfo[]; cameras: MediaDeviceInfo[] }>({
@@ -345,7 +344,7 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
       <header className="callstage__header">
         <div className="callstage__channel-info">
           <div className="callstage__status-badge">
-            <IconSignal size={13} className="callstage__signal-icon" />
+            <IconSignal size={16} className="callstage__signal-icon" />
             <span className="callstage__eyebrow">{statusLabel(snapshot.status)}</span>
           </div>
           {pingMs !== null && (
@@ -450,9 +449,19 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
 
       <div className={`callstage__dock-wrap ${isTrayCollapsed ? 'is-collapsed' : ''}`}>
         {quickMenu && <PopupMenu position={quickMenu.position}
-          label={quickMenu.kind === 'audio' ? 'Dispositivos de áudio' : 'Câmera e qualidade'}
+          label={quickMenu.kind === 'audio' ? 'Dispositivos de áudio'
+            : quickMenu.kind === 'camera' ? 'Câmera e qualidade' : 'Opções da chamada'}
           onClose={() => setQuickMenu(null)}>
-          {quickMenu.kind === 'audio' ? <>
+          {quickMenu.kind === 'call' ? <>
+            <MenuLabel>Chamada</MenuLabel>
+            <MenuItem icon={<IconScreen />} onClick={() => {
+              void transport.setScreenShareEnabled(false); setQuickMenu(null)
+            }}>Parar compartilhamento</MenuItem>
+            <MenuDivider />
+            <MenuItem icon={<IconLeave />} danger onClick={() => { setQuickMenu(null); onLeave() }}>
+              Sair da chamada
+            </MenuItem>
+          </> : quickMenu.kind === 'audio' ? <>
             <MenuLabel>Microfone</MenuLabel>
             {devices.inputs.map((device, index) => <MenuItem key={device.deviceId}
               icon={<IconMic />} checked={preferences.inputDeviceId === device.deviceId} onClick={() => {
@@ -487,11 +496,13 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
           {/* Microfone */}
           <div className="callstage__dock-combo">
             <DockButton
-              active={!muted && !deafened}
-              off={muted || deafened}
+              tone={muted || deafened ? 'problem' : 'neutral'}
+              pressed={!muted && !deafened}
               label={muted || deafened ? 'ligar microfone' : 'desligar microfone'}
               onClick={toggleMute}
-              icon={muted || deafened ? <IconMicOff size={20} /> : <IconMic size={20} />}
+              icon={muted || deafened
+                ? <IconMicOff size={20} filled />
+                : <IconMic size={20} />}
             />
             <button
               className="callstage__dock-chevron"
@@ -504,27 +515,31 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
               title="Dispositivos de áudio"
               aria-label="opções do microfone"
             >
-              <IconChevronDown size={12} />
+              <IconChevronDown size={16} />
             </button>
           </div>
 
           {/* Ensurdecer */}
           <DockButton
-            active={!deafened}
-            off={deafened}
+            tone={deafened ? 'problem' : 'neutral'}
+            pressed={!deafened}
             label={deafened ? 'voltar a ouvir' : 'ensurdecer'}
             onClick={toggleDeafen}
-            icon={deafened ? <IconHeadphonesOff size={20} /> : <IconHeadphones size={20} />}
+            icon={deafened
+              ? <IconHeadphonesOff size={20} filled />
+              : <IconHeadphones size={20} />}
           />
 
           {/* Câmera */}
           <div className="callstage__dock-combo">
             <DockButton
-              active={snapshot.cameraEnabled}
-              off={!snapshot.cameraEnabled}
+              tone={snapshot.cameraEnabled ? 'capturing' : 'neutral'}
+              pressed={snapshot.cameraEnabled}
               label={snapshot.cameraEnabled ? 'desligar camera' : 'ligar camera'}
               onClick={() => void transport.setCameraEnabled(!snapshot.cameraEnabled)}
-              icon={snapshot.cameraEnabled ? <IconCamera size={20} /> : <IconCameraOff size={20} />}
+              icon={snapshot.cameraEnabled
+                ? <IconCamera size={20} filled />
+                : <IconCameraOff size={20} />}
             />
             <button
               className="callstage__dock-chevron"
@@ -537,20 +552,18 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
               title="opções da câmera"
               aria-label="opções da câmera"
             >
-              <IconChevronDown size={12} />
+              <IconChevronDown size={16} />
             </button>
           </div>
 
           {/* Compartilhamento de Tela */}
           <div className="callstage__dock-combo">
             <DockButton
-              active={snapshot.screenSharing}
-              off={!snapshot.screenSharing}
-              label={snapshot.screenSharing ? 'parar compartilhamento' : 'compartilhar tela'}
-              onClick={() => snapshot.screenSharing
-                ? void transport.setScreenShareEnabled(false)
-                : setSharePicker(true)}
-              icon={<IconScreen size={20} />}
+              tone={snapshot.screenSharing ? 'active' : 'neutral'}
+              pressed={snapshot.screenSharing}
+              label={snapshot.screenSharing ? 'trocar fonte compartilhada' : 'compartilhar tela'}
+              onClick={() => setSharePicker(true)}
+              icon={<IconScreen size={20} filled={snapshot.screenSharing} />}
             />
             <button
               className="callstage__dock-chevron"
@@ -558,28 +571,55 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
               title="opções do compartilhamento"
               aria-label="opções do compartilhamento"
             >
-              <IconChevronDown size={12} />
+              <IconChevronDown size={16} />
             </button>
           </div>
 
           {/* Configurações */}
           <DockButton
-            active={false}
-            off={false}
+            tone="neutral"
             label="voz e vídeo"
             onClick={onOpenSettings}
             icon={<IconSettings size={20} />}
           />
 
-          {/* Desconectar */}
-          <DockButton
-            active={false}
-            off
-            danger
-            label="desconectar"
-            onClick={onLeave}
-            icon={<IconLeave size={20} />}
-          />
+          {/* Acao principal.
+              Sem compartilhamento ela e "desconectar". Com compartilhamento no ar
+              ela vira "parar compartilhamento", que e o que quase sempre se quer
+              nesse momento — e sair continua a um clique, pela seta ao lado.
+              Quem manda e `snapshot.screenSharing`, o estado REAL do transporte:
+              se o proprio sistema operacional encerrar a captura, ou a pessoa
+              cancelar o seletor, o botao volta a ser "desconectar" sozinho. */}
+          {snapshot.screenSharing ? (
+            <div className="callstage__dock-combo callstage__dock-combo--primary">
+              <DockButton
+                tone="capturing"
+                label="parar compartilhamento"
+                onClick={() => void transport.setScreenShareEnabled(false)}
+                icon={<IconScreen size={20} filled />}
+              />
+              <button
+                className="callstage__dock-chevron"
+                onClick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  setQuickMenu((current) => current?.kind === 'call' ? null
+                    : { kind: 'call', position: { x: rect.left - 180, y: rect.top - 96 } })
+                  setSharePicker(false)
+                }}
+                title="mais opções da chamada"
+                aria-label="mais opções da chamada"
+              >
+                <IconChevronUp size={16} />
+              </button>
+            </div>
+          ) : (
+            <DockButton
+              tone="danger"
+              label="desconectar"
+              onClick={onLeave}
+              icon={<IconLeave size={20} />}
+            />
+          )}
         </div>
       </div>
 
@@ -591,209 +631,42 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
   )
 }
 
-function CallTile({
-  tile,
-  primary,
-  focused,
-  transport,
-  onFocus,
-  isFullscreen,
-  isMouseIdle,
-  onToggleFullscreen,
-  onLeave,
-}: {
-  tile: Tile
-  primary: boolean
-  focused: boolean
-  transport: VoiceTransport
-  onFocus(): void
-  isFullscreen?: boolean
-  isMouseIdle?: boolean
-  onToggleFullscreen?(el?: HTMLElement | null): void
-  onLeave?(): void
+
+/**
+ * O tom do botao do dock. Antes existia so o par `active`/`off`, e `off` servia
+ * a dois significados incompativeis:
+ *
+ * - microfone mudo / fone desligado = **problema**, e vermelho faz sentido;
+ * - camera e tela desligadas = **ociosas**, e vermelho ali dizia "erro".
+ *
+ * Era por isso que a camera desligada parecia estar com defeito, e o
+ * compartilhamento parado parecia mais alarmante que o compartilhamento no ar —
+ * ainda mais porque o icone de tela era o mesmo nos dois estados.
+ *
+ * Agora sao cinco tons, e o vermelho quer dizer uma coisa so: "existe algo
+ * acontecendo aqui, e clicar interrompe".
+ */
+type DockTone =
+  /** ocioso, sem opiniao */
+  | 'neutral'
+  /** ligado/selecionado, mas clicar nao interrompe nada */
+  | 'active'
+  /** algo esta errado agora: mudo, ensurdecido */
+  | 'problem'
+  /** capturando agora; clicar para */
+  | 'capturing'
+  /** encerrar a chamada */
+  | 'danger'
+
+function DockButton({ tone, label, onClick, icon, pressed }: {
+  tone: DockTone
+  label: string
+  onClick(): void
+  icon: React.ReactNode
+  pressed?: boolean
 }) {
-  const tileRef = useRef<HTMLElement>(null)
-  const userMenu = useUserMenu()
-  const muted = useVoiceStore((s) => s.muted)
-  const deafened = useVoiceStore((s) => s.deafened)
-  const toggleMute = useVoiceStore((s) => s.toggleMute)
-  const toggleDeafen = useVoiceStore((s) => s.toggleDeafen)
-
-  const activate = (event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
-    if (event.target instanceof Element && event.target.closest('button, input, label, [role="menu"]')) return
-    if (tile.kind === 'media' && tile.media.kind === 'screen' && !tile.media.local && !tile.media.subscribed) {
-      transport.setPublicationSubscribed(tile.media.id, true)
-    }
-    onFocus()
-  }
-  const menuRequest = (): UserMenuRequest => tile.kind === 'avatar'
-    ? { userId: tile.userId, name: tile.name,
-        call: { peerId: tile.peerId, transport, local: tile.local, focused, onFocus, kind: 'person' } }
-    : { userId: tile.userId, name: tile.media.name,
-        call: { peerId: tile.media.peerId, transport, local: tile.media.local, focused, onFocus,
-          publicationId: tile.media.id, kind: tile.media.kind === 'screen' ? 'screen' : 'person' } }
-  const toggleMenuFromButton = (button: HTMLButtonElement) => {
-    const rect = button.getBoundingClientRect()
-    userMenu.open({
-      x: rect.right - 220,
-      y: rect.bottom + 4,
-      menuKey: `calltile:${tile.id}`,
-      trigger: button,
-    }, menuRequest())
-  }
-  const moreButtonProps = {
-    onPointerDown: (event: React.PointerEvent<HTMLButtonElement>) => {
-      if (event.button !== 0) return
-      event.preventDefault()
-      event.stopPropagation()
-      toggleMenuFromButton(event.currentTarget)
-    },
-    onClick: (event: React.MouseEvent<HTMLButtonElement>) => {
-      event.stopPropagation()
-      // Enter/Space generate a click without a preceding pointer event.
-      if (event.detail === 0) toggleMenuFromButton(event.currentTarget)
-    },
-  }
-
-  const renderFullscreenControls = () => (
-    <div className="calltile__fullscreen-controls" onClick={(e) => e.stopPropagation()}>
-      <button
-        className={`callstage__dock-button ${!muted && !deafened ? 'is-active' : 'is-off'}`}
-        onClick={toggleMute}
-        title={muted || deafened ? 'Ligar microfone' : 'Desligar microfone'}
-        aria-label={muted || deafened ? 'ligar microfone' : 'desligar microfone'}
-      >
-        {muted || deafened ? <IconMicOff size={18} /> : <IconMic size={18} />}
-      </button>
-      <button
-        className={`callstage__dock-button ${!deafened ? 'is-active' : 'is-off'}`}
-        onClick={toggleDeafen}
-        title={deafened ? 'Voltar a ouvir' : 'Ensurdecer'}
-        aria-label={deafened ? 'voltar a ouvir' : 'ensurdecer'}
-      >
-        {deafened ? <IconHeadphonesOff size={18} /> : <IconHeadphones size={18} />}
-      </button>
-      <button
-        className="callstage__dock-button"
-        onClick={() => onToggleFullscreen?.(tileRef.current)}
-        title="Sair da tela cheia (Esc)"
-        aria-label="sair da tela cheia"
-      >
-        <IconMinimize size={18} />
-      </button>
-      {onLeave && (
-        <button
-          className="callstage__dock-button is-danger"
-          onClick={onLeave}
-          title="Desconectar"
-          aria-label="desconectar"
-        >
-          <IconLeave size={18} />
-        </button>
-      )}
-    </div>
-  )
-
-  if (tile.kind === 'avatar') return (
-    <article
-      ref={tileRef}
-      data-tile-id={tile.id}
-      className={`calltile calltile--avatar ${tile.speaking ? 'is-speaking' : ''} ${primary ? 'is-primary' : ''} ${isMouseIdle ? 'is-mouse-idle' : ''}`}
-      role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${tile.name}` : `focar mídia de ${tile.name}`} onClick={activate}
-      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activate(event) }}
-      onContextMenu={(event) => userMenu.open(event, menuRequest())}>
-      <div className={`calltile__avatar-container ${tile.speaking ? 'is-speaking' : ''}`}>
-        <Avatar userId={tile.userId ?? tile.peerId} fallbackName={tile.name} className="calltile__avatar-img" />
-      </div>
-      <div className="calltile__meta">
-        <span className="calltile__meta-name">{tile.name}</span>
-        {tile.muted && <IconMicOff size={14} className="calltile__meta-icon" />}
-      </div>
-      <div className="calltile__top-actions">
-        {onToggleFullscreen && (primary || isFullscreen) && (
-          <button
-            className="calltile__fullscreen-btn"
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleFullscreen(tileRef.current)
-            }}
-            title={isFullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
-            aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${tile.name}`}
-          >
-            {isFullscreen ? <IconMinimize size={16} /> : <IconFullscreen size={16} />}
-          </button>
-        )}
-        <button className="calltile__more" {...moreButtonProps} aria-haspopup="menu"
-          aria-label={`opções de ${tile.name}`}><IconMore /></button>
-      </div>
-      {isFullscreen && renderFullscreenControls()}
-    </article>
-  )
-
-  const media = tile.media
-  const showFullscreenBtn = onToggleFullscreen && (media.kind === 'screen' || primary)
-  const isUnsubscribed = !media.subscribed && !media.local
-
-  return (
-    <article
-      ref={tileRef}
-      data-tile-id={tile.id}
-      className={`calltile ${primary ? 'is-primary' : ''} ${media.kind === 'screen' ? 'calltile--screen' : ''} ${isUnsubscribed ? 'calltile--unsubscribed' : ''} ${isMouseIdle ? 'is-mouse-idle' : ''}`}
-      role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${media.name}` : `focar mídia de ${media.name}`} onClick={activate}
-      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activate(event) }}
-      onContextMenu={(event) => userMenu.open(event, menuRequest())}>
-      {media.subscribed || media.local
-        ? <MediaVideo publication={media} transport={transport} />
-        : <div className="calltile__watch-panel">
-            <div className="calltile__watch-icon-wrap"><IconScreen size={36} /></div>
-            <strong>{media.name} está transmitindo</strong>
-            <button className="calltile__watch-button" onClick={() => { transport.setPublicationSubscribed(media.id, true); onFocus() }}>
-              Assistir transmissão
-            </button>
-          </div>}
-      {media.kind === 'screen' && (media.subscribed || media.local) && (
-        <span className="calltile__badge-live"><IconScreen size={11} /> AO VIVO</span>
-      )}
-      <div className="calltile__meta"><span className="calltile__meta-name">{media.name}</span></div>
-      <div className="calltile__top-actions">
-        {showFullscreenBtn && (
-          <button
-            className="calltile__fullscreen-btn"
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleFullscreen(tileRef.current)
-            }}
-            title={isFullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
-            aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${media.name}`}
-          >
-            {isFullscreen ? <IconMinimize size={16} /> : <IconFullscreen size={16} />}
-          </button>
-        )}
-        <button className="calltile__more" {...moreButtonProps} aria-haspopup="menu"
-          aria-label={`opções de ${media.name}`}><IconMore /></button>
-      </div>
-      {isFullscreen && renderFullscreenControls()}
-    </article>
-  )
-}
-
-function MediaVideo({ publication, transport }: { publication: VoiceMediaState; transport: VoiceTransport }) {
-  const ref = useRef<HTMLVideoElement>(null)
-  useEffect(() => {
-    const element = ref.current
-    if (!element) return
-    return transport.attachMedia(publication.id, element)
-  }, [publication.id, publication.subscribed, transport])
-  return <video ref={ref} data-publication={publication.id} autoPlay playsInline muted={publication.local}
-    className={publication.local && publication.kind === 'camera' && transport.getPreferences().mirrorPreview
-      ? 'is-mirrored' : ''} />
-}
-
-function DockButton({ active, off, danger = false, label, onClick, icon }: {
-  active: boolean; off: boolean; danger?: boolean; label: string; onClick(): void; icon: React.ReactNode
-}) {
-  return <button className={`callstage__dock-button ${active ? 'is-active' : ''} ${off ? 'is-off' : ''} ${danger ? 'is-danger' : ''}`}
-    onClick={onClick} title={label} aria-label={label} aria-pressed={active}>{icon}</button>
+  return <button className={`callstage__dock-button is-${tone}`}
+    onClick={onClick} title={label} aria-label={label} aria-pressed={pressed}>{icon}</button>
 }
 
 function statusLabel(status: VoiceSnapshot['status']) {

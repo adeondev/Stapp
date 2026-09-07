@@ -1,0 +1,27 @@
+/* O seletor de emoji flutua acima da barra de escrever. Estava em utilitarios do
+   Tailwind, inclusive com `border` — que o projeto nao usa para desenhar area.
+   A separacao aqui e por tom de fundo, como no resto do app. */
+
+.stapp-emoji-popover {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  z-index: var(--z-dock);
+  margin-bottom: var(--space-3);
+  overflow: hidden;
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+
+/* O tamanho e o do proprio emoji-mart: reservar o mesmo espaco evita a barra
+   pular quando o pacote termina de carregar. */
+.stapp-emoji-popover__carregando {
+  display: flex;
+  width: 352px;
+  height: 435px;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+}

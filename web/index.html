@@ -6,6 +6,20 @@
     <meta name="color-scheme" content="dark" />
     <link rel="icon" type="image/svg+xml" href="./assets/imgs/svg/stapp_logo.svg" />
     <title>Stapp</title>
+    <script>
+      (function() {
+        try {
+          var t = localStorage.getItem('stapp.appearance.theme') || 'cinza';
+          document.documentElement.setAttribute('data-theme', t);
+          if (t === 'personalizado') {
+            var bg = localStorage.getItem('stapp.appearance.custom_bg');
+            var acc = localStorage.getItem('stapp.appearance.custom_accent');
+            if (bg) document.documentElement.style.setProperty('--custom-bg', bg);
+            if (acc) document.documentElement.style.setProperty('--custom-accent', acc);
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -10,7 +10,7 @@ use crate::config::Channel;
 
 pub type PeerId = String;
 pub type UserId = String;
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 /// String secreta serializada normalmente, mas sempre redigida em logs/debug.
 #[derive(Clone, Serialize, Deserialize)]
@@ -278,6 +278,23 @@ pub struct Profile {
     /// FUTURE: vira `true` quando a pessoa subir uma imagem. Ate la o avatar e
     /// a inicial na cor escolhida.
     pub has_avatar: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_gif: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_static_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_gif_url: Option<String>,
+    /// Sem imagem, o cartao de perfil desenha uma faixa na cor de destaque.
+    #[serde(default)]
+    pub has_banner: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner_color: Option<String>,
+    /// Quando a conta foi criada. E o "Membro desde" do perfil — sai de
+    /// `users.created_at`, que existe desde a primeira migracao.
+    #[serde(default)]
+    pub created_at: i64,
     /// Muda a cada edicao; serve de cache-buster da imagem.
     pub updated_at: i64,
 }
@@ -491,6 +508,11 @@ pub enum ClientMsg {
     #[serde(rename = "privacy.update")]
     PrivacyUpdate { allow_member_dms: bool },
 
+    /// Pede a parte do perfil que nao viaja no `welcome`: hoje, amigos em comum.
+    /// Sai quando alguem ABRE um perfil, nao a cada avatar desenhado na tela.
+    #[serde(rename = "profile.fetch")]
+    ProfileFetch { user_id: UserId },
+
     /// Edita o proprio perfil. Campo ausente = nao mexe; `display_name: ""`
     /// limpa e volta a usar o username.
     #[serde(rename = "profile.update")]
@@ -501,6 +523,8 @@ pub enum ClientMsg {
         accent: Option<String>,
         #[serde(default)]
         bio: Option<String>,
+        #[serde(default)]
+        banner_color: Option<String>,
     },
 
     #[serde(rename = "call.start")]
@@ -518,6 +542,12 @@ pub enum ClientMsg {
 
     #[serde(rename = "voice.join")]
     VoiceJoin { channel: String },
+
+    #[serde(rename = "voice.invite")]
+    VoiceInvite {
+        target_user_id: UserId,
+        channel_id: String,
+    },
 
     #[serde(rename = "voice.leave")]
     VoiceLeave,
@@ -721,6 +751,15 @@ pub enum ServerMsg {
     #[serde(rename = "user.profile")]
     UserProfile { profile: Profile },
 
+    /// A parte do perfil que so vale quando alguem ABRE o perfil de outra
+    /// pessoa. Vai so para quem pediu, nunca por broadcast: e uma resposta a um
+    /// par de contas, nao um fato publico do servidor.
+    #[serde(rename = "profile.detail")]
+    ProfileDetail {
+        user_id: UserId,
+        mutual_friends: Vec<UserId>,
+    },
+
     #[serde(rename = "user.offline")]
     UserOffline { user_id: UserId },
 
@@ -741,6 +780,12 @@ pub enum ServerMsg {
     CallEnded {
         user_id: UserId,
         reason: CallEndReason,
+    },
+
+    #[serde(rename = "voice.invite")]
+    VoiceInvite {
+        from_user_id: UserId,
+        channel_id: String,
     },
 
     #[serde(rename = "voice.roster")]

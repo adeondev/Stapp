@@ -7,10 +7,12 @@ import type {
   VoiceTransport,
   VoiceTransportOptions,
 } from './VoiceTransport'
+import { deduplicateDevices } from './testMicrophone'
 import { loadVoicePreferences, saveVoicePreferences } from './preferences'
 import type { VoicePreferences } from './preferences'
 import { callSounds } from '../net/callSounds'
 import { PlaybackGraph } from './PlaybackGraph'
+import type { MicrophoneTest, MicrophoneTestOptions } from './testMicrophone'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -33,7 +35,6 @@ interface Monitor {
 /** ~43ms de audio por leitura a 48kHz — janela larga o bastante para nao cair
  *  no vao entre duas silabas. */
 const FFT_SIZE = 2048
-const SPEAKING_LEVEL = 8
 /** Segura o indicador aceso um instante para nao piscar entre silabas. */
 const SPEAKING_HOLD_MS = 250
 
@@ -262,6 +263,19 @@ export class MeshTransport implements VoiceTransport {
     this.preferences.inputDeviceId = deviceId
     saveVoicePreferences(this.preferences)
     if (!this.channel) return
+    const activeTrack = this.local?.getAudioTracks()[0]
+    if (activeTrack && typeof activeTrack.applyConstraints === 'function') {
+      try {
+        if (deviceId) {
+          await activeTrack.applyConstraints({ deviceId: { exact: deviceId } })
+        } else {
+          await activeTrack.applyConstraints({ deviceId: undefined })
+        }
+        return
+      } catch {
+        // Se applyConstraints falhar no navegador, executa fallback para substituição de track
+      }
+    }
     const replacement = await navigator.mediaDevices.getUserMedia({ audio: this.audioConstraints() })
     const track = replacement.getAudioTracks()[0]
     if (!track) return
@@ -296,9 +310,9 @@ export class MeshTransport implements VoiceTransport {
     }
     const devices = await navigator.mediaDevices.enumerateDevices()
     return {
-      inputs: devices.filter((device) => device.kind === 'audioinput'),
-      outputs: devices.filter((device) => device.kind === 'audiooutput'),
-      cameras: devices.filter((device) => device.kind === 'videoinput'),
+      inputs: deduplicateDevices(devices.filter((device) => device.kind === 'audioinput')),
+      outputs: deduplicateDevices(devices.filter((device) => device.kind === 'audiooutput')),
+      cameras: deduplicateDevices(devices.filter((device) => device.kind === 'videoinput')),
     }
   }
 
@@ -308,26 +322,30 @@ export class MeshTransport implements VoiceTransport {
     this.applyPlaybackState()
   }
 
-  async startMicrophoneTest(onLevel: (level: number) => void) {
+  async startMicrophoneTest(onLevel: (level: number) => void, options?: MicrophoneTestOptions): Promise<MicrophoneTest> {
     this.setPlaybackAttenuated(true)
     const { startMicrophoneTest } = await import('./testMicrophone')
-    let stopTest: () => void
+    let test: MicrophoneTest
     try {
-      stopTest = await startMicrophoneTest(
-        this.audioConstraints(),
-        onLevel,
-        this.preferences.outputDeviceId || undefined,
-      )
+      test = await startMicrophoneTest(this.audioConstraints(), onLevel, {
+        outputDeviceId: this.preferences.outputDeviceId,
+        monitorVolume: this.preferences.monitorVolume,
+        monitor: this.preferences.monitorMic,
+        ...options,
+      })
     } catch (error) {
       this.setPlaybackAttenuated(false)
       throw error
     }
-    return () => {
-      try {
-        stopTest()
-      } finally {
-        this.setPlaybackAttenuated(false)
-      }
+    return {
+      ...test,
+      stop: () => {
+        try {
+          test.stop()
+        } finally {
+          this.setPlaybackAttenuated(false)
+        }
+      },
     }
   }
 
@@ -577,7 +595,10 @@ export class MeshTransport implements VoiceTransport {
         sum += delta * delta
       }
       const level = Math.sqrt(sum / monitor.data.length)
-      if (level > SPEAKING_LEVEL) monitor.lastLoud = now
+      const threshold = this.preferences.automaticSensitivity
+        ? 6
+        : Math.max(2, Math.round(128 * Math.pow(10, this.preferences.sensitivity / 20)))
+      if (level > threshold) monitor.lastLoud = now
 
       const speaking = now - monitor.lastLoud < SPEAKING_HOLD_MS
       if (speaking !== monitor.speaking) {

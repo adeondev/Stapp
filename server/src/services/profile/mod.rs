@@ -32,6 +32,7 @@ pub async fn update(
     display_name: Option<String>,
     accent: Option<String>,
     bio: Option<String>,
+    banner_color: Option<String>,
 ) {
     let Some(me) = state.identity_of(peer_id).await else {
         return;
@@ -58,11 +59,26 @@ pub async fn update(
         None => None,
     };
 
+    let banner_color = match banner_color {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                Some(String::new())
+            } else if validar_cor_hex(trimmed) {
+                Some(trimmed.to_lowercase())
+            } else {
+                return refuse(state, peer_id, "cor de banner invalida; use formato hexadecimal como #123456");
+            }
+        }
+        None => None,
+    };
+
     if let Err(err) = state.db.update_profile(
         &me.user_id,
         display_name.as_deref(),
         accent.as_deref(),
         bio.as_deref(),
+        banner_color.as_deref(),
         now_ms(),
     ).await {
         tracing::error!(%err, "falha gravando o perfil");
@@ -72,14 +88,56 @@ pub async fn update(
     announce(state, &me.user_id).await;
 }
 
+fn validar_cor_hex(cor: &str) -> bool {
+    if !cor.starts_with('#') {
+        return false;
+    }
+    let hex = &cor[1..];
+    (hex.len() == 3 || hex.len() == 6 || hex.len() == 8) && hex.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// O que so aparece quando alguem ABRE um perfil.
+///
+/// Fica fora do `Profile` de proposito: o `welcome` manda o perfil de todo mundo
+/// de uma vez, e amigos em comum e uma consulta por par de contas. Mandar isso
+/// junto seria N consultas para preencher uma tela que quase ninguem abre.
+pub async fn detail(state: &AppState, peer_id: &str, user_id: UserId) {
+    let Some(me) = state.identity_of(peer_id).await else {
+        return;
+    };
+    // Os dois lados da consulta saem da sessao e do pedido; o cliente nunca
+    // escolhe quem e "eu".
+    let mutual = if me.user_id == user_id {
+        Vec::new()
+    } else {
+        state
+            .db
+            .mutual_friends(&me.user_id, &user_id)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::error!(%err, "falha lendo amigos em comum");
+                Vec::new()
+            })
+    };
+    state.send_to(
+        peer_id,
+        ServerMsg::ProfileDetail {
+            user_id,
+            mutual_friends: mutual,
+        },
+    );
+}
+
 /// Guarda a imagem e avisa todo mundo. Devolve o tamanho gravado.
 pub async fn set_avatar(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Result<usize, String> {
     let dir = avatar_dir(state);
+    let is_gif = avatar::is_gif(bytes);
     let tamanho = avatar::store(&dir, user_id, bytes).await.map_err(|erro| erro.to_string())?;
+    let ext = if is_gif { "gif" } else { avatar::extensao() };
 
     if let Err(err) = state
         .db
-        .set_avatar(user_id, Some(avatar::extensao()), now_ms())
+        .set_avatar(user_id, Some(ext), now_ms())
         .await
     {
         tracing::error!(%err, "falha marcando o avatar no banco");
@@ -102,12 +160,57 @@ pub async fn clear_avatar(state: &AppState, user_id: &UserId) {
     announce(state, user_id).await;
 }
 
-pub async fn read_avatar(state: &AppState, user_id: &UserId) -> Option<Vec<u8>> {
-    avatar::read(&avatar_dir(state), user_id).await
+pub async fn read_avatar(state: &AppState, user_id: &UserId, want_gif: bool) -> Option<(Vec<u8>, &'static str)> {
+    let dir = avatar_dir(state);
+    if want_gif {
+        if let Some(bytes) = avatar::read_gif(&dir, user_id).await {
+            return Some((bytes, "image/gif"));
+        }
+    }
+    avatar::read(&dir, user_id).await.map(|bytes| (bytes, "image/webp"))
+}
+
+/// O banner passa pelo mesmo processo do avatar; muda so a forma do corte.
+pub async fn set_banner(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Result<usize, String> {
+    let dir = banner_dir(state);
+    let tamanho = avatar::store_shape(&dir, user_id, bytes, avatar::Shape::Banner)
+        .await
+        .map_err(|erro| erro.to_string())?;
+
+    if let Err(err) = state
+        .db
+        .set_banner(user_id, Some(avatar::extensao()), now_ms())
+        .await
+    {
+        tracing::error!(%err, "falha marcando o banner no banco");
+        // O arquivo sem a linha no banco seria lixo invisivel.
+        avatar::remove(&dir, user_id).await;
+        return Err("nao consegui salvar o banner".into());
+    }
+
+    announce(state, user_id).await;
+    Ok(tamanho)
+}
+
+pub async fn clear_banner(state: &AppState, user_id: &UserId) {
+    if let Err(err) = state.db.set_banner(user_id, None, now_ms()).await {
+        tracing::error!(%err, "falha limpando o banner");
+        return;
+    }
+    avatar::remove(&banner_dir(state), user_id).await;
+    announce(state, user_id).await;
+}
+
+pub async fn read_banner(state: &AppState, user_id: &UserId) -> Option<Vec<u8>> {
+    avatar::read(&banner_dir(state), user_id).await
 }
 
 fn avatar_dir(state: &AppState) -> PathBuf {
     state.config.avatar_dir()
+}
+
+fn banner_dir(state: &AppState) -> PathBuf {
+    state.config.banner_dir()
 }
 
 /// Manda o perfil atual para todo mundo. Publico, entao broadcast mesmo.

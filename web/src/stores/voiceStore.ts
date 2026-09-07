@@ -1,7 +1,17 @@
 import { create } from 'zustand'
-import type { PeerId, ServerMsg, VoiceConfig, VoicePeer } from '../protocol'
+import type { PeerId, ServerMsg, UserId, VoiceConfig, VoicePeer } from '../protocol'
 import { emptySnapshot, type VoiceSnapshot } from '../voice/VoiceTransport'
 import { usePresenceStore } from './presenceStore'
+
+export type VoipStatus = 'idle' | 'ringing' | 'incoming' | 'connecting' | 'connected' | 'ended'
+
+export interface VoipCall {
+  status: VoipStatus
+  userId: UserId
+  username: string
+  direction: 'incoming' | 'outgoing'
+  channel?: string
+}
 
 export interface CallState {
   channel: string
@@ -11,6 +21,7 @@ export interface CallState {
 
 export interface VoiceState {
   call: CallState | null
+  voip: VoipCall | null
   muted: boolean
   deafened: boolean
   voiceSnapshot: VoiceSnapshot
@@ -24,6 +35,7 @@ export interface VoiceState {
   setDeafened: (deafened: boolean) => void
   setSpeaking: (peerId: PeerId, isSpeaking: boolean) => void
   setCall: (callOrUpdater: CallState | null | ((prev: CallState | null) => CallState | null)) => void
+  setVoip: (voipOrUpdater: VoipCall | null | ((prev: VoipCall | null) => VoipCall | null)) => void
   setVoiceSnapshot: (snapshot: VoiceSnapshot) => void
   setVoiceConfig: (config: VoiceConfig | null) => void
   setVoicePeers: (peers: VoicePeer[]) => void
@@ -33,6 +45,7 @@ export interface VoiceState {
 
 const initialVoiceState = {
   call: null,
+  voip: null,
   muted: false,
   deafened: false,
   voiceSnapshot: emptySnapshot(),
@@ -113,6 +126,12 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
         deafened: nextCall ? nextCall.deafened : state.deafened,
       }
     })
+  },
+
+  setVoip: (voipOrUpdater) => {
+    set((state) => ({
+      voip: typeof voipOrUpdater === 'function' ? voipOrUpdater(state.voip) : voipOrUpdater,
+    }))
   },
 
   setVoiceSnapshot: (voiceSnapshot) => set({ voiceSnapshot }),
@@ -200,6 +219,65 @@ export const useVoiceStore = create<VoiceState>((set, get) => ({
               : peer,
           ),
         }))
+        break
+
+      case 'call.incoming':
+        set({
+          voip: {
+            status: 'incoming',
+            userId: msg.user_id,
+            username: msg.username,
+            direction: 'incoming',
+          },
+        })
+        break
+
+      case 'call.ringing':
+        set((state) => ({
+          voip: state.voip
+            ? { ...state.voip, status: 'ringing' }
+            : {
+                status: 'ringing',
+                userId: msg.user_id,
+                username: '',
+                direction: 'outgoing',
+              },
+        }))
+        break
+
+      case 'call.accepted':
+        set((state) => ({
+          voip: state.voip
+            ? { ...state.voip, status: 'connecting', channel: msg.channel }
+            : {
+                status: 'connecting',
+                userId: msg.user_id,
+                username: '',
+                direction: 'incoming',
+                channel: msg.channel,
+              },
+        }))
+        break
+
+      case 'call.ended':
+        set({ voip: null })
+        break
+
+      case 'voice.invite':
+        set((state) => {
+          if (!state.voip || state.voip.status === 'idle') {
+            return {
+              voip: {
+                status: 'incoming',
+                userId: msg.from_user_id,
+                username: msg.from_user_id,
+                direction: 'incoming',
+                channel: msg.channel_id,
+              },
+            }
+          }
+          return state
+        })
         break
 
       default:

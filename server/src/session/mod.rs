@@ -56,27 +56,7 @@ impl AppState {
             crate::services::preview::crawler::DEFAULT_MAX_CONCURRENCY,
         );
 
-        #[cfg(feature = "s3")]
-        let media = if let Some(s3) = config.storage.s3.as_ref() {
-            crate::services::media::MediaStorageService::s3(
-                s3,
-                config.storage.attachments_dir.join(".uploading"),
-            )?
-        } else {
-            crate::services::media::MediaStorageService::local(
-                config.storage.attachments_dir.clone(),
-            )?
-        };
-
-        #[cfg(not(feature = "s3"))]
-        let media = {
-            if config.storage.s3.is_some() {
-                tracing::warn!("[storage.s3] ignorado: compile com --features s3 para ativa-lo");
-            }
-            crate::services::media::MediaStorageService::local(
-                config.storage.attachments_dir.clone(),
-            )?
-        };
+        let media = crate::services::media::MediaStorageService::from_storage_config(&config.storage)?;
 
         let state = Arc::new(Self {
             config,

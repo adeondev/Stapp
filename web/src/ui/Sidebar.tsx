@@ -4,9 +4,10 @@ import type { ConnectionStatus } from '../net/connection'
 import type { PeerId, UserId } from '../protocol'
 import { directList, peersInChannel, type StappState } from '../store'
 import { useVoiceStore } from '../stores/voiceStore'
-import { IconChevronDown, IconHash, IconMicOff, IconSearch, IconSpeaker, IconUsers } from './Icons'
+import { IconChevronDown, IconHash, IconMicOff, IconSearch, IconServer, IconSpeaker, IconUsers } from './Icons'
 import { MenuDivider, MenuItem, useMenuHost } from './Menu'
 import { useUserMenu } from './UserMenu'
+import { loadDmsAccordions, saveDmsAccordion } from './dmsAccordions'
 import './sidebar.css'
 
 const STATUS_LABEL: Record<ConnectionStatus, string> = {
@@ -55,7 +56,7 @@ export function Sidebar({ state, status, view, mode, onSelectHome, onSelectChann
       <header className="sidebar__head">
         {home ? (
           <label className="sidebar__search">
-            <IconSearch size={14} />
+            <IconSearch size={16} />
             <input value={busca} onChange={(event) => setBusca(event.target.value)}
               placeholder="Encontre uma conversa" aria-label="Filtrar conversas" />
           </label>
@@ -135,7 +136,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
   return <>
     <button className="sidebar__section" type="button" aria-expanded={aberta}
       onClick={() => setAberta((valor) => !valor)}>
-      <IconChevronDown size={12} className="sidebar__section-chevron" />
+      <IconChevronDown size={16} className="sidebar__section-chevron" />
       <span className="sidebar__section-label">{label}</span>
     </button>
     {aberta && children}
@@ -155,9 +156,21 @@ interface HomeNavigationProps {
 function HomeNavigation({ state, view, conversations, filtro, incomingRequests, onSelectHome, onSelectDirect }: HomeNavigationProps) {
   const userMenu = useUserMenu()
   const alvo = filtro.trim().toLocaleLowerCase('pt-BR')
+  const [collapsedMap, setCollapsedMap] = useState<Record<string, boolean>>(loadDmsAccordions)
   const visiveis = useMemo(() => alvo
     ? conversations.filter((conversation) => conversation.username.toLocaleLowerCase('pt-BR').includes(alvo))
     : conversations, [conversations, alvo])
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, typeof visiveis>()
+    for (const conversation of visiveis) {
+      const serverKey = conversation.server_name || state.serverName || 'Servidor'
+      const list = map.get(serverKey) ?? []
+      list.push(conversation)
+      map.set(serverKey, list)
+    }
+    return map
+  }, [visiveis, state.serverName])
 
   return (
     <div className="sidebar__menu">
@@ -168,23 +181,50 @@ function HomeNavigation({ state, view, conversations, filtro, incomingRequests, 
       </button>
 
       <Section label="Mensagens diretas">
-        {visiveis.map((conversation) => {
-          const online = state.users.some((user) => user.user_id === conversation.user_id)
-          const open = view?.kind === 'direct' && view.userId === conversation.user_id
-          const naoLido = conversation.unread > 0 && !open
-          return <button key={conversation.user_id}
-            className={`sidebar__item sidebar__item--dm ${open ? 'is-active' : ''} ${naoLido ? 'has-unread' : ''}`}
-            aria-label={conversation.username}
-            onContextMenu={(event) => userMenu.open(event, { userId: conversation.user_id, name: conversation.username })}
-            onClick={() => onSelectDirect(conversation.user_id)}>
-            {naoLido && <span className="sidebar__unread" aria-hidden="true" />}
-            <Avatar userId={conversation.user_id}
-              className={`sidebar__dm-avatar ${online ? 'is-online' : ''}`} fallbackName={conversation.username} />
-            <span className="sidebar__item-name">
-              <ProfileName userId={conversation.user_id} fallbackName={conversation.username} />
-            </span>
-            {conversation.unread > 0 && <span className="sidebar__badge">{conversation.unread}</span>}
-          </button>
+        {Array.from(grouped.entries()).map(([sName, groupConvs]) => {
+          const collapsed = collapsedMap[sName] === true
+          return (
+            <div key={sName} className="sidebar__dm-group">
+              <button
+                type="button"
+                className="sidebar__dm-group-head"
+                aria-expanded={!collapsed}
+                onClick={() => {
+                  const next = !collapsed
+                  saveDmsAccordion(sName, next)
+                  setCollapsedMap((prev) => ({ ...prev, [sName]: next }))
+                }}
+              >
+                <IconChevronDown
+                  size={16}
+                  className={`sidebar__dm-group-chevron ${collapsed ? 'is-collapsed' : ''}`}
+                />
+                <IconServer size={16} className="sidebar__dm-group-icon" />
+                <span className="sidebar__dm-group-name">{sName}</span>
+                <span className="sidebar__dm-group-count">{groupConvs.length}</span>
+              </button>
+              {!collapsed && groupConvs.map((conversation) => {
+                const online = state.users.some((user) => user.user_id === conversation.user_id)
+                const open = view?.kind === 'direct' && view.userId === conversation.user_id
+                const naoLido = conversation.unread > 0 && !open
+                return (
+                  <button key={conversation.user_id}
+                    className={`sidebar__item sidebar__item--dm ${open ? 'is-active' : ''} ${naoLido ? 'has-unread' : ''}`}
+                    aria-label={conversation.username}
+                    onContextMenu={(event) => userMenu.open(event, { userId: conversation.user_id, name: conversation.username })}
+                    onClick={() => onSelectDirect(conversation.user_id)}>
+                    {naoLido && <span className="sidebar__unread" aria-hidden="true" />}
+                    <Avatar userId={conversation.user_id}
+                      className={`sidebar__dm-avatar ${online ? 'is-online' : ''}`} fallbackName={conversation.username} />
+                    <span className="sidebar__item-name">
+                      <ProfileName userId={conversation.user_id} fallbackName={conversation.username} />
+                    </span>
+                    {conversation.unread > 0 && <span className="sidebar__badge">{conversation.unread}</span>}
+                  </button>
+                )
+              })}
+            </div>
+          )
         })}
         {visiveis.length === 0 && <p className="sidebar__empty">
           {alvo ? 'Nenhuma conversa com esse nome.' : 'Suas conversas aparecerão aqui.'}
@@ -239,7 +279,7 @@ function ServerNavigation({ state, view, callChannel, speaking, onSelectChannel,
                 <span className="sidebar__peer-name">
                   <ProfileName userId={peer.user_id} fallbackName={peer.username} />
                 </span>
-                {(peer.muted || peer.deafened) && <span className="sidebar__peer-muted"><IconMicOff size={14} /></span>}
+                {(peer.muted || peer.deafened) && <span className="sidebar__peer-muted"><IconMicOff size={16} /></span>}
               </div>
             ))}
           </div>

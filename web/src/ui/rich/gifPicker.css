@@ -26,9 +26,9 @@
   color: var(--text);
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color var(--dur-base) ease;
 }
 
 .stapp-gif-search-input:focus {
@@ -55,7 +55,7 @@
   cursor: pointer;
   border: none;
   padding: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-base) ease;
 }
 
 .stapp-gif-item:hover {
@@ -70,10 +70,199 @@
 }
 
 .stapp-gif-attribution {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   text-align: right;
   color: var(--text-dim);
   padding: 0.25rem 0.5rem;
   background: var(--bg-raised);
   border-top: 1px solid var(--bg-input);
+}
+/* Tabs de navegação no topo do seletor de GIF */
+.stapp-gif-tabs {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3) 0 var(--space-3);
+  border-bottom: 1px solid var(--bg-input);
+  background: var(--bg-raised);
+}
+
+.stapp-gif-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--dur-fast) ease, border-color var(--dur-fast) ease;
+}
+
+.stapp-gif-tab:hover {
+  color: var(--text);
+}
+
+.stapp-gif-tab.is-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: var(--fw-semibold);
+}
+
+.stapp-gif-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: var(--radius-pill, 9999px);
+  background: var(--bg-input);
+  color: var(--text-soft);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.stapp-gif-tab.is-active .stapp-gif-tab-badge {
+  background: var(--accent-quiet);
+  color: var(--accent);
+}
+
+/* Card de GIF nos favoritos com botão de remoção */
+.stapp-gif-card {
+  position: relative;
+  width: 100%;
+  height: 95px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.stapp-gif-card .stapp-gif-item {
+  width: 100%;
+  height: 100%;
+}
+
+.stapp-gif-remove-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  color: #ffd700;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease;
+  z-index: 2;
+}
+
+.stapp-gif-card:hover .stapp-gif-remove-btn {
+  opacity: 1;
+}
+
+.stapp-gif-remove-btn:hover {
+  transform: scale(1.1);
+  background: rgba(0, 0, 0, 0.9);
+}
+
+/* Empty state de favoritos */
+.stapp-gif-empty-state {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--space-8) var(--space-4);
+  height: 100%;
+  min-height: 220px;
+  color: var(--text-dim);
+}
+
+.stapp-gif-empty-icon {
+  color: var(--text-dim);
+  opacity: 0.5;
+  margin-bottom: var(--space-3);
+}
+
+.stapp-gif-empty-title {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+  margin: 0 0 var(--space-1) 0;
+}
+
+.stapp-gif-empty-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-dim);
+  max-width: 220px;
+  line-height: 1.4;
+  margin: 0;
+}
+
+/* ── Botão de favoritar no feed do Chat ── */
+.stapp-chat-gif-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: min(100%, 480px);
+  max-height: 380px;
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.stapp-chat-gif-wrapper img {
+  display: block;
+  max-width: 100%;
+  max-height: 380px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  border-radius: var(--radius);
+}
+
+.stapp-chat-gif-fav-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity var(--dur-fast) ease, transform var(--dur-fast) ease, background var(--dur-fast) ease, color var(--dur-fast) ease;
+  z-index: 5;
+}
+
+.stapp-chat-gif-wrapper:hover .stapp-chat-gif-fav-btn,
+.stapp-attachment-image-wrapper:hover .stapp-chat-gif-fav-btn,
+.stapp-chat-gif-fav-btn.is-favorited {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.stapp-chat-gif-fav-btn:hover {
+  background: rgba(0, 0, 0, 0.85);
+  color: #ffd700;
+}
+
+.stapp-chat-gif-fav-btn.is-favorited {
+  color: #ffd700;
+  opacity: 0.9;
 }

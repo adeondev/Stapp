@@ -61,7 +61,7 @@ export const PollCard = memo(function PollCard({ poll, selfUserId, onVote, onClo
         {!poll.closed && isAuthor && onClosePoll && (
           <button
             type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors cursor-pointer text-xs"
+            className="stapp-poll-encerrar"
             onClick={() => onClosePoll(poll.id)}
             title="Encerrar enquete agora"
           >

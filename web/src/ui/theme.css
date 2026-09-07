@@ -74,10 +74,13 @@
   --color-warning: var(--warning);
 
   --radius-sm: var(--radius-sm);
-  --radius-md: var(--radius);
+  /* `--radius-md` nao entra aqui: quem manda nele e o :root abaixo. Ate agora o
+     @theme dizia 8px e nenhum :root dizia nada, entao `var(--radius-md, 6px)`
+     resolvia diferente conforme a ordem do bundle. */
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
   --radius-pill: var(--radius-pill);
+  --radius-card: var(--radius-card);
 
   /* Proibição estrita de box-shadow no design system do Stapp */
   --shadow-none: none;
@@ -193,7 +196,17 @@
   --separator-solid: #3f4147;
   --scrim: rgba(0, 0, 0, 0.7);
   --scrim-strong: rgba(0, 0, 0, 0.75);
+  /* O scrim de sobreposicao estava escrito de cinco jeitos diferentes pelo app
+     (`rgba(0,0,0,.75)`, `rgba(0,0,0,.85)`, `rgba(10,12,16,.85)`...). Um so. */
+  --overlay-scrim: rgba(0, 0, 0, 0.85);
+  /* Realce de linha/faixa sobre qualquer degrau. Era `rgba(0,0,0,.24)` repetido
+     literalmente em quatro arquivos. */
+  --sunken: rgba(0, 0, 0, 0.24);
+  --sunken-soft: rgba(0, 0, 0, 0.1);
   --scroll-thumb: rgba(0, 0, 0, 0.36);
+  /* `--bg-surface` era referenciado por poll.css sem existir em lugar nenhum —
+     o cartao da enquete ficava literalmente sem fundo. */
+  --bg-surface: var(--bg-raised);
 
   --text: #f2f3f5;
   --text-soft: #dbdee1;
@@ -202,8 +215,13 @@
 
   --danger: #f23f43;
   --danger-quiet: rgba(242, 63, 67, 0.15);
+  /* Tinta EM CIMA do vermelho e do verde. Existem separadas de `--on-accent`
+     porque sao superficies diferentes: se um dia o vermelho clarear, so a tinta
+     dele muda. Ate agora eram sete `#ffffff` soltos em seis arquivos. */
+  --on-danger: #ffffff;
   --online: #23a55a;
   --online-quiet: rgba(35, 165, 90, 0.15);
+  --on-online: #ffffff;
   --warning: #f0b232;
 
   --call-stage: #17181b;
@@ -217,12 +235,55 @@
   --call-menu: #1d1f23;
 
   --radius-sm: 4px;
+  /* `--radius-md` so existia dentro do @theme do Tailwind, entao os cinco
+     `var(--radius-md, 6px)` espalhados pelo app podiam cair no fallback e criar
+     um sexto raio sem ninguem perceber. Agora ele e um degrau de verdade. */
+  --radius-md: 6px;
   --radius: 8px;
   --radius-lg: 12px;
   --radius-xl: 16px;
   --radius-pill: 999px;
+  --radius-card: var(--radius-lg);
+
+  /* Escada de espaco. Antes eram ~23 valores de `gap` misturando px e rem; o
+     degrau existe para a proxima tela nao inventar o 24o. */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 24px;
+  --space-8: 32px;
+
+  /* Escada de tipografia. `--fs-md` (14px) e o corpo e bate com o `body`. */
+  --fs-xs: 11px;
+  --fs-sm: 12px;
+  --fs-base: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 24px;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+
+  /* Movimento. As curvas ja existiam; faltava a duracao ter nome — havia
+     `0.15s`, `90ms`, `120ms`, `140ms`, `160ms`, `200ms` e `320ms` convivendo. */
+  --dur-fast: 90ms;
+  --dur-base: 140ms;
+  --dur-slow: 220ms;
   --motion-spring: cubic-bezier(0.2, 0.9, 0.25, 1.15);
   --motion-smooth: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* Camadas. Sem escala havia 16 valores de z-index soltos, e as configuracoes
+     ficavam em 20 — abaixo de chrome que estava em 25..60. */
+  --z-raised: 10;
+  --z-sticky: 20;
+  --z-dock: 40;
+  --z-popover: 300;
+  --z-modal: 400;
+  --z-toast: 500;
   --rail-width: 72px;
   --sidebar-width: 240px;
   --members-width: 240px;
@@ -232,6 +293,7 @@
      cai na proxima, enquanto o emoji para nela em vez de cair na do
      sistema (Segoe UI Emoji no Windows, Apple Color Emoji no Mac). */
   --font: 'gg sans', 'Noto Sans', 'Twemoji', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', 'Roboto Mono', Menlo, Consolas, monospace;
   color-scheme: dark;
 }
 
@@ -271,6 +333,9 @@ button:disabled,
 ::placeholder { color: var(--text-faint); }
 * { scrollbar-color: var(--scroll-thumb) transparent; scrollbar-width: thin; }
 
+/* Duas portas para a mesma regra: a do sistema e a escolha explicita nas
+   configuracoes. A lista do que desligar e uma so — uma segunda lista viveria
+   desatualizada em relacao a esta. */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     scroll-behavior: auto !important;
@@ -280,6 +345,15 @@ button:disabled,
   }
 }
 
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  scroll-behavior: auto !important;
+  transition-duration: 0.01ms !important;
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+}
+
 /* A imagem preenche o circulo que a tela ja definiu, sem esticar. */
 .avatar__img {
   width: 100%;
@@ -287,4 +361,187 @@ button:disabled,
   object-fit: cover;
   border-radius: inherit;
   display: block;
+}
+
+/* ==========================================================================
+   5 Temas Semânticos de Cores
+   ========================================================================== */
+
+/* 1. Ônix: Preto absoluto OLED (#000000), alto contraste */
+:root[data-theme="onix"] {
+  color-scheme: dark;
+  --bg-canvas: #000000;
+  --bg-rail: #000000;
+  --bg-sidebar: #09090b;
+  --bg-app: #101012;
+  --bg-chat: #141416;
+  --bg-raised: #18181c;
+  --bg-floating: #000000;
+  --bg-input: #18181c;
+  --bg-surface: #18181c;
+
+  --text: #ffffff;
+  --text-normal: #ffffff;
+  --text-soft: #e4e4e7;
+  --text-dim: #a1a1aa;
+  --text-faint: #71717a;
+
+  --interactive: #d4d4d8;
+  --interactive-hover: #ffffff;
+  --interactive-active: #ffffff;
+
+  --separator-solid: #27272a;
+  --modifier-hover: rgba(255, 255, 255, 0.08);
+  --modifier-active: rgba(255, 255, 255, 0.14);
+  --modifier-selected: rgba(255, 255, 255, 0.18);
+
+  --call-stage: #000000;
+  --call-header: #09090b;
+  --call-tile: #121214;
+  --call-dock: #09090b;
+  --call-control: #27272a;
+  --call-control-hover: #3f3f46;
+  --call-menu: #121214;
+}
+
+/* 2. Escuro: Paleta dark moderna (#121214) */
+:root[data-theme="escuro"] {
+  color-scheme: dark;
+  --bg-canvas: #121214;
+  --bg-rail: #151518;
+  --bg-sidebar: #1a1a1e;
+  --bg-app: #202024;
+  --bg-chat: #242429;
+  --bg-raised: #1e1e22;
+  --bg-floating: #121214;
+  --bg-input: #2a2a30;
+  --bg-surface: #1e1e22;
+
+  --text: #f4f4f5;
+  --text-normal: #f4f4f5;
+  --text-soft: #d4d4d8;
+  --text-dim: #a1a1aa;
+  --text-faint: #71717a;
+
+  --interactive: #b5bac1;
+  --interactive-hover: #dbdee1;
+  --interactive-active: #f4f4f5;
+
+  --separator-solid: #2f2f35;
+  --modifier-hover: rgba(255, 255, 255, 0.06);
+  --modifier-active: rgba(255, 255, 255, 0.11);
+  --modifier-selected: rgba(255, 255, 255, 0.15);
+
+  --call-stage: #121214;
+  --call-header: #17171a;
+  --call-tile: #202024;
+  --call-dock: #17171a;
+  --call-control: #2c2c32;
+  --call-control-hover: #37373e;
+  --call-menu: #18181c;
+}
+
+/* 3. Cinza Neutro: Esquema suave balanceado (padrão) */
+:root[data-theme="cinza"] {
+  color-scheme: dark;
+  --bg-canvas: #131416;
+  --bg-rail: #1a1b1e;
+  --bg-sidebar: #232428;
+  --bg-app: #2b2d31;
+  --bg-chat: #2f3035;
+  --bg-raised: #1d1e21;
+  --bg-floating: #131416;
+  --bg-input: #383a40;
+  --bg-surface: #1d1e21;
+
+  --text: #f2f3f5;
+  --text-normal: #f2f3f5;
+  --text-soft: #dbdee1;
+  --text-dim: #949ba4;
+  --text-faint: #80848e;
+
+  --interactive: #b5bac1;
+  --interactive-hover: #dbdee1;
+  --interactive-active: #f2f3f5;
+
+  --separator-solid: #3f4147;
+  --modifier-hover: rgba(120, 124, 138, 0.22);
+  --modifier-active: rgba(120, 124, 138, 0.34);
+  --modifier-selected: rgba(120, 124, 138, 0.42);
+
+  --call-stage: #17181b;
+  --call-header: #202125;
+  --call-tile: #26282d;
+  --call-dock: #202226;
+  --call-control: #303238;
+  --call-control-hover: #3a3d44;
+  --call-menu: #1d1f23;
+}
+
+/* 4. Claro: Fundo branco limpo (#ffffff), alto contraste */
+:root[data-theme="claro"] {
+  color-scheme: light;
+  --bg-canvas: #ffffff;
+  --bg-rail: #eceff2;
+  --bg-sidebar: #f2f4f7;
+  --bg-app: #f7f9fb;
+  --bg-chat: #ffffff;
+  --bg-raised: #f2f4f7;
+  --bg-floating: #ffffff;
+  --bg-input: #e4e7ec;
+  --bg-surface: #f2f4f7;
+
+  --text: #060607;
+  --text-normal: #060607;
+  --text-soft: #2e3338;
+  --text-dim: #4e5058;
+  --text-faint: #747f8d;
+
+  --interactive: #4e5058;
+  --interactive-hover: #2e3338;
+  --interactive-active: #060607;
+
+  --separator-solid: #dcdfe3;
+  --modifier-hover: rgba(0, 0, 0, 0.05);
+  --modifier-active: rgba(0, 0, 0, 0.1);
+  --modifier-selected: rgba(0, 0, 0, 0.14);
+
+  --scroll-thumb: rgba(0, 0, 0, 0.22);
+
+  --call-stage: #eef0f3;
+  --call-header: #e3e5e8;
+  --call-tile: #ffffff;
+  --call-dock: #e3e5e8;
+  --call-control: #dcdfe3;
+  --call-control-hover: #cfd3d8;
+  --call-menu: #ffffff;
+}
+
+/* 5. Personalizado: Fundo e destaque configuráveis */
+:root[data-theme="personalizado"] {
+  color-scheme: dark;
+  --accent: var(--custom-accent, #6366f1);
+  --accent-brand: var(--custom-accent, #6366f1);
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, black 20%);
+  --accent-quiet: color-mix(in srgb, var(--accent) 15%, transparent);
+  --accent-glass: color-mix(in srgb, var(--accent) 20%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 12%, transparent);
+
+  --bg-canvas: var(--custom-bg, #1a1a2e);
+  --bg-rail: color-mix(in srgb, var(--custom-bg, #1a1a2e) 85%, black 15%);
+  --bg-sidebar: color-mix(in srgb, var(--custom-bg, #1a1a2e) 94%, white 6%);
+  --bg-app: color-mix(in srgb, var(--custom-bg, #1a1a2e) 88%, white 12%);
+  --bg-chat: color-mix(in srgb, var(--custom-bg, #1a1a2e) 82%, white 18%);
+  --bg-raised: color-mix(in srgb, var(--custom-bg, #1a1a2e) 90%, black 10%);
+  --bg-floating: color-mix(in srgb, var(--custom-bg, #1a1a2e) 95%, black 5%);
+  --bg-input: color-mix(in srgb, var(--custom-bg, #1a1a2e) 75%, white 25%);
+  --bg-surface: color-mix(in srgb, var(--custom-bg, #1a1a2e) 90%, black 10%);
+
+  --call-stage: var(--custom-bg, #1a1a2e);
+  --call-header: color-mix(in srgb, var(--custom-bg, #1a1a2e) 85%, black 15%);
+  --call-tile: color-mix(in srgb, var(--custom-bg, #1a1a2e) 88%, white 12%);
+  --call-dock: color-mix(in srgb, var(--custom-bg, #1a1a2e) 85%, black 15%);
+  --call-control: color-mix(in srgb, var(--custom-bg, #1a1a2e) 70%, white 30%);
+  --call-control-hover: color-mix(in srgb, var(--custom-bg, #1a1a2e) 60%, white 40%);
+  --call-menu: color-mix(in srgb, var(--custom-bg, #1a1a2e) 92%, black 8%);
 }

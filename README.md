@@ -166,7 +166,45 @@ pnpm app:build    # Gera o instalador standalone
 
 ---
 
+## Novidades da Versão 0.1.0-beta.7
+
+A versão **0.1.0-beta.7** consolida um salto significativo em escalabilidade de infraestrutura, fidelidade de áudio, ergonomia de chat e integração com o sistema operacional desktop:
+
+### 1. Armazenamento em Objeto S3 / Cloudflare R2 e Pipeline CI/CD Otimizada
+- **Suporte Nativo a S3/R2:** Armazenamento distribuído de anexos, avatares e mídias compatível com AWS S3, Cloudflare R2 e MinIO, configurável via bloco `[storage]` no `stapp.toml` ou variáveis de ambiente `STAPP_STORAGE_*`.
+- **Fallback Local Transparente:** Em ambientes sem configuração de nuvem, o servidor utiliza automaticamente o armazenamento local em disco com expiração de uploads órfãos.
+- **URLs Pré-assinadas:** Downloads e uploads diretos eliminam gargalos de banda e I/O no servidor central.
+- **Distribuição GHCR:** Pipeline de CI/CD rápida com publicação de imagens multi-arquitetura diretamente no GitHub Container Registry (`ghcr.io/adeondev/stapp`).
+
+### 2. Áudio BC-2 (Singleton AudioContext), Toque Unificado e Correções de Voz
+- **Singleton AudioContext (BC-2):** Ciclo de vida unificado para todos os grafos de reprodução e efeitos, impedindo esgotamento de contextos do navegador e dessincronização de relógios de amostragem.
+- **Máquina de Estados de Chamada Aprimorada:** Toque unificado (`ringing`) sincronizado entre remetente e destinatário, encerramento confiável dos loops sonoros e notificação persistente de chamadas perdidas.
+- **Troca de Microfone Dinâmica e VAD Estável:** Alternância a quente de dispositivos de entrada sem necessidade de reiniciar a chamada, combinada com detecção de voz (VAD) ajustada contra ruídos transitórios.
+
+### 3. DMs em Accordions Colapsáveis, Menu de Contexto no Trilho e Skip da Connect
+- **Accordions por Servidor:** Lista de Mensagens Diretas agrupada por servidor de origem em seções colapsáveis, persistindo as preferências de expansão/recolhimento no `localStorage`.
+- **Menu de Contexto no Trilho:** Clique com botão direito nos servidores do `ServerRail` exibe menu nativo com opções para "Marcar como lido", "Copiar endereço", "Convidar amigos" e "Sair do servidor".
+- **Inicialização Ágil (Skip Connect):** Usuários com sessões pré-autenticadas e servidores ativos em cache ignoram automaticamente a tela `Connect`, entrando diretamente na interface principal.
+
+### 4. Jumbojis Exclusivos, Proporção Real de Imagens e Favoritos de GIFs
+- **Jumbojis (2.75rem):** Mensagens contendo estritamente entre 1 e 10 emojis (Unicode ou Twemoji) são renderizadas com dimensões ampliadas (`.chat__emoji--jumbo`), preservando o tamanho convencional quando mescladas a texto.
+- **Proporção Real de Imagens:** Remoção de cortes forçados em anexos visuais com cálculo intrínseco de `aspect-ratio` e transparência total preservada para arquivos PNG, WebP e GIF.
+- **Favoritos de GIFs:** Nova aba dedicada no seletor de GIFs (`GifPicker`), permitindo favoritar mídias frequentemente usadas com salvamento local instantâneo.
+
+### 5. Fechar para a Bandeja (Close to Tray) e Notificações Desktop Nativas
+- **Close to Tray no Tauri v2:** Interceptação do fechamento da janela (`CloseRequested`), mantendo o Stapp ativo na bandeja do sistema sem desconectar chamadas de voz ou WebSockets.
+- **Menu da Bandeja:** Acesso rápido por clique duplo ou menu de contexto da bandeja: "Abrir Stapp", "Mutar Microfone" e "Sair Definitivamente".
+- **Notificações Nativas do SO:** Avisos do sistema operacional para menções (`@nome`, `@everyone`), mensagens diretas e chamadas entrantes com foco automático ao clicar.
+
+### 6. Avatar GIF Reativo à Voz, Banners de Perfil e 5 Temas Semânticos
+- **Avatar GIF Reativo:** Extração do primeiro quadro estático no upload (`avatar_static_url`), ativando a reprodução animada (`avatar_gif_url`) exclusivamente quando o usuário fala em canais de voz.
+- **Banners de Perfil Customizados:** Suporte a cores sólidas hexadecimais e imagens de banner em 960x360, com popover rápido e atalho direto para iniciar conversa.
+- **5 Temas de Cores com Persistência:** Escuro (padrão), Ônix (OLED), Cinza Neutro, Claro e Personalizado (com personalização livre de fundo e cor de destaque).
+
+---
+
 ## Licença
 
 MIT
+
 

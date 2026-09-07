@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from 'react'
+import './emojiPicker.css'
 
 // Import lazy do picker do emoji-mart com o dataset do Twitter/Twemoji
 const Picker = lazy(() =>
@@ -56,13 +57,11 @@ export function EmojiPicker({ isOpen, onClose, onSelectEmoji }: Props) {
   return (
     <div
       ref={containerRef}
-      className="absolute bottom-full right-0 mb-2 z-50 rounded-[var(--radius)] overflow-hidden bg-[var(--bg-raised)] border border-[var(--bg-input)]"
+      className="stapp-emoji-popover"
     >
       <Suspense
         fallback={
-          <div className="w-[352px] h-[435px] flex items-center justify-center text-[var(--text-dim)] text-xs bg-[var(--bg-raised)]">
-            carregando emojis...
-          </div>
+          <div className="stapp-emoji-popover__carregando">carregando emojis...</div>
         }
       >
         <Picker

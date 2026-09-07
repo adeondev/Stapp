@@ -12,6 +12,8 @@ const perfil = (over: Partial<Profile> = {}): Profile => ({
   accent: 'purple',
   bio: '',
   has_avatar: false,
+  has_banner: false,
+  created_at: 0,
   updated_at: 0,
   ...over,
 })

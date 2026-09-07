@@ -5,7 +5,7 @@
   border-radius: var(--radius);
   overflow: hidden;
   border-left: 3px solid var(--accent);
-  transition: background 0.15s ease;
+  transition: background var(--dur-base) ease;
   display: block;
   text-decoration: none;
 }
@@ -96,7 +96,7 @@
 }
 
 .stapp-link-preview__site {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -104,7 +104,7 @@
 }
 
 .stapp-link-preview__title {
-  font-size: 13.5px;
+  font-size: var(--fs-base);
   font-weight: 600;
   color: var(--accent);
   margin: 0 0 0.25rem 0;
@@ -125,7 +125,7 @@
 }
 
 .stapp-link-preview__description {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-soft);
   margin: 0;
   line-height: 1.4;

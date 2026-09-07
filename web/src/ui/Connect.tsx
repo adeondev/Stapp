@@ -191,7 +191,7 @@ export function Connect({
 
             <button className="connect__go" type="submit" disabled={!url.trim()}>
               <span>Conectar</span>
-              <IconArrowRight size={15} />
+              <IconArrowRight size={16} />
             </button>
           </form>
         ) : authInfo && !authInfo.plaintextAuthAllowed ? (
@@ -311,7 +311,7 @@ export function Connect({
 
             <button className="connect__go" type="submit" disabled={busy}>
               <span>{busy ? 'Autenticando…' : mode === 'login' ? 'Entrar' : 'Criar e entrar'}</span>
-              <IconArrowRight size={15} />
+              <IconArrowRight size={16} />
             </button>
 
             <div className="connect__footer-actions">
@@ -384,7 +384,7 @@ function CheckOption({
         className="connect__checkbox-input"
       />
       <span className={`connect__checkbox-box ${checked ? 'is-checked' : ''}`} aria-hidden="true">
-        {checked && <IconCheck size={13} />}
+        {checked && <IconCheck size={16} />}
       </span>
       <span>{label}</span>
     </label>

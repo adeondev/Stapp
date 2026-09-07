@@ -113,7 +113,10 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
             display_name,
             accent,
             bio,
-        } => profile::update(state, peer_id, display_name, accent, bio).await,
+            banner_color,
+        } => profile::update(state, peer_id, display_name, accent, bio, banner_color).await,
+
+        ClientMsg::ProfileFetch { user_id } => profile::detail(state, peer_id, user_id).await,
 
         ClientMsg::PrivacyUpdate { allow_member_dms } => {
             social::update_privacy(state, peer_id, allow_member_dms).await
@@ -125,6 +128,9 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
         ClientMsg::CallCancel { user_id } => call::cancel(state, peer_id, user_id).await,
 
         ClientMsg::VoiceJoin { channel } => voice::join(state, peer_id, &channel).await,
+        ClientMsg::VoiceInvite { target_user_id, channel_id } => {
+            voice::invite(state, peer_id, target_user_id, channel_id).await
+        }
         ClientMsg::VoiceLeave => voice::leave(state, peer_id).await,
         ClientMsg::VoiceConnected { channel } => voice::connected(state, peer_id, &channel).await,
         ClientMsg::VoiceState {

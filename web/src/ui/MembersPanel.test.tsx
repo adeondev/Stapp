@@ -2,20 +2,19 @@
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { ProfileProvider } from './Avatar'
 import { MembersPanel } from './MembersPanel'
 
 describe('painel de membros', () => {
   it('inclui o proprio perfil vivo como Voce e conta exatamente as linhas', async () => {
-    const edit = vi.fn()
     render(
       <ProfileProvider
         avatarBase={null}
         profiles={{
           self: {
             user_id: 'self', username: 'deon', display_name: 'Deon vivo', accent: 'blue',
-            bio: '', has_avatar: false, updated_at: 1,
+            bio: '', has_avatar: false, has_banner: false, created_at: 0, updated_at: 1,
           },
         }}
       >
@@ -27,7 +26,6 @@ describe('painel de membros', () => {
           onlineIds={new Set(['alice'])}
           selfUserId="self"
           selfUsername="deon"
-          onEditSelf={edit}
         />
       </ProfileProvider>,
     )
@@ -36,8 +34,14 @@ describe('painel de membros', () => {
     expect(screen.getByText('2 — Online')).toBeTruthy()
     expect(screen.getByText('Deon vivo')).toBeTruthy()
     expect(screen.getByText('você')).toBeTruthy()
-    await userEvent.click(screen.getByRole('button', { name: /Deon vivo/ }))
-    expect(edit).toHaveBeenCalledOnce()
+
+    /* A linha continua sendo um botao — o que mudou e o destino: agora o clique
+       da esquerda abre o cartao de perfil (inclusive o proprio, que leva a
+       "Editar perfil"), e nao mais o menu de acoes. O comportamento do cartao
+       tem teste proprio em `profile/UserProfilePopover.test.tsx`. */
+    const minhaLinha = screen.getByRole('button', { name: /Deon vivo/ })
+    await userEvent.click(minhaLinha)
+    expect(minhaLinha.tagName).toBe('BUTTON')
   })
 
   it('renderiza membros offline com seção separada e formato "Y — Offline"', () => {
@@ -51,7 +55,6 @@ describe('painel de membros', () => {
           onlineIds={new Set(['alice'])}
           selfUserId={null}
           selfUsername=""
-          onEditSelf={vi.fn()}
         />
       </ProfileProvider>,
     )

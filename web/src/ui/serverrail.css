@@ -46,7 +46,7 @@
   border-radius: var(--radius-sm);
   background: var(--text);
   translate: -4px -50%;
-  transition: height 200ms var(--motion-spring);
+  transition: height var(--dur-slow) var(--motion-spring);
 }
 
 .serverrail__slot:hover .serverrail__pill { height: 20px; }
@@ -59,21 +59,18 @@
   width: 48px;
   height: 48px;
   place-items: center;
-  /* O ladrilho nasce redondo e vira quadrado-arredondado quando e o atual.
-     E a transicao de FORMA que marca o estado; a cor entra so no acento. */
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-card);
   background: var(--pill-surface);
   color: var(--interactive-hover);
-  font-size: 15px;
+  font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: -0.02em;
-  transition: border-radius 180ms var(--motion-spring),
-    background 180ms ease, color 180ms ease;
+  transition: background var(--dur-base) ease, color var(--dur-base) ease;
 }
 
 .serverrail__item:hover,
 .serverrail__slot.is-active .serverrail__item {
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-card);
 }
 
 /* So o Home se pinta de acento. O ladrilho de um SERVIDOR ativo continua do
@@ -112,8 +109,8 @@
   place-items: center;
   border-radius: var(--radius-pill);
   background: var(--danger);
-  color: #ffffff;
-  font-size: 11px;
+  color: var(--on-danger);
+  font-size: var(--fs-xs);
   font-weight: 700;
   /* O recorte deixa o balao "furar" o ladrilho em vez de flutuar solto — sem
      ele o numero encosta na borda e some no ladrilho redondo. */
@@ -134,7 +131,7 @@
   border-radius: var(--radius-sm);
   background: var(--bg-floating);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   line-height: 1.15;
   pointer-events: none;
@@ -154,3 +151,37 @@
   .serverrail__item { width: 40px; height: 40px; }
   .serverrail__slot.is-active .serverrail__pill { height: 32px; }
 }
+
+.serverrail__modal-p {
+  color: var(--text-soft);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.serverrail__modal-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--modifier-hover);
+  color: var(--text);
+  transition: background var(--dur-fast) ease;
+}
+
+.serverrail__modal-btn:hover {
+  background: var(--modifier-active);
+}
+
+.serverrail__modal-btn--danger {
+  background: var(--danger);
+  color: var(--on-danger);
+}
+
+.serverrail__modal-btn--danger:hover {
+  background: var(--danger);
+  filter: brightness(0.9);
+}
+

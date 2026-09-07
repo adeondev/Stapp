@@ -81,7 +81,7 @@ function calculateGate(
   for (const sample of samples) energy += sample * sample
   const rms = Math.sqrt(energy / Math.max(1, samples.length))
   const db = 20 * Math.log10(Math.max(rms, 0.00001))
-  const automaticThreshold = Math.max(-65, Math.min(-25, previousNoiseFloor + 12))
+  const automaticThreshold = Math.max(-60, Math.min(-30, previousNoiseFloor + 10))
   const threshold = settings.automaticSensitivity ? automaticThreshold : settings.sensitivity
   const speaking = db >= threshold
   const noiseFloor = !speaking

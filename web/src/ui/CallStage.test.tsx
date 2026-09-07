@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import { DEFAULT_VOICE_PREFERENCES } from '../voice/preferences'
 import { CallStage } from './CallStage'
+import { ProfileProvider } from './Avatar'
 import { UserMenuProvider } from './UserMenu'
 import { useVoiceStore } from '../stores'
 
@@ -25,6 +26,19 @@ const snapshot: VoiceSnapshot = {
   ],
 }
 
+
+/** O teste de microfone devolve um controle (medidor + retorno local), nao um cleanup. */
+function micTestHandle() {
+  return {
+    stop: vi.fn(),
+    setMonitor: vi.fn(),
+    setMonitorVolume: vi.fn(),
+    setOutputDevice: vi.fn(async () => {}),
+    setInputDevice: vi.fn(async () => {}),
+    isMonitoring: () => false,
+  }
+}
+
 function transport(): VoiceTransport {
   return {
     join: vi.fn(async () => true), leave: vi.fn(), resumeAudio: vi.fn(async () => true),
@@ -33,7 +47,7 @@ function transport(): VoiceTransport {
     listScreenSources: vi.fn(async () => []), captureScreenSourceThumbnail: vi.fn(async () => null),
     setInputDevice: vi.fn(async () => {}), setOutputDevice: vi.fn(async () => {}), setCameraDevice: vi.fn(async () => {}),
     enumerateDevices: vi.fn(async () => ({ inputs: [], outputs: [], cameras: [] })),
-    startMicrophoneTest: vi.fn(async () => () => {}), startCameraPreview: vi.fn(async () => () => {}),
+    startMicrophoneTest: vi.fn(async () => micTestHandle()), startCameraPreview: vi.fn(async () => () => {}),
     setPublicationSubscribed: vi.fn(), getVoiceVolume: vi.fn(() => 100), setVoiceVolume: vi.fn(),
     setVoiceMuted: vi.fn(), getScreenShareVolume: vi.fn(() => 100),
     setScreenShareVolume: vi.fn(), setScreenShareMuted: vi.fn(),
@@ -396,6 +410,40 @@ describe('palco da chamada', () => {
     expect(exitBtn).toBeTruthy()
     await user.click(exitBtn)
     expect(container.querySelector('.calltile__fullscreen-controls')).toBeNull()
+  })
+
+  it('exibe display_name nos cards de chamada em vez do username bruto', () => {
+    const media = transport()
+    const profiles = {
+      'user-alice': {
+        user_id: 'user-alice',
+        username: 'alice_raw',
+        display_name: 'Alice Estrela',
+        accent: 'violet',
+        custom_status: '',
+        bio: '',
+        avatar_hash: null,
+        banner_hash: null,
+        has_avatar: false,
+        has_banner: false,
+        created_at: 0,
+      } as any,
+    }
+
+    render(
+      <ProfileProvider profiles={profiles} avatarBase={null}>
+        <CallStage
+          channelName="Sala"
+          snapshot={snapshot}
+          transport={media}
+          resolveUserId={(peerId) => (peerId === 'alice' ? 'user-alice' : undefined)}
+          onLeave={vi.fn()}
+          onOpenSettings={vi.fn()}
+        />
+      </ProfileProvider>,
+    )
+
+    expect(screen.getByText('Alice Estrela')).toBeTruthy()
   })
 })
 

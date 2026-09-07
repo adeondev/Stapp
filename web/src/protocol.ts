@@ -4,7 +4,7 @@
 export type PeerId = string
 export type UserId = string
 export type ChannelKind = 'text' | 'voice'
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
 
 export interface Channel {
   id: string
@@ -170,6 +170,7 @@ export interface DirectSummary {
   username: string
   last: DirectMessage | null
   unread: number
+  server_name?: string
 }
 
 /** Alguem com conta no servidor, online ou nao. */
@@ -195,6 +196,15 @@ export interface Profile {
   accent: AccentName
   bio: string
   has_avatar: boolean
+  avatar_gif?: boolean
+  avatar_static_url?: string
+  avatar_gif_url?: string
+  /** Sem imagem, o cartao de perfil desenha uma faixa na cor de destaque. */
+  has_banner: boolean
+  banner_url?: string
+  banner_color?: string
+  /** Quando a conta foi criada — o "Membro desde" do perfil. Epoch em ms. */
+  created_at: number
   updated_at: number
 }
 
@@ -210,6 +220,7 @@ export interface SocialMember {
   relationship: RelationshipState
   can_start_dm: boolean
   has_conversation: boolean
+  server_name?: string
 }
 
 export interface AuthSession {
@@ -332,11 +343,17 @@ export type ClientMsg =
       accent?: AccentName
       bio?: string
     }
+  /**
+   * Pede a parte do perfil que nao viaja no `welcome`: hoje, amigos em comum.
+   * Sai quando alguem ABRE um perfil, nao a cada avatar desenhado na tela.
+   */
+  | { t: 'profile.fetch'; user_id: UserId }
   | { t: 'call.start'; user_id: UserId }
   | { t: 'call.accept'; user_id: UserId }
   | { t: 'call.decline'; user_id: UserId }
   | { t: 'call.cancel'; user_id: UserId }
   | { t: 'voice.join'; channel: string }
+  | { t: 'voice.invite'; target_user_id: UserId; channel_id: string }
   | { t: 'voice.leave' }
   | { t: 'voice.connected'; channel: string }
   | {
@@ -423,12 +440,18 @@ export type ServerMsg =
   | { t: 'dm.denied'; user_id: UserId }
   | { t: 'social.snapshot'; allow_member_dms: boolean; members: SocialMember[] }
   | { t: 'user.profile'; profile: Profile }
+  /**
+   * Resposta do `profile.fetch`. Vai so para quem pediu — e uma resposta sobre
+   * um PAR de contas, nao um fato publico do servidor.
+   */
+  | { t: 'profile.detail'; user_id: UserId; mutual_friends: UserId[] }
   | { t: 'user.online'; user: OnlineUser }
   | { t: 'user.offline'; user_id: UserId }
   | { t: 'call.incoming'; user_id: UserId; username: string }
   | { t: 'call.ringing'; user_id: UserId }
   | { t: 'call.accepted'; user_id: UserId; channel: string }
   | { t: 'call.ended'; user_id: UserId; reason: CallEndReason }
+  | { t: 'voice.invite'; from_user_id: UserId; channel_id: string }
   | { t: 'voice.roster'; channel: string; peers: VoicePeer[] }
   | { t: 'voice.grant'; channel: string; url: string; token: string; expires_at: number }
   | { t: 'voice.denied'; channel: string; code: VoiceDeniedCode; message: string }

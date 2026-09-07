@@ -116,7 +116,7 @@ class StappRnnoiseProcessor extends AudioWorkletProcessor {
     }
     const rms = Math.sqrt(energy / Math.max(1, target.length))
     const db = 20 * Math.log10(Math.max(rms, 0.00001))
-    const automaticThreshold = Math.max(-65, Math.min(-25, this.noiseFloor + 12))
+    const automaticThreshold = Math.max(-60, Math.min(-30, this.noiseFloor + 10))
     const threshold = this.settings.automaticSensitivity ? automaticThreshold : this.settings.sensitivity
     const speaking = this.settings.inputMode !== 'voice_activity' || db >= threshold
     if (!speaking) this.noiseFloor = this.noiseFloor * 0.995 + db * 0.005

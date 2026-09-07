@@ -34,11 +34,10 @@ ARG TARGETARCH
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates \
         libssl3 \
-        curl \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 10001 stapp \
     && useradd -u 10001 -g stapp -d /app -s /usr/sbin/nologin stapp \
-    && mkdir -p /app/data/attachments /app/data/acme \
+    && mkdir -p /app/data/uploads /app/data/attachments /app/data/acme \
     && chown -R stapp:stapp /app
 
 WORKDIR /app
@@ -54,12 +53,9 @@ USER stapp
 ENV STAPP_SERVER_BIND=0.0.0.0 \
     STAPP_SERVER_PORT=8787 \
     STAPP_STORAGE_DATABASE=/app/data/stapp.db \
-    STAPP_STORAGE_ATTACHMENTS_DIR=/app/data/attachments
+    STAPP_STORAGE_ATTACHMENTS_DIR=/app/data/uploads
 
 EXPOSE 8787
-
-HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://127.0.0.1:8787/health || exit 1
 
 VOLUME ["/app/data"]
 

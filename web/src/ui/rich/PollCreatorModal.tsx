@@ -1,5 +1,24 @@
-import { memo, useState } from 'react'
+import { memo, useRef, useState } from 'react'
+import { IconPlus, IconX } from '../Icons'
+import { IconButton } from '../IconButton'
+import { Modal, ModalBody, ModalFooter, ModalHeader, useModalTitleId } from '../Overlay'
 import './poll.css'
+
+/**
+ * Criar enquete.
+ *
+ * Era o unico dialogo do app sem ARIA nenhuma — sem `role`, sem `aria-modal`,
+ * sem titulo associado — e o unico escrito em utilitarios do Tailwind, com
+ * `text-white` e `hover:text-red-400` fora da paleta. Tambem era o unico que
+ * fechava no `onClick` do fundo, o que derrubava o formulario inteiro quando
+ * alguem selecionava texto de dentro para fora.
+ *
+ * Agora usa o `<Modal>` compartilhado: Escape, armadilha de foco, devolucao de
+ * foco e fechamento por `mousedown` vem de graca, e o CSS e do proprio projeto.
+ */
+
+const MIN_OPCOES = 2
+const MAX_OPCOES = 10
 
 interface Props {
   isOpen: boolean
@@ -11,35 +30,16 @@ export const PollCreatorModal = memo(function PollCreatorModal({ isOpen, onClose
   const [question, setQuestion] = useState('')
   const [options, setOptions] = useState<string[]>(['', ''])
   const [allowMult, setAllowMult] = useState(false)
+  const primeiroCampo = useRef<HTMLInputElement>(null)
+  const tituloId = useModalTitleId()
 
-  if (!isOpen) return null
+  const validas = options.map((o) => o.trim()).filter(Boolean)
+  const podeCriar = Boolean(question.trim()) && validas.length >= MIN_OPCOES
 
-  function addOption() {
-    if (options.length < 10) {
-      setOptions([...options, ''])
-    }
-  }
-
-  function removeOption(index: number) {
-    if (options.length > 2) {
-      setOptions(options.filter((_, i) => i !== index))
-    }
-  }
-
-  function handleOptionChange(index: number, val: string) {
-    const next = [...options]
-    next[index] = val
-    setOptions(next)
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
-    const q = question.trim()
-    const validOptions = options.map((o) => o.trim()).filter(Boolean)
-
-    if (!q || validOptions.length < 2) return
-
-    onCreatePoll(q, validOptions, allowMult)
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault()
+    if (!podeCriar) return
+    onCreatePoll(question.trim(), validas, allowMult)
     setQuestion('')
     setOptions(['', ''])
     setAllowMult(false)
@@ -47,99 +47,84 @@ export const PollCreatorModal = memo(function PollCreatorModal({ isOpen, onClose
   }
 
   return (
-    <div className="stapp-poll-modal" onClick={onClose}>
-      <div className="stapp-poll-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-[var(--text)]">Criar Enquete</h3>
-          <button
-            type="button"
-            className="text-[var(--text-dim)] hover:text-[var(--text)] text-sm cursor-pointer p-1"
-            onClick={onClose}
-          >
-            ✕
-          </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="flex flex-col gap-3">
-          <div>
-            <label className="block text-xs font-semibold text-[var(--text-dim)] mb-1">
-              PERGUNTA
-            </label>
+    <Modal
+      open={isOpen}
+      onClose={onClose}
+      size="sm"
+      labelledBy={tituloId}
+      initialFocus={primeiroCampo}
+      className="poll-creator"
+    >
+      <ModalHeader title="Criar enquete" titleId={tituloId} onClose={onClose} />
+      <form onSubmit={handleSubmit} className="poll-creator__form">
+        <ModalBody className="poll-creator__body">
+          <label className="poll-creator__campo">
+            <span className="poll-creator__rotulo">Pergunta</span>
             <input
+              ref={primeiroCampo}
               type="text"
               className="stapp-poll-input"
               placeholder="Sobre o que você quer perguntar?"
               value={question}
-              autoFocus
-              onChange={(e) => setQuestion(e.target.value)}
+              maxLength={200}
+              onChange={(event) => setQuestion(event.target.value)}
             />
-          </div>
+          </label>
 
-          <div className="flex flex-col gap-2">
-            <label className="block text-xs font-semibold text-[var(--text-dim)]">
-              OPÇÕES (MÍNIMO 2, MÁXIMO 10)
-            </label>
+          <div className="poll-creator__campo">
+            <span className="poll-creator__rotulo">
+              Opções <small>mínimo {MIN_OPCOES}, máximo {MAX_OPCOES}</small>
+            </span>
             {options.map((opt, idx) => (
-              <div key={idx} className="flex items-center gap-2">
+              <div key={idx} className="poll-creator__opcao">
                 <input
                   type="text"
                   className="stapp-poll-input"
                   placeholder={`Opção ${idx + 1}`}
                   value={opt}
-                  onChange={(e) => handleOptionChange(idx, e.target.value)}
+                  maxLength={100}
+                  aria-label={`Opção ${idx + 1}`}
+                  onChange={(event) => {
+                    const next = [...options]
+                    next[idx] = event.target.value
+                    setOptions(next)
+                  }}
                 />
-                {options.length > 2 && (
-                  <button
-                    type="button"
-                    className="text-[var(--text-dim)] hover:text-red-400 p-1 cursor-pointer text-xs"
-                    onClick={() => removeOption(idx)}
-                    title="Remover opção"
-                  >
-                    ✕
-                  </button>
+                {options.length > MIN_OPCOES && (
+                  <IconButton
+                    size="sm"
+                    label={`Remover opção ${idx + 1}`}
+                    icon={<IconX size={16} />}
+                    onClick={() => setOptions(options.filter((_, i) => i !== idx))}
+                  />
                 )}
               </div>
             ))}
 
-            {options.length < 10 && (
-              <button
-                type="button"
-                className="text-xs text-[var(--accent)] hover:underline self-start mt-1 cursor-pointer"
-                onClick={addOption}
-              >
-                + Adicionar outra opção
+            {options.length < MAX_OPCOES && (
+              <button type="button" className="poll-creator__adicionar" onClick={() => setOptions([...options, ''])}>
+                <IconPlus size={16} /> Adicionar outra opção
               </button>
             )}
           </div>
 
-          <label className="flex items-center gap-2 text-xs text-[var(--text)] cursor-pointer mt-1 select-none">
+          <label className="poll-creator__multipla">
             <input
               type="checkbox"
               checked={allowMult}
-              onChange={(e) => setAllowMult(e.target.checked)}
-              className="rounded accent-[var(--accent)]"
+              onChange={(event) => setAllowMult(event.target.checked)}
             />
             <span>Permitir múltipla escolha</span>
           </label>
+        </ModalBody>
 
-          <div className="flex justify-end gap-2 mt-4">
-            <button
-              type="button"
-              className="px-3 py-1.5 rounded-[var(--radius-sm)] text-xs text-[var(--text-dim)] hover:text-[var(--text)] cursor-pointer"
-              onClick={onClose}
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={!question.trim() || options.filter((o) => o.trim()).length < 2}
-              className="px-4 py-1.5 rounded-[var(--radius-sm)] text-xs font-semibold bg-[var(--accent)] text-white hover:opacity-90 disabled:opacity-40 cursor-pointer"
-            >
-              Criar Enquete
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <ModalFooter>
+          <button type="button" className="poll-creator__botao" onClick={onClose}>Cancelar</button>
+          <button type="submit" className="poll-creator__botao is-primary" disabled={!podeCriar}>
+            Criar enquete
+          </button>
+        </ModalFooter>
+      </form>
+    </Modal>
   )
 })

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { PlaybackGraph } from './PlaybackGraph'
+import { PlaybackGraph, resetSharedAudioContext } from './PlaybackGraph'
 
 class FakeAudioNode {
   connectedTo: any = null
@@ -50,6 +50,7 @@ class FakeMediaStream {
 
 describe('PlaybackGraph', () => {
   beforeEach(() => {
+    resetSharedAudioContext()
     Object.defineProperty(window, 'AudioContext', {
       configurable: true,
       value: FakeAudioContext,
@@ -201,7 +202,7 @@ describe('PlaybackGraph', () => {
     expect(nodes.gainNode.gain.value).toBeCloseTo(0.32, 2)
   })
 
-  it('desconecta nos e fecha o AudioContext ao desacoplar track', () => {
+  it('desconecta nos ao desacoplar track sem fechar o AudioContext compartilhado', () => {
     const graph = new PlaybackGraph()
     const track = { kind: 'audio', id: 'track-detach', stop: vi.fn() } as unknown as MediaStreamTrack
     const nodes = graph.attach('pub-detach', track)!
@@ -209,9 +210,20 @@ describe('PlaybackGraph', () => {
     graph.detach('pub-detach')
     expect(nodes.source.disconnect).toHaveBeenCalled()
     expect(nodes.gainNode.disconnect).toHaveBeenCalled()
-    expect(nodes.context.close).toHaveBeenCalled()
+    expect(nodes.context.close).not.toHaveBeenCalled()
     expect(graph.has('pub-detach')).toBe(false)
     expect(graph.size).toBe(0)
+  })
+
+  it('compartilha a mesma instancia de AudioContext entre multiplas tracks conectadas (BC-2)', () => {
+    const graph = new PlaybackGraph()
+    const track1 = { kind: 'audio', id: 'track-1', stop: vi.fn() } as unknown as MediaStreamTrack
+    const track2 = { kind: 'audio', id: 'track-2', stop: vi.fn() } as unknown as MediaStreamTrack
+
+    const n1 = graph.attach('p1', track1)!
+    const n2 = graph.attach('p2', track2)!
+
+    expect(n1.context).toBe(n2.context)
   })
 
   it('redireciona dispositivos de saida via setSinkId nos contextos ativos', async () => {
@@ -236,7 +248,7 @@ describe('PlaybackGraph', () => {
     expect(nodes.context.resume).toHaveBeenCalled()
   })
 
-  it('destroy libera todos os grafos ativos', () => {
+  it('destroy libera todos os grafos ativos e fecha o AudioContext compartilhado', () => {
     const graph = new PlaybackGraph()
     const track1 = { kind: 'audio', id: 'track-1', stop: vi.fn() } as unknown as MediaStreamTrack
     const track2 = { kind: 'audio', id: 'track-2', stop: vi.fn() } as unknown as MediaStreamTrack
@@ -244,11 +256,11 @@ describe('PlaybackGraph', () => {
     const n1 = graph.attach('p1', track1)!
     const n2 = graph.attach('p2', track2)!
 
+    expect(n1.context).toBe(n2.context)
     expect(graph.size).toBe(2)
     graph.destroy()
 
     expect(graph.size).toBe(0)
-    expect(n1.context.close).toHaveBeenCalled()
-    expect(n2.context.close).toHaveBeenCalled()
+    expect(n1.context.close).toHaveBeenCalledTimes(1)
   })
 })

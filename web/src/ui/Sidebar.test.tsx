@@ -26,18 +26,18 @@ const callbacks = {
 }
 
 function renderSidebar(view: View, mode: 'home' | 'server') {
-  render(<Sidebar state={state} status="online" view={view} mode={mode}
+  return render(<Sidebar state={state} status="online" view={view} mode={mode}
     callChannel={null} speaking={new Set()} footer={<div>conta</div>} {...callbacks} />)
 }
 
 describe('Sidebar', () => {
   it('mostra somente amigos e conversas quando Home esta aberto', () => {
-    renderSidebar({ kind: 'home' }, 'home')
+    const { container } = renderSidebar({ kind: 'home' }, 'home')
 
     expect(screen.getByRole('button', { name: 'Amigos' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'daniyusk' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'geral' })).toBeNull()
-    expect(screen.queryByText('Stapp dos guri')).toBeNull()
+    expect(container.querySelector('.sidebar__server-name')).toBeNull()
   })
 
   it('mostra somente canais quando o servidor esta aberto', () => {
@@ -61,5 +61,33 @@ describe('Sidebar', () => {
 
     expect(screen.getByRole('button', { name: 'geral' }).className).not.toContain('is-active')
     expect(screen.getByRole('button', { name: 'Sala de voz' })).toBeTruthy()
+  })
+
+  it('agrupa DMs por servidor e permite expandir/recolher com persistencia no localStorage', async () => {
+    const { default: userEvent } = await import('@testing-library/user-event')
+    localStorage.clear()
+    const user = userEvent.setup()
+
+    renderSidebar({ kind: 'home' }, 'home')
+
+    // State has conversation with user-2, defaulting to state.serverName ('Stapp dos guri')
+    expect(screen.getByRole('button', { name: /Stapp dos guri/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'daniyusk' })).toBeTruthy()
+
+    // Collapse 'Stapp dos guri'
+    const accordionBtn = screen.getByRole('button', { name: /Stapp dos guri/ })
+    await user.click(accordionBtn)
+
+    expect(screen.queryByRole('button', { name: 'daniyusk' })).toBeNull()
+    expect(JSON.parse(localStorage.getItem('stapp.dms.accordions') || '{}')).toEqual({
+      'Stapp dos guri': true,
+    })
+
+    // Expand again
+    await user.click(accordionBtn)
+    expect(screen.getByRole('button', { name: 'daniyusk' })).toBeTruthy()
+    expect(JSON.parse(localStorage.getItem('stapp.dms.accordions') || '{}')).toEqual({
+      'Stapp dos guri': false,
+    })
   })
 })

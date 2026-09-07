@@ -46,4 +46,39 @@ describe('FriendsHome', () => {
     await user.click(cancel)
     expect(props.onAction).toHaveBeenCalledWith('cancel', 'sent-1')
   })
+
+  it('agrupa amigos por servidor e permite expandir/recolher com persistencia no localStorage', async () => {
+    localStorage.clear()
+    const user = userEvent.setup()
+    render(<FriendsHome {...props} onlineIds={new Set(['u1', 'u2'])} serverName="Servidor Alpha" members={[
+      { user_id: 'u1', username: 'alice', relationship: 'friend', can_start_dm: true, has_conversation: true, server_name: 'Servidor Alpha' },
+      { user_id: 'u2', username: 'bob', relationship: 'friend', can_start_dm: true, has_conversation: false, server_name: 'Servidor Beta' },
+    ]} />)
+
+    expect(screen.getByText('Servidor Alpha')).toBeTruthy()
+    expect(screen.getByText('Servidor Beta')).toBeTruthy()
+    expect(screen.getByText('alice')).toBeTruthy()
+    expect(screen.getByText('bob')).toBeTruthy()
+
+    // Collapse Servidor Alpha
+    const alphaButton = screen.getByRole('button', { name: /Servidor Alpha/ })
+    await user.click(alphaButton)
+
+    // Alice should be hidden because Servidor Alpha is collapsed
+    expect(screen.queryByText('alice')).toBeNull()
+    // Bob should still be visible
+    expect(screen.getByText('bob')).toBeTruthy()
+
+    // Verify localStorage
+    expect(JSON.parse(localStorage.getItem('stapp.dms.accordions') || '{}')).toEqual({
+      'Servidor Alpha': true,
+    })
+
+    // Expand again
+    await user.click(alphaButton)
+    expect(screen.getByText('alice')).toBeTruthy()
+    expect(JSON.parse(localStorage.getItem('stapp.dms.accordions') || '{}')).toEqual({
+      'Servidor Alpha': false,
+    })
+  })
 })

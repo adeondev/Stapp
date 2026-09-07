@@ -38,6 +38,8 @@ pub struct PresignedUpload {
 
 impl MediaStorageService {
     pub fn local(root: PathBuf) -> Result<Self> {
+        std::fs::create_dir_all(&root)
+            .with_context(|| format!("nao consegui criar o diretorio raiz {}", root.display()))?;
         std::fs::create_dir_all(root.join(".uploading"))
             .with_context(|| format!("nao consegui criar {}", root.display()))?;
         std::fs::create_dir_all(root.join("objects"))
@@ -52,10 +54,15 @@ impl MediaStorageService {
     pub fn s3(cfg: &S3Config, temporary_root: PathBuf) -> Result<Self> {
         std::fs::create_dir_all(&temporary_root)?;
         let creds = Credentials::new(&cfg.access_key, &cfg.secret_key, None, None, "stapp-manual");
+        let endpoint = if cfg.endpoint.trim().is_empty() {
+            format!("https://s3.{}.amazonaws.com", cfg.region)
+        } else {
+            cfg.endpoint.clone()
+        };
         let s3_config = aws_sdk_s3::config::Builder::new()
             .behavior_version(BehaviorVersion::latest())
             .region(Region::new(cfg.region.clone()))
-            .endpoint_url(cfg.endpoint.clone())
+            .endpoint_url(endpoint)
             .credentials_provider(creds)
             .force_path_style(true)
             .sleep_impl(aws_smithy_async::rt::sleep::TokioSleep::new())
@@ -69,11 +76,70 @@ impl MediaStorageService {
         })
     }
 
+    /// Inicializa o serviço de armazenamento inspecionando a configuração:
+    /// Se houver configuração de S3/Cloudflare R2 com credenciais válidas e não-vazias,
+    /// inicializa o backend S3.
+    /// Se as credenciais estiverem vazias, ausentes ou se o S3 falhar, ativa automaticamente
+    /// o armazenamento local no disco (`./data/uploads/` ou `attachments_dir`), criando os
+    /// diretórios necessários sem falhas.
+    pub fn from_storage_config(storage: &crate::config::StorageConfig) -> Result<Self> {
+        let local_dir = if storage.attachments_dir.as_os_str().is_empty() {
+            PathBuf::from("data/uploads")
+        } else {
+            storage.attachments_dir.clone()
+        };
+
+        #[cfg(feature = "s3")]
+        if let Some(s3) = &storage.s3 {
+            if s3.is_configured() {
+                let temp_root = local_dir.join(".uploading");
+                tracing::info!(
+                    bucket = %s3.bucket,
+                    endpoint = %s3.endpoint,
+                    region = %s3.region,
+                    "armazenamento: S3/Cloudflare R2 configurado, conectando ao bucket"
+                );
+                match Self::s3(s3, temp_root) {
+                    Ok(service) => return Ok(service),
+                    Err(err) => {
+                        tracing::warn!(
+                            error = %err,
+                            "falha ao inicializar cliente S3. Ativando fallback automatico para armazenamento local no disco"
+                        );
+                    }
+                }
+            } else {
+                tracing::info!(
+                    "credenciais de S3/Cloudflare R2 ausentes ou vazias no stapp.toml/.env: ativando armazenamento local no disco"
+                );
+            }
+        }
+
+        #[cfg(not(feature = "s3"))]
+        if storage.s3.as_ref().is_some_and(|s| s.is_configured()) {
+            tracing::warn!("[storage.s3] configurado porem binario compilado sem feature s3. Usando disco local.");
+        }
+
+        tracing::info!(
+            path = %local_dir.display(),
+            "armazenamento: disco local ativo"
+        );
+        Self::local(local_dir)
+    }
+
     pub fn backend_name(&self) -> &'static str {
         match self.backend {
             Backend::Local { .. } => "local",
             #[cfg(feature = "s3")]
             Backend::S3 { .. } => "s3",
+        }
+    }
+
+    pub fn location_info(&self) -> String {
+        match &self.backend {
+            Backend::Local { root } => root.display().to_string(),
+            #[cfg(feature = "s3")]
+            Backend::S3 { bucket, .. } => format!("s3://{bucket}"),
         }
     }
 
@@ -216,5 +282,76 @@ impl MediaStorageService {
 
         let _ = (user_id, filename, content_type);
         bail!("upload legado presigned exige o backend S3")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{S3Config, StorageConfig};
+    use crate::test_support::TestDir;
+
+    #[test]
+    fn from_storage_config_usa_disco_local_por_padrao() {
+        let dir = TestDir::new();
+        let uploads = dir.path().join("uploads");
+        let storage = StorageConfig {
+            database: dir.database(),
+            history_limit: 200,
+            attachments_dir: uploads.clone(),
+            s3: None,
+        };
+
+        let service = MediaStorageService::from_storage_config(&storage).unwrap();
+        assert_eq!(service.backend_name(), "local");
+        assert!(uploads.exists());
+        assert!(uploads.join(".uploading").exists());
+        assert!(uploads.join("objects").exists());
+    }
+
+    #[test]
+    fn from_storage_config_fallback_local_quando_s3_vazio_ou_sem_credenciais() {
+        let dir = TestDir::new();
+        let uploads = dir.path().join("uploads");
+        let storage = StorageConfig {
+            database: dir.database(),
+            history_limit: 200,
+            attachments_dir: uploads.clone(),
+            s3: Some(S3Config {
+                endpoint: "https://r2.cloudflarestorage.com".into(),
+                bucket: "".into(),
+                region: "auto".into(),
+                access_key: "".into(),
+                secret_key: "".into(),
+                public_url: None,
+            }),
+        };
+
+        let service = MediaStorageService::from_storage_config(&storage).unwrap();
+        assert_eq!(service.backend_name(), "local");
+        assert!(uploads.exists());
+    }
+
+    #[cfg(feature = "s3")]
+    #[test]
+    fn from_storage_config_ativa_s3_quando_configurado() {
+        let dir = TestDir::new();
+        let storage = StorageConfig {
+            database: dir.database(),
+            history_limit: 200,
+            attachments_dir: dir.path().join("uploads"),
+            s3: Some(S3Config {
+                endpoint: "http://127.0.0.1:9000".into(),
+                bucket: "meu-bucket".into(),
+                region: "auto".into(),
+                access_key: "minio_key".into(),
+                secret_key: "minio_secret".into(),
+                public_url: None,
+            }),
+        };
+
+        let service = MediaStorageService::from_storage_config(&storage).unwrap();
+        assert_eq!(service.backend_name(), "s3");
+        assert_eq!(service.location_info(), "s3://meu-bucket");
     }
 }

@@ -24,23 +24,61 @@ invariante que nao pode ser quebrado e como a costura deve evoluir. Nao deixe `T
    **tom de fundo**, não por linha divisória.
    - *Única exceção:* `:focus-visible` mantém um anel visível. É acessibilidade de teclado, não
      decoração. Não remova.
-3. **Acento `#7C9CFF`** — um azul claro, de propósito mais claro que o `#5865F2` do Discord.
+3. **Acento `#209cee`** — o azul do Stapp.
 4. **Tema escuro.**
 5. **Nenhum hex solto em componente.** Toda cor sai de uma CSS custom property definida em
    [`web/src/ui/theme.css`](web/src/ui/theme.css). Precisa de um tom novo? Adiciona um token lá.
 
 ```css
---accent  #7C9CFF   --accent-hover  #96AFFF   --accent-quiet  #2A3050
---on-accent #10131C  /* texto EM CIMA do acento */
---bg-sidebar #16171C   --bg-app #1E2027   --bg-raised #2A2D36   --bg-input #24262E
---text #E6E8EE   --text-dim #9AA0AE   --danger #E4676B   --online #57C98A
---radius 8px
+--accent #209cee   --accent-hover #1686cf   --accent-quiet rgba(32,156,238,.15)
+--on-accent #ffffff   --on-danger #ffffff   --on-online #ffffff  /* tinta SOBRE cor solida */
+
+/* Escada de superficie: quanto mais a DIREITA na tela, mais claro o fundo. */
+--bg-canvas #131416   --bg-rail #1a1b1e   --bg-sidebar #232428
+--bg-app #2b2d31      --bg-chat #2f3035   --bg-raised #1d1e21
+--bg-floating #131416 --bg-input #383a40  --bg-surface = --bg-raised
+--sunken rgba(0,0,0,.24)   --overlay-scrim rgba(0,0,0,.85)
+
+--text #f2f3f5   --text-soft #dbdee1   --text-dim #949ba4   --text-faint #80848e
+--danger #f23f43   --online #23a55a   --warning #f0b232
 ```
 
-`--on-accent` e escuro de proposito: branco sobre `#7C9CFF` da ~2.3:1 de contraste
-e fica ilegivel. Botao com fundo de acento leva texto escuro.
+E tudo tem escada, não só cor. Use o degrau; não invente o valor intermediário:
+
+```css
+--radius-sm 4px  --radius-md 6px  --radius 8px  --radius-lg 12px  --radius-xl 16px  --radius-pill 999px
+--space-1..8     2 4 6 8 12 16 24 32
+--fs-xs..2xl     11 12 13(base) 14(md) 16 20 24     --fw-medium/semibold/bold  500/600/700
+--dur-fast 90ms  --dur-base 140ms  --dur-slow 220ms   (+ --motion-smooth / --motion-spring)
+--z-raised 10  --z-sticky 20  --z-dock 40  --z-popover 300  --z-modal 400  --z-toast 500
+```
 
 Sem biblioteca de UI e sem framework de CSS. CSS na mão, um arquivo por componente.
+
+### Iconografia: uma família, dois pesos
+
+Tudo vem do **Remix Icon**, por [`web/src/ui/Icons.tsx`](web/src/ui/Icons.tsx). Nunca importe
+`@remixicon/react` direto num componente, e nunca desenhe um `<svg>` à mão — a única exceção é
+`IconStappLogo`, que é a marca.
+
+- `outlined` (padrão) — ação inativa, secundária ou neutra;
+- `filled` — ação selecionada, ativa, ou com mais peso visual;
+- **destrutivo não se marca com preenchimento**, e sim com a cor `--danger`.
+
+`size` é uma união fechada (16/18/20/24/32) de propósito: um `size={17}` solto não compila. Ícone
+como caractere de texto (`✕`, `×`, `‹`, `!`) é proibido — já foi eliminado duas vezes.
+
+### Primitives que já existem (use, não recrie)
+
+| Precisa de | Use |
+|---|---|
+| diálogo | `<Modal>` de [`ui/Overlay.tsx`](web/src/ui/Overlay.tsx) — Escape, foco preso, foco devolvido |
+| botão só com ícone | `<IconButton>` de [`ui/IconButton.tsx`](web/src/ui/IconButton.tsx) |
+| menu / dropdown | `PopupMenu`, `MenuHost` de [`ui/Menu.tsx`](web/src/ui/Menu.tsx) |
+| superfície ancorada | `useAnchoredSurface` de [`ui/anchored.ts`](web/src/ui/anchored.ts) — vira de lado sozinha |
+| cartão de perfil | `useUserProfile()` / `useProfileTrigger()` de `ui/profile/` |
+| linha de configuração | primitives de [`ui/settings/primitives.tsx`](web/src/ui/settings/primitives.tsx) |
+| anexo | `AttachmentRenderer` de `ui/rich/` decide o tipo; não reimplemente |
 
 ---
 
@@ -48,8 +86,7 @@ Sem biblioteca de UI e sem framework de CSS. CSS na mão, um arquivo por compone
 
 ```
 compose.yaml      Orquestração completa: stapp-server, livekit e caddy (opcional)
-server/Dockerfile Build multi-stage (Node 22 SPA + Rust 1.90 release + Debian runtime) — dev e `compose up --build`
-server/Dockerfile.release  So empacota: o binario vem pre-compilado pelo runner do CI. Mudou runtime num, muda no outro
+server/Dockerfile Build multi-stage (Node 22 SPA + Rust 1.85 release + Debian runtime)
 server/           Rust — axum + tokio. Binário único, config em stapp.toml ou env STAPP_*, SQLite em data/stapp.db.
 web/              Vite + React + TS. Roda no navegador ou empacotado em Tauri.
 infra/caddy/      Terminação TLS reversa opcional para HTTPS e portas unificadas.
@@ -133,17 +170,26 @@ que já foi entregue, e o histórico fica com a foto velha para sempre.
 `messages.author_username` e `dm_messages.author_username` **continuam existindo** e não são
 bug: ali é registro histórico de quem escreveu. O que aparece na tela vem do perfil vivo.
 
-O avatar é imagem de verdade: sobe por `POST /avatars` (HTTP, não pelo WebSocket — centenas de
-KB pelo socket atrasariam a conversa de todo mundo), o servidor **decodifica para saber se é
-imagem mesmo** (a extensão não vale nada), corta quadrado, reduz para 256px e grava sempre um
-WebP em `data/avatars/<user_id>.webp`. Sem imagem, o `<Avatar>` cai sozinho na inicial colorida.
+Avatar e banner são imagens de verdade e passam pelo mesmo caminho: sobem por `POST /avatars` e
+`POST /banners` (HTTP, não pelo WebSocket — centenas de KB pelo socket atrasariam a conversa de
+todo mundo), o servidor **decodifica para saber se é imagem mesmo** (a extensão não vale nada),
+corta, reduz e grava sempre um WebP. O que muda entre os dois é só a forma do corte, que é o
+`Shape` em [`services/profile/avatar.rs`](server/src/services/profile/avatar.rs): quadrado de 256
+para o avatar, 8:3 de 960×360 para o banner. Sem avatar, o `<Avatar>` cai sozinho na inicial
+colorida; sem banner, o cartão de perfil usa uma faixa na cor de destaque da pessoa.
 
 **Armadilha que já custou tempo:** o middleware de segurança em `app.rs` põe
 `cross-origin-resource-policy: same-origin` em tudo. Isso **bloqueia a imagem no `<img>`** quando
 o app roda noutra porta (dev: web em `:5173`, servidor em `:8787`) — e o sintoma engana, porque o
-`GET` responde 200 e só o navegador recusa. A rota do avatar sobrescreve com `cross-origin` de
-propósito, e o middleware respeita quem já definiu o cabeçalho. Se aparecer avatar quebrado,
-olhe esse cabeçalho antes de qualquer outra coisa.
+`GET` responde 200 e só o navegador recusa. As rotas de avatar e de banner sobrescrevem com
+`cross-origin` de propósito, e o middleware respeita quem já definiu o cabeçalho. Se aparecer
+imagem de perfil quebrada, olhe esse cabeçalho antes de qualquer outra coisa.
+
+**O que é perfil e o que é detalhe.** O `welcome` manda o `Profile` de todo mundo de uma vez —
+nome, cor, bio, `has_avatar`, `has_banner`, `created_at`. O que depende do PAR de contas (hoje só
+amigos em comum) **não** vai aí: sai por `profile.fetch` → `profile.detail`, disparado quando
+alguém *abre* um perfil, e nunca a cada avatar desenhado numa lista. Quem calcula a interseção é o
+servidor, a partir da identidade da sessão — nunca de um id que o cliente disse ser "eu".
 
 A cor é guardada pelo **nome** (`"green"`), nunca pelo hex — a lista canônica está em
 `ACCENTS`, em [`server/src/services/profile/mod.rs`](server/src/services/profile/mod.rs), e
@@ -157,6 +203,28 @@ precisa bater com os tokens `--accent-<nome>` do `theme.css`.
 **Mexeu em um, mexe no outro na mesma alteração.** Não existe geração automática aqui de
 propósito (não vale a complexidade nesse tamanho), então a disciplina é manual. Os nomes dos
 campos no TS são `snake_case` porque vêm direto do serde — não "arrume" isso.
+
+### Regra dura: mídia guarda a proporção real
+
+`Attachment` carrega `width`/`height` desde a v8, e o `PATCH /attachments/{id}` sempre os aceitou —
+mas ninguém preenchia, porque o servidor não decodifica anexo e o cliente só mandava nome e
+descrição. Sem isso o container não sabia a proporção, e era por isso que **vídeo vertical entrava
+espremido numa caixa horizontal** e a conversa dava salto quando a mídia carregava.
+
+Agora o cliente mede no envio ([`rich/mediaDimensions.ts`](web/src/ui/rich/mediaDimensions.ts)) e
+manda no PATCH. Duas consequências que não se pode desfazer por engano:
+
+- **o que se limita é o tamanho da caixa, nunca a proporção.** Os tetos são em pixel (440 de
+  largura, 420 de altura). Limitar por proporção parecia razoável e estava errado: qualquer teto
+  abaixo de 16/9 faz um vídeo 9:16 — o formato de todo celular — ganhar tarja preta.
+- **imagem solta usa `contain`, não `cover`.** `cover` corta retrato sem avisar. Na *galeria* (mais
+  de uma imagem) o `cover` volta de propósito: ali o alinhamento entre as células vale mais, e o
+  visualizador mostra a imagem inteira a um clique.
+
+Quem escolhe o desenho de um anexo é o `AttachmentRenderer`; `MessageAttachments` só cuida do
+ticket de acesso e da grade. **Não faça `fetch` dos bytes de mídia:** `/attachments/.../content`
+manda `cross-origin-resource-policy` mas não `access-control-allow-origin`, então `fetch` falha
+onde `<video src>` e `<img src>` funcionam. Isso já derrubou o player de áudio uma vez.
 
 ### Regra dura: voz passa pela interface, sempre
 

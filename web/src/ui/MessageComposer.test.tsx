@@ -51,6 +51,25 @@ describe('MessageComposer', () => {
     expect(document.activeElement).toBe(textareaRef.current)
   })
 
+  /* O bug era 4px de desalinhamento entre o `+` da esquerda e os icones da
+     direita, porque cada lado tinha altura e hitbox diferentes numa linha
+     `align-items: flex-end`. jsdom nao faz layout, entao o que da para travar e
+     a invariante que produz o alinhamento: os dois lados sao o mesmo `__slot` e
+     todo botao da barra usa a mesma caixa do `IconButton`. */
+  it('mantem a barra numa caixa so: mesmos slots e mesma hitbox nos dois lados', () => {
+    const { container } = renderComposer({ value: 'oi', hasContent: true })
+
+    const slots = container.querySelectorAll('.message-composer__slot')
+    expect(slots).toHaveLength(2)
+
+    const botoes = [...container.querySelectorAll('.message-composer__input button')]
+      .filter((node) => node.classList.contains('icon-button'))
+    expect(botoes.length).toBeGreaterThanOrEqual(4)
+    for (const botao of botoes) {
+      expect(botao.classList.contains('icon-button--md')).toBe(true)
+    }
+  })
+
   it('mostra microfone vazio, enviar com conteudo e bloqueia durante confirmacao', () => {
     const first = renderComposer()
     expect(screen.getByRole('button', { name: 'Gravar mensagem de voz' })).toBeTruthy()

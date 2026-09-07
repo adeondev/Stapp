@@ -1,0 +1,159 @@
+/* Duas colunas: os campos a esquerda, o cartao ao vivo a direita. A previa e
+   pegajosa porque a coluna da esquerda e mais alta — rolar os campos sem ver o
+   resultado seria o mesmo que nao ter previa. */
+
+.profile-settings {
+  display: grid;
+  align-items: start;
+  gap: var(--space-7);
+  grid-template-columns: minmax(0, 1fr) 340px;
+  padding-bottom: 96px;
+}
+
+.profile-settings__form { min-width: 0; }
+
+.profile-settings__preview {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.profile-settings__preview h2 {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.profile-settings__preview > p {
+  margin: 0 0 var(--space-2);
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+
+/* ── Imagens ─────────────────────────────────────────────────────────────── */
+
+.profile-settings__imagem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.profile-settings__avatar {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-bold);
+}
+
+.profile-settings__banner {
+  position: relative;
+  display: block;
+  width: 128px;
+  height: 48px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+}
+
+.profile-settings__banner-img { width: 100%; height: 100%; display: block; object-fit: cover; }
+
+.profile-settings__banner-cor {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.profile-settings__color-input {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: transparent;
+}
+
+.profile-settings__hex-input {
+  width: 120px !important;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+}
+
+.profile-settings__imagem-acoes { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+
+/* ── Cores ───────────────────────────────────────────────────────────────── */
+
+.profile-settings__cores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.profile-settings__cor {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  transition: transform var(--dur-fast) var(--motion-smooth);
+}
+
+.profile-settings__cor:hover { transform: scale(1.08); }
+
+/* O anel de selecao e um `outline` INTERNO, e nao uma borda: o projeto nao
+   desenha estado com linha em volta, e assim o disco nao muda de tamanho. */
+.profile-settings__cor.is-active {
+  outline: 3px solid var(--bg-app);
+  outline-offset: -6px;
+}
+
+.profile-settings__leitura {
+  color: var(--text-soft);
+  font-size: var(--fs-md);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Barra de alteracoes ─────────────────────────────────────────────────── */
+
+/* Aparece so quando ha o que salvar. Um botao "salvar" sempre aceso, sem nada
+   alterado, e ruido — e ainda faz duvidar se a alteracao anterior foi gravada. */
+.profile-settings__barra {
+  position: sticky;
+  bottom: var(--space-5);
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+  grid-column: 1 / -1;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius);
+  background: var(--bg-floating);
+  color: var(--text-soft);
+  font-size: var(--fs-md);
+  animation: profile-settings-barra var(--dur-base) var(--motion-smooth);
+}
+
+.profile-settings__barra > div { display: flex; flex: 0 0 auto; gap: var(--space-3); }
+
+@keyframes profile-settings-barra {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 1100px) {
+  .profile-settings { grid-template-columns: minmax(0, 1fr); }
+  /* Em coluna unica a previa vem primeiro: e ela que responde "ficou como?". */
+  .profile-settings__preview { position: static; order: -1; }
+  .profile-settings__preview .profile-card { max-width: 100%; }
+}

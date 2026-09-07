@@ -1,8 +1,10 @@
-import React, { memo, useState } from 'react'
+import React, { memo, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import { openExternalLink } from '../../platform/externalLink'
+import { IconStar } from '../Icons'
+import { GIF_FAVORITES_EVENT, isFavoriteGif, isGifMedia, toggleFavoriteGif } from './gifFavorites'
 import { isOnlyEmojis, parseShortcodesToUnicode } from './twemoji'
 import './markdown.css'
 
@@ -48,21 +50,60 @@ function CodeBlock({ children, className }: { children: React.ReactNode; classNa
   }
 
   return (
-    <div className="relative my-2 rounded-[var(--radius)] bg-[var(--bg-canvas)] overflow-hidden group">
-      <div className="flex items-center justify-between px-3 py-1 bg-[var(--bg-raised)] text-[11px] text-[var(--text-dim)] select-none">
+    <div className="stapp-code">
+      <div className="stapp-code__head">
         <span>{className?.replace('language-', '') || 'código'}</span>
-        <button
-          type="button"
-          onClick={copy}
-          className="text-[var(--text-dim)] hover:text-[var(--text)] transition-colors px-2 py-0.5 rounded-[var(--radius-sm)] bg-[var(--bg-input)] cursor-pointer"
-        >
+        <button type="button" className="stapp-code__copy" onClick={copy}>
           {copied ? 'copiado!' : 'copiar'}
         </button>
       </div>
-      <pre className="p-3 overflow-x-auto m-0 text-[13px] font-mono text-[var(--text)]">
+      <pre className="stapp-code__body">
         <code>{children}</code>
       </pre>
     </div>
+  )
+}
+
+function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+  const [favorited, setFavorited] = useState(() => (src ? isFavoriteGif(src) : false))
+
+  useEffect(() => {
+    if (!src) return
+    const onUpdate = () => setFavorited(isFavoriteGif(src))
+    window.addEventListener(GIF_FAVORITES_EVENT, onUpdate)
+    window.addEventListener('storage', onUpdate)
+    return () => {
+      window.removeEventListener(GIF_FAVORITES_EVENT, onUpdate)
+      window.removeEventListener('storage', onUpdate)
+    }
+  }, [src])
+
+  const isGif = src ? isGifMedia(src, alt) : false
+
+  if (!isGif || !src) {
+    return <img src={src} alt={alt} loading="lazy" {...props} />
+  }
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const novo = toggleFavoriteGif(src)
+    setFavorited(novo)
+  }
+
+  return (
+    <span className="stapp-chat-gif-wrapper">
+      <img src={src} alt={alt} loading="lazy" {...props} />
+      <button
+        type="button"
+        className={`stapp-chat-gif-fav-btn ${favorited ? 'is-favorited' : ''}`}
+        onClick={handleToggle}
+        title={favorited ? 'Remover dos favoritos' : 'Favoritar GIF'}
+        aria-label={favorited ? 'Remover dos favoritos' : 'Favoritar GIF'}
+      >
+        <IconStar size={16} filled={favorited} />
+      </button>
+    </span>
   )
 }
 
@@ -118,7 +159,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
   const isJumbo = isOnlyEmojis(parsedContent)
 
   return (
-    <div className={`stapp-markdown ${isJumbo ? 'stapp-markdown-jumbo' : ''} ${className}`}>
+    <div className={`stapp-markdown ${isJumbo ? 'stapp-markdown-jumbo chat__emoji--jumbo' : ''} ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeSanitize, sanitizeSchema]]}
@@ -167,6 +208,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
           em: ({ children }) => <em>{mapear(children, nomes)}</em>,
           td: ({ children }) => <td>{mapear(children, nomes)}</td>,
           blockquote: ({ children }) => <blockquote>{mapear(children, nomes)}</blockquote>,
+          img: ({ src, alt, ...props }) => <MarkdownImage src={src} alt={alt} {...props} />,
         }}
       >
         {parsedContent}

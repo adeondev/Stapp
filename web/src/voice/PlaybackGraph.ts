@@ -29,6 +29,33 @@ const LIMITER_ATTACK_S = 0.003
 /** Release moderado para não bombear o volume entre sílabas. */
 const LIMITER_RELEASE_S = 0.25
 
+/**
+ * Instância singleton global de AudioContext compartilhada por todas as tracks
+ * remotas para prevenir exaustão de contextos de hardware no Chromium (BC-2).
+ */
+let sharedAudioContext: AudioContext | null = null
+
+export function getSharedAudioContext(): AudioContext | null {
+  if (typeof AudioContext === 'undefined') {
+    return null
+  }
+  if (!sharedAudioContext || sharedAudioContext.state === 'closed') {
+    sharedAudioContext = new AudioContext()
+  }
+  return sharedAudioContext
+}
+
+export function resetSharedAudioContext(): void {
+  if (sharedAudioContext && sharedAudioContext.state !== 'closed') {
+    try {
+      void sharedAudioContext.close().catch(() => {})
+    } catch {
+      // Ignora erro ao fechar contexto já finalizado
+    }
+  }
+  sharedAudioContext = null
+}
+
 export interface PlaybackTrackNodes {
   readonly id: string
   readonly context: AudioContext
@@ -60,26 +87,24 @@ export class PlaybackGraph {
   }
 
   /**
-   * Informa se algum contexto ativo está suspenso pela política de autoplay.
+   * Informa se o contexto compartilhado está suspenso pela política de autoplay.
    * Com o elemento <audio> mudo, o contexto suspenso passa a ser o único
    * sintoma de áudio bloqueado — quem chama usa isto para avisar o usuário.
    */
   hasSuspendedContext(): boolean {
-    for (const nodes of this.tracks.values()) {
-      if (nodes.context.state === 'suspended') return true
-    }
-    return false
+    return sharedAudioContext?.state === 'suspended'
   }
 
   /**
    * Conecta uma track ou stream de áudio ao grafo de reprodução Web Audio API.
-   * Cria um AudioContext dedicado com MediaStreamAudioSourceNode, GainNode e
+   * Conecta ao AudioContext compartilhado com MediaStreamAudioSourceNode, GainNode e
    * limiter encadeados até o destination.
    */
   attach(id: string, trackOrStream: MediaStreamTrack | MediaStream): PlaybackTrackNodes | null {
     this.detach(id)
 
-    if (typeof AudioContext === 'undefined') {
+    const context = getSharedAudioContext()
+    if (!context) {
       return null
     }
 
@@ -93,7 +118,6 @@ export class PlaybackGraph {
         stream = trackOrStream as unknown as MediaStream
       }
 
-      const context = new AudioContext()
       const source = context.createMediaStreamSource(stream)
       const gainNode = context.createGain()
       const limiter = this.createLimiter(context)
@@ -146,7 +170,6 @@ export class PlaybackGraph {
       nodes.source.disconnect()
       nodes.gainNode.disconnect()
       nodes.limiter?.disconnect()
-      void nodes.context.close().catch(() => {})
     } catch {
       // Ignora erros de teardown em nós já encerrados
     }
@@ -198,43 +221,34 @@ export class PlaybackGraph {
   }
 
   /**
-   * Redireciona a saída de áudio de todos os contextos ativos para o dispositivo selecionado.
+   * Redireciona a saída de áudio do contexto compartilhado para o dispositivo selecionado.
    */
   async setOutputDevice(deviceId: string): Promise<void> {
     this.outputDeviceId = deviceId
-    const promises: Promise<void>[] = []
-    for (const nodes of this.tracks.values()) {
-      if ('setSinkId' in nodes.context) {
-        promises.push(
-          (nodes.context as AudioContext & { setSinkId(id: string): Promise<void> })
-            .setSinkId(deviceId)
-            .catch(() => {}),
-        )
-      }
+    if (sharedAudioContext && 'setSinkId' in sharedAudioContext) {
+      await (sharedAudioContext as AudioContext & { setSinkId(id: string): Promise<void> })
+        .setSinkId(deviceId)
+        .catch(() => {})
     }
-    await Promise.all(promises)
   }
 
   /**
-   * Retoma todos os AudioContexts suspensos pela política de autoplay do navegador.
+   * Retoma o AudioContext compartilhado se suspenso pela política de autoplay do navegador.
    */
   async resume(): Promise<void> {
-    const promises: Promise<void>[] = []
-    for (const nodes of this.tracks.values()) {
-      if (nodes.context.state === 'suspended') {
-        promises.push(nodes.context.resume().catch(() => {}))
-      }
+    if (sharedAudioContext && sharedAudioContext.state === 'suspended') {
+      await sharedAudioContext.resume().catch(() => {})
     }
-    await Promise.all(promises)
   }
 
   /**
-   * Destrói todos os grafos de reprodução e libera todos os AudioContexts.
+   * Destrói todos os grafos de reprodução e libera o AudioContext compartilhado.
    */
   destroy(): void {
     for (const id of [...this.tracks.keys()]) {
       this.detach(id)
     }
+    resetSharedAudioContext()
   }
 
   /**

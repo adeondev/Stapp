@@ -32,7 +32,7 @@ export function parseShortcodesToUnicode(text: string): string {
 }
 
 /**
- * Identifica se uma mensagem e composta exclusivamente por 1 a 3 emojis
+ * Identifica se uma mensagem e composta exclusivamente por 1 a 10 emojis
  * (estilo jumboji). Com a fonte no lugar do <img>, "aumentar o emoji" virou
  * so `font-size`.
  */
@@ -42,7 +42,7 @@ export function isOnlyEmojis(text: string): boolean {
   const matches = parsed.match(EMOJI_REGEX)
   if (!matches) return false
   const stripped = parsed.replace(EMOJI_REGEX, '').replace(/\s+/g, '')
-  return stripped.length === 0 && matches.length >= 1 && matches.length <= 3
+  return stripped.length === 0 && matches.length >= 1 && matches.length <= 10
 }
 
 export { EMOJI_REGEX, SHORTCODE_REGEX, SHORTCODE_MAP }

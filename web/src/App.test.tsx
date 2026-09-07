@@ -80,7 +80,14 @@ describe('App', () => {
       listScreenSources: vi.fn(async () => []), captureScreenSourceThumbnail: vi.fn(async () => null),
       setInputDevice: vi.fn(async () => {}), setOutputDevice: vi.fn(async () => {}),
       setCameraDevice: vi.fn(async () => {}), enumerateDevices: vi.fn(async () => ({ inputs: [], outputs: [], cameras: [] })),
-      startMicrophoneTest: vi.fn(async () => () => {}), startCameraPreview: vi.fn(async () => () => {}),
+      startMicrophoneTest: vi.fn(async () => ({
+        stop: vi.fn(),
+        setMonitor: vi.fn(),
+        setMonitorVolume: vi.fn(),
+        setOutputDevice: vi.fn(async () => {}),
+        isMonitoring: () => false,
+      })),
+      startCameraPreview: vi.fn(async () => () => {}),
       setPublicationSubscribed: vi.fn(), getVoiceVolume: vi.fn(() => 100), setVoiceVolume: vi.fn(),
       setVoiceMuted: vi.fn(), getScreenShareVolume: vi.fn(() => 100),
       setScreenShareVolume: vi.fn(), setScreenShareMuted: vi.fn(), attachMedia: vi.fn(() => () => {}),
@@ -127,7 +134,7 @@ describe('App', () => {
         display_name: 'Deon',
         accent: 'blue',
         bio: '',
-        has_avatar: false,
+        has_avatar: false, has_banner: false, created_at: 0,
         updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 },
@@ -151,7 +158,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: '', has_avatar: false, updated_at: 1,
+        bio: '', has_avatar: false, has_banner: false, created_at: 0, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
@@ -189,7 +196,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: 'Dev do Stapp', has_avatar: false, updated_at: 1,
+        bio: 'Dev do Stapp', has_avatar: false, has_banner: false, created_at: 1, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
@@ -198,9 +205,11 @@ describe('App', () => {
     const gearBtn = screen.getByRole('button', { name: 'Configurações' })
     await user.click(gearBtn)
 
-    expect(screen.getByText('Stapp Desktop v0.1.0-beta.6')).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Minha Conta/i })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Voz & Vídeo/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Perfil' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Voz e vídeo' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Sobre' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Sobre' }))
+    expect(screen.getByText(/Stapp 0.1.0-beta.7/)).toBeTruthy()
   })
 
   it('dispara ringtone ao receber chamada entrante e interrompe som ao encerrar', async () => {
@@ -232,6 +241,43 @@ describe('App', () => {
       t: 'call.ended',
       user_id: 'user-alice',
       reason: 'declined',
+    }))
+
+    expect(stopLoopSpy).toHaveBeenCalled()
+    expect(screen.queryByRole('alertdialog', { name: 'chamada' })).toBeNull()
+
+    playRingtoneSpy.mockRestore()
+    stopLoopSpy.mockRestore()
+  })
+
+  it('dispara ringtone ao receber voice.invite permitindo tocar no desktop e web', async () => {
+    const playRingtoneSpy = vi.spyOn(callSounds, 'playRingtone')
+    const stopLoopSpy = vi.spyOn(callSounds, 'stopLoop')
+
+    render(<App />)
+    act(() => connectionMock.onMessage?.({
+      t: 'welcome', self_peer_id: 'peer-deon', self_user_id: 'user-deon', server_name: 'Stapp local',
+      channels: [{ id: 'geral', name: 'geral', kind: 'text' }],
+      users: [{ user_id: 'user-deon', username: 'deon' }, { user_id: 'user-bob', username: 'bob' }],
+      directory: [{ user_id: 'user-deon', username: 'deon' }, { user_id: 'user-bob', username: 'bob' }],
+      profiles: [],
+      voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
+    }))
+
+    act(() => connectionMock.onMessage?.({
+      t: 'voice.invite',
+      from_user_id: 'user-bob',
+      channel_id: 'dm:user-bob:user-deon',
+    }))
+
+    expect(playRingtoneSpy).toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog', { name: 'chamada' })).toBeTruthy()
+
+    act(() => connectionMock.onMessage?.({
+      t: 'call.ended',
+      user_id: 'user-bob',
+      reason: 'canceled',
     }))
 
     expect(stopLoopSpy).toHaveBeenCalled()
@@ -331,7 +377,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: '', has_avatar: false, updated_at: 1,
+        bio: '', has_avatar: false, has_banner: false, created_at: 1, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
@@ -378,7 +424,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: '', has_avatar: false, updated_at: 1,
+        bio: '', has_avatar: false, has_banner: false, created_at: 1, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
@@ -407,6 +453,71 @@ describe('App', () => {
     // O ensurdecimento e forçado e reflete no store global
     expect(useVoiceStore.getState().deafened).toBe(true)
     expect(useVoiceStore.getState().muted).toBe(true)
+  })
+
+  it('abre o modal JoinServerModal ao clicar em Adicionar servidor sem derrubar a conexao ativa', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    act(() => connectionMock.onMessage?.({
+      t: 'welcome', self_peer_id: 'peer-deon', self_user_id: 'user-deon', server_name: 'Stapp local',
+      channels: [
+        { id: 'geral', name: 'geral', kind: 'text' },
+      ],
+      users: [{ user_id: 'user-deon', username: 'deon' }],
+      directory: [{ user_id: 'user-deon', username: 'deon' }],
+      profiles: [{
+        user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
+        bio: '', has_avatar: false, has_banner: false, created_at: 0, updated_at: 1,
+      }],
+      voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
+    }))
+
+    // Confirma que o servidor ativo está conectado e carregado
+    expect(screen.getByRole('button', { name: 'Stapp local' })).toBeTruthy()
+
+    // Clica no botão '+' (Adicionar servidor)
+    const addServerBtn = screen.getByRole('button', { name: 'Adicionar servidor' })
+    await user.click(addServerBtn)
+
+    // O modal abre
+    expect(screen.getByRole('dialog', { name: 'Adicionar servidor' })).toBeTruthy()
+
+    // O servidor ativo continua na tela e visível (não desconectou)
+    expect(screen.getByRole('button', { name: 'Stapp local' })).toBeTruthy()
+
+    // Clicar em cancelar fecha o modal sem alterar o estado
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect(screen.queryByRole('dialog', { name: 'Adicionar servidor' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Stapp local' })).toBeTruthy()
+  })
+
+  it('conecta automaticamente no boot ignorando a tela de Connect quando ha servidor salvo e token valido', async () => {
+    localStorage.setItem('stapp.token.ws://127.0.0.1:8787/ws', 'valid-boot-token')
+    render(<App />)
+
+    // A tela de Connect nao e exibida
+    expect(screen.queryByRole('heading', { name: 'Boas-vindas de volta!' })).toBeNull()
+    expect(screen.getByLabelText('Conectando...')).toBeTruthy()
+
+    // O servidor responde com welcome
+    act(() => connectionMock.onMessage?.({
+      t: 'welcome', self_peer_id: 'peer-deon', self_user_id: 'user-deon', server_name: 'Stapp local',
+      channels: [{ id: 'geral', name: 'geral', kind: 'text' }],
+      users: [{ user_id: 'user-deon', username: 'deon' }],
+      directory: [{ user_id: 'user-deon', username: 'deon' }],
+      profiles: [{
+        user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
+        bio: '', has_avatar: false, has_banner: false, created_at: 0, updated_at: 1,
+      }],
+      voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
+    }))
+
+    // A interface principal carrega imediatamente
+    expect(await screen.findByRole('button', { name: 'Stapp local' })).toBeTruthy()
+    expect(screen.queryByLabelText('Conectando...')).toBeNull()
   })
 })
 
