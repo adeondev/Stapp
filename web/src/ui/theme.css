@@ -360,6 +360,14 @@ button:disabled,
   animation-iteration-count: 1 !important;
 }
 
+/* O Edge e a WebView2 (o navegador do app desktop) desenham SOZINHOS um olho e
+   um "x" dentro de todo `input[type=password]`. Ao lado do nosso proprio botao
+   de ver senha viravam dois olhos no mesmo campo, um deles fora do desenho do
+   Stapp e sem rotulo acessivel. Quem manda e o nosso: `IconEye`/`IconEyeOff`,
+   com `aria-label`. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear { display: none; }
+
 /* A imagem preenche o circulo que a tela ja definiu, sem esticar. */
 .avatar__img {
   width: 100%;
