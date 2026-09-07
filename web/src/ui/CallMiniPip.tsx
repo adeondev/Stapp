@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import type { PeerId, UserId } from '../protocol'
 import type { VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
-import { Avatar } from './Avatar'
+import { Avatar, ProfileName } from './Avatar'
 import {
   IconExpand,
   IconHeadphones,
@@ -81,7 +81,11 @@ export function CallMiniPip({ channelName, snapshot, transport, onExpand, onLeav
               </div>
             )}
             <span className="callminipip__speaker-name">
-              {speakingParticipant ? speakingParticipant.name : channelName}
+              {speakingParticipant ? (
+                <ProfileName userId={speakerUserId} fallbackName={speakingParticipant.name} />
+              ) : (
+                channelName
+              )}
             </span>
           </div>
         )}

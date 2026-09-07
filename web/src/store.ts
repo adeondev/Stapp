@@ -502,10 +502,15 @@ export function directChannelPartner(state: StappState, channel: string): string
   if (!outro) return null
 
   return (
-    state.conversations[outro]?.username ??
-    state.socialMembers.find((entry) => entry.user_id === outro)?.username ??
-    state.directory.find((entry) => entry.user_id === outro)?.username ??
-    state.users.find((user) => user.user_id === outro)?.username ??
+    state.profiles[outro]?.display_name ||
+    state.conversations[outro]?.display_name ||
+    state.conversations[outro]?.username ||
+    state.socialMembers.find((entry) => entry.user_id === outro)?.display_name ||
+    state.socialMembers.find((entry) => entry.user_id === outro)?.username ||
+    state.directory.find((entry) => entry.user_id === outro)?.display_name ||
+    state.directory.find((entry) => entry.user_id === outro)?.username ||
+    state.users.find((user) => user.user_id === outro)?.display_name ||
+    state.users.find((user) => user.user_id === outro)?.username ||
     null
   )
 }

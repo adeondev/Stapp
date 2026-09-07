@@ -596,7 +596,10 @@ export class MeshTransport implements VoiceTransport {
         sum += delta * delta
       }
       const level = Math.sqrt(sum / monitor.data.length)
-      if (level > SPEAKING_LEVEL) monitor.lastLoud = now
+      const threshold = this.preferences.automaticSensitivity
+        ? 6
+        : Math.max(2, Math.round(128 * Math.pow(10, this.preferences.sensitivity / 20)))
+      if (level > threshold) monitor.lastLoud = now
 
       const speaking = now - monitor.lastLoud < SPEAKING_HOLD_MS
       if (speaking !== monitor.speaking) {

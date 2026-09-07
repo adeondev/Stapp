@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PeerId, UserId } from '../protocol'
 import type { VoiceMediaState, VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import type { ScreenPreset } from '../voice/preferences'
-import { Avatar } from './Avatar'
+import { Avatar, useProfile } from './Avatar'
 import { ScreenSharePicker } from './ScreenSharePicker'
 import { useUserMenu, type UserMenuRequest } from './UserMenu'
 import { MenuDivider, MenuItem, MenuLabel, PopupMenu, type MenuPosition } from './Menu'
@@ -660,6 +660,10 @@ function CallTile({
   const toggleMute = useVoiceStore((s) => s.toggleMute)
   const toggleDeafen = useVoiceStore((s) => s.toggleDeafen)
 
+  const fallbackName = tile.kind === 'avatar' ? tile.name : tile.media.name
+  const profile = useProfile(tile.userId, fallbackName)
+  const displayName = profile.display_name || fallbackName
+
   const activate = (event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>) => {
     if (event.target instanceof Element && event.target.closest('button, input, label, [role="menu"]')) return
     if (tile.kind === 'media' && tile.media.kind === 'screen' && !tile.media.local && !tile.media.subscribed) {
@@ -668,9 +672,9 @@ function CallTile({
     onFocus()
   }
   const menuRequest = (): UserMenuRequest => tile.kind === 'avatar'
-    ? { userId: tile.userId, name: tile.name,
+    ? { userId: tile.userId, name: displayName,
         call: { peerId: tile.peerId, transport, local: tile.local, focused, onFocus, kind: 'person' } }
-    : { userId: tile.userId, name: tile.media.name,
+    : { userId: tile.userId, name: displayName,
         call: { peerId: tile.media.peerId, transport, local: tile.media.local, focused, onFocus,
           publicationId: tile.media.id, kind: tile.media.kind === 'screen' ? 'screen' : 'person' } }
   const toggleMenuFromButton = (button: HTMLButtonElement) => {
@@ -740,14 +744,14 @@ function CallTile({
       ref={tileRef}
       data-tile-id={tile.id}
       className={`calltile calltile--avatar ${tile.speaking ? 'is-speaking' : ''} ${primary ? 'is-primary' : ''} ${isMouseIdle ? 'is-mouse-idle' : ''}`}
-      role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${tile.name}` : `focar mídia de ${tile.name}`} onClick={activate}
+      role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${displayName}` : `focar mídia de ${displayName}`} onClick={activate}
       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activate(event) }}
       onContextMenu={(event) => userMenu.open(event, menuRequest())}>
       <div className={`calltile__avatar-container ${tile.speaking ? 'is-speaking' : ''}`}>
-        <Avatar userId={tile.userId ?? tile.peerId} fallbackName={tile.name} className="calltile__avatar-img" />
+        <Avatar userId={tile.userId ?? tile.peerId} fallbackName={displayName} className="calltile__avatar-img" />
       </div>
       <div className="calltile__meta">
-        <span className="calltile__meta-name">{tile.name}</span>
+        <span className="calltile__meta-name">{displayName}</span>
         {tile.muted && <IconMicOff size={16} className="calltile__meta-icon" />}
       </div>
       <div className="calltile__top-actions">
@@ -759,13 +763,13 @@ function CallTile({
               onToggleFullscreen(tileRef.current)
             }}
             title={isFullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
-            aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${tile.name}`}
+            aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${displayName}`}
           >
             {isFullscreen ? <IconMinimize size={16} /> : <IconFullscreen size={16} />}
           </button>
         )}
         <button className="calltile__more" {...moreButtonProps} aria-haspopup="menu"
-          aria-label={`opções de ${tile.name}`}><IconMore /></button>
+          aria-label={`opções de ${displayName}`}><IconMore /></button>
       </div>
       {isFullscreen && renderFullscreenControls()}
     </article>
@@ -780,14 +784,14 @@ function CallTile({
       ref={tileRef}
       data-tile-id={tile.id}
       className={`calltile ${primary ? 'is-primary' : ''} ${media.kind === 'screen' ? 'calltile--screen' : ''} ${isUnsubscribed ? 'calltile--unsubscribed' : ''} ${isMouseIdle ? 'is-mouse-idle' : ''}`}
-      role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${media.name}` : `focar mídia de ${media.name}`} onClick={activate}
+      role="button" tabIndex={0} aria-pressed={focused} aria-label={focused ? `voltar da mídia de ${displayName}` : `focar mídia de ${displayName}`} onClick={activate}
       onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activate(event) }}
       onContextMenu={(event) => userMenu.open(event, menuRequest())}>
       {media.subscribed || media.local
         ? <MediaVideo publication={media} transport={transport} />
         : <div className="calltile__watch-panel">
             <div className="calltile__watch-icon-wrap"><IconScreen size={32} /></div>
-            <strong>{media.name} está transmitindo</strong>
+            <strong>{displayName} está transmitindo</strong>
             <button className="calltile__watch-button" onClick={() => { transport.setPublicationSubscribed(media.id, true); onFocus() }}>
               Assistir transmissão
             </button>
@@ -795,7 +799,7 @@ function CallTile({
       {media.kind === 'screen' && (media.subscribed || media.local) && (
         <span className="calltile__badge-live"><IconScreen size={16} /> AO VIVO</span>
       )}
-      <div className="calltile__meta"><span className="calltile__meta-name">{media.name}</span></div>
+      <div className="calltile__meta"><span className="calltile__meta-name">{displayName}{media.kind === 'screen' ? ' (Tela)' : ''}</span></div>
       <div className="calltile__top-actions">
         {showFullscreenBtn && (
           <button
@@ -805,13 +809,13 @@ function CallTile({
               onToggleFullscreen(tileRef.current)
             }}
             title={isFullscreen ? 'Sair da tela cheia (Esc)' : 'Tela cheia'}
-            aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${media.name}`}
+            aria-label={isFullscreen ? 'sair da tela cheia' : `tela cheia de ${displayName}`}
           >
             {isFullscreen ? <IconMinimize size={16} /> : <IconFullscreen size={16} />}
           </button>
         )}
         <button className="calltile__more" {...moreButtonProps} aria-haspopup="menu"
-          aria-label={`opções de ${media.name}`}><IconMore /></button>
+          aria-label={`opções de ${displayName}`}><IconMore /></button>
       </div>
       {isFullscreen && renderFullscreenControls()}
     </article>

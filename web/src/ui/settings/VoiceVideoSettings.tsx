@@ -229,15 +229,21 @@ export function VoiceVideoSettings({ transport, snapshot, onPreferencesChange }:
           )}
         </SettingsGroup>
 
-        <SettingsGroup title="Sensibilidade">
+        <SettingsGroup title="Sensibilidade de entrada (VAD)"
+          description="Controle o limiar a partir do qual o microfone capta a sua voz e acende o anel verde de fala.">
           <SettingsToggle checked={preferences.automaticSensitivity}
             onChange={(value) => update('automaticSensitivity', value)}
             label="Sensibilidade automática"
-            description="Ajusta o limiar de atividade de voz ao ambiente." />
-          {!preferences.automaticSensitivity && (
-            <SettingsSlider label="Limiar" value={preferences.sensitivity} min={-100} max={0}
-              suffix=" dB" onChange={(value) => update('sensitivity', value)} />
-          )}
+            description="Calibra o limiar continuamente com base no ruído ambiente." />
+          <SettingsSlider
+            label="Sensibilidade do microfone"
+            value={preferences.sensitivity}
+            min={-100}
+            max={0}
+            suffix=" dB"
+            description={preferences.automaticSensitivity ? 'Valor de referência manual para a calibração automática.' : 'Fale normalmente para certificar-se de que o anel verde responde com fidelidade.'}
+            onChange={(value) => update('sensitivity', value)}
+          />
         </SettingsGroup>
 
         <SettingsGroup title="Processamento">
