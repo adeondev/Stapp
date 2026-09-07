@@ -90,6 +90,19 @@ export default function App() {
     voice.current?.setMuted(muted || deafened)
     voice.current?.setDeafened(deafened)
   }, [muted, deafened])
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('__TAURI_INTERNALS__' in window || '__TAURI__' in window)) return
+    let unlisten: (() => void) | undefined
+    void import('@tauri-apps/api/event').then(async ({ listen }) => {
+      unlisten = await listen('stapp:toggle-mute', () => {
+        useVoiceStore.getState().toggleMute()
+      })
+    }).catch(() => {})
+    return () => {
+      unlisten?.()
+    }
+  }, [])
   const voiceSnapshot = useVoiceStore((s) => s.voiceSnapshot)
   const setVoiceSnapshot = useVoiceStore((s) => s.setVoiceSnapshot)
   const voiceConfig = useVoiceStore((s) => s.voiceConfig)
