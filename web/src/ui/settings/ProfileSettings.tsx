@@ -149,14 +149,14 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
           description="É assim que as outras pessoas do servidor veem você. O username é o seu login e não muda."
         >
           <SettingsGroup title="Imagens">
-            <input ref={seletorAvatar} type="file" hidden accept="image/png,image/jpeg,image/webp"
+            <input ref={seletorAvatar} type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif"
               onChange={(event) => {
                 const escolhido = event.target.files?.[0] ?? null
                 setAvatarNovo(escolhido)
                 if (escolhido) setRemoverAvatar(false)
                 setErro(null)
               }} />
-            <input ref={seletorBanner} type="file" hidden accept="image/png,image/jpeg,image/webp"
+            <input ref={seletorBanner} type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif"
               onChange={(event) => {
                 const escolhido = event.target.files?.[0] ?? null
                 setBannerNovo(escolhido)

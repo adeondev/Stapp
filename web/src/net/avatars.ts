@@ -30,6 +30,53 @@ export function avatarUrl(base: string, userId: string, version: number): string
   return `${base}/avatars/${encodeURIComponent(userId)}?v=${version}`
 }
 
+export function avatarStaticUrl(base: string, userId: string, version: number): string {
+  return `${base}/avatars/${encodeURIComponent(userId)}?v=${version}&static=1`
+}
+
+export function avatarGifUrl(base: string, userId: string, version: number): string {
+  return `${base}/avatars/${encodeURIComponent(userId)}?v=${version}&gif=1`
+}
+
+/**
+ * Extrai o primeiro frame estático de um GIF em offscreen canvas ou Image.
+ * Retorna um Blob PNG/WebP estático sem animação contínua.
+ */
+export async function extractFirstFrame(file: File | Blob): Promise<Blob> {
+  return new Promise((resolve) => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') {
+      resolve(file)
+      return
+    }
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      try {
+        const canvas = document.createElement('canvas')
+        canvas.width = img.naturalWidth || 256
+        canvas.height = img.naturalHeight || 256
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(file)
+          return
+        }
+        ctx.drawImage(img, 0, 0)
+        canvas.toBlob((blob) => {
+          resolve(blob || file)
+        }, 'image/webp')
+      } catch {
+        resolve(file)
+      }
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(file)
+    }
+    img.src = url
+  })
+}
+
 export async function uploadAvatar(base: string, token: string, file: File): Promise<void> {
   if (file.size > LIMITE_BYTES) {
     throw new AvatarError('a imagem precisa ter menos de 2MB')

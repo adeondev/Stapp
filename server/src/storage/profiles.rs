@@ -33,14 +33,36 @@ struct RawProfile {
 
 impl From<RawProfile> for Profile {
     fn from(r: RawProfile) -> Self {
+        let is_gif = r.avatar_ext.as_deref() == Some("gif");
+        let has_avatar = r.avatar_ext.is_some();
+        let avatar_static_url = if has_avatar {
+            Some(format!("/avatars/{}?v={}&static=1", r.id, r.updated_at))
+        } else {
+            None
+        };
+        let avatar_gif_url = if is_gif {
+            Some(format!("/avatars/{}?v={}&gif=1", r.id, r.updated_at))
+        } else {
+            None
+        };
+        let banner_url = if r.banner_ext.is_some() {
+            Some(format!("/banners/{}?v={}", r.id, r.updated_at))
+        } else {
+            None
+        };
         Self {
             user_id: r.id,
             username: r.username,
             display_name: r.display_name,
             accent: r.accent,
             bio: r.bio,
-            has_avatar: r.avatar_ext.is_some(),
+            has_avatar,
+            avatar_gif: if is_gif { Some(true) } else { None },
+            avatar_static_url,
+            avatar_gif_url,
             has_banner: r.banner_ext.is_some(),
+            banner_url,
+            banner_color: None,
             created_at: r.created_at,
             updated_at: r.updated_at,
         }

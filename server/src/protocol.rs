@@ -278,9 +278,19 @@ pub struct Profile {
     /// FUTURE: vira `true` quando a pessoa subir uma imagem. Ate la o avatar e
     /// a inicial na cor escolhida.
     pub has_avatar: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_gif: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_static_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar_gif_url: Option<String>,
     /// Sem imagem, o cartao de perfil desenha uma faixa na cor de destaque.
     #[serde(default)]
     pub has_banner: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner_color: Option<String>,
     /// Quando a conta foi criada. E o "Membro desde" do perfil — sai de
     /// `users.created_at`, que existe desde a primeira migracao.
     #[serde(default)]

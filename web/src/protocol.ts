@@ -196,8 +196,13 @@ export interface Profile {
   accent: AccentName
   bio: string
   has_avatar: boolean
+  avatar_gif?: boolean
+  avatar_static_url?: string
+  avatar_gif_url?: string
   /** Sem imagem, o cartao de perfil desenha uma faixa na cor de destaque. */
   has_banner: boolean
+  banner_url?: string
+  banner_color?: string
   /** Quando a conta foi criada — o "Membro desde" do perfil. Epoch em ms. */
   created_at: number
   updated_at: number

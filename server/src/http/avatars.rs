@@ -95,15 +95,30 @@ fn responder(status: StatusCode, corpo: &str, contexto: &OriginContext) -> Respo
     resposta
 }
 
+#[derive(serde::Deserialize, Default)]
+struct AvatarQuery {
+    #[serde(default)]
+    gif: Option<bool>,
+    #[serde(default)]
+    r#static: Option<bool>,
+    #[serde(default)]
+    format: Option<String>,
+}
+
 /// PROTOTYPE: entrega sem autenticacao. A URL leva o user_id, que e um UUID —
 /// dificil de adivinhar, mas nao e segredo. Serve porque `<img src>` nao manda
 /// cabecalho; se o servidor virar publico, isto vira uma rota assinada.
-async fn serve(State(state): State<Arc<AppState>>, Path(user_id): Path<UserId>) -> Response {
-    match profile::read_avatar(&state, &user_id).await {
-        Some(bytes) => {
+async fn serve(
+    State(state): State<Arc<AppState>>,
+    Path(user_id): Path<UserId>,
+    axum::extract::Query(query): axum::extract::Query<AvatarQuery>,
+) -> Response {
+    let want_gif = (query.gif == Some(true) || query.format.as_deref() == Some("gif")) && query.r#static != Some(true);
+    match profile::read_avatar(&state, &user_id, want_gif).await {
+        Some((bytes, content_type)) => {
             let mut resposta = (
                 [
-                    (header::CONTENT_TYPE, "image/webp"),
+                    (header::CONTENT_TYPE, content_type),
                     // A URL carrega ?v=<updated_at>, entao trocar a foto ja muda
                     // o endereco e o cache longo nao segura a imagem velha.
                     (header::CACHE_CONTROL, "public, max-age=604800, immutable"),

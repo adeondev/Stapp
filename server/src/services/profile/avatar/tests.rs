@@ -185,3 +185,32 @@ async fn banner_tambem_recusa_o_que_nao_e_imagem() {
         Err(AvatarError::NaoEImagem)
     ));
 }
+
+#[tokio::test]
+async fn avatar_gif_grava_frame_estatico_webp_e_preserva_gif_original() {
+    let dir = TestDir::new();
+    let imagem = RgbaImage::new(100, 100);
+    let mut gif_bytes = Vec::new();
+    image::DynamicImage::ImageRgba8(imagem)
+        .write_to(
+            &mut std::io::Cursor::new(&mut gif_bytes),
+            image::ImageFormat::Gif,
+        )
+        .unwrap();
+
+    assert!(is_gif(&gif_bytes));
+    store(dir.path(), "u1", &gif_bytes).await.unwrap();
+
+    // Frame estático gravado em WebP
+    let webp_bytes = read(dir.path(), "u1").await.expect("frame estatico existe");
+    assert_eq!(image::guess_format(&webp_bytes).unwrap(), image::ImageFormat::WebP);
+
+    // GIF original preservado
+    let lido_gif = read_gif(dir.path(), "u1").await.expect("gif original existe");
+    assert_eq!(lido_gif, gif_bytes);
+
+    // Remoção limpa ambos
+    remove(dir.path(), "u1").await;
+    assert!(read(dir.path(), "u1").await.is_none());
+    assert!(read_gif(dir.path(), "u1").await.is_none());
+}

@@ -62,14 +62,26 @@ impl std::fmt::Display for AvatarError {
     }
 }
 
+const EXTENSAO_GIF: &str = "gif";
+
 pub fn caminho(dir: &Path, user_id: &str) -> PathBuf {
     dir.join(format!("{user_id}.{EXTENSAO}"))
+}
+
+pub fn caminho_gif(dir: &Path, user_id: &str) -> PathBuf {
+    dir.join(format!("{user_id}.{EXTENSAO_GIF}"))
 }
 
 /// A extensao que vai para o banco. Uma so, mas nomeada, para o dia em que
 /// existir mais de um formato.
 pub fn extensao() -> &'static str {
     EXTENSAO
+}
+
+pub fn is_gif(bytes: &[u8]) -> bool {
+    image::guess_format(bytes).map(|fmt| fmt == image::ImageFormat::Gif).unwrap_or(false)
+        || bytes.starts_with(b"GIF87a")
+        || bytes.starts_with(b"GIF89a")
 }
 
 /// Processa a imagem: decodifica, corta no centro na proporcao da forma pedida,
@@ -96,9 +108,17 @@ pub fn store_shape_sync(
     bytes: &[u8],
     shape: Shape,
 ) -> Result<usize, AvatarError> {
+    let gif = is_gif(bytes);
     let saida = process_shape(bytes, shape)?;
     std::fs::create_dir_all(dir).map_err(AvatarError::Io)?;
+    // Sempre grava o primeiro frame estatico em WebP (avatar_static_url)
     std::fs::write(caminho(dir, user_id), &saida).map_err(AvatarError::Io)?;
+    if gif {
+        // Se for GIF animado, preserva os bytes originais (avatar_gif_url)
+        std::fs::write(caminho_gif(dir, user_id), bytes).map_err(AvatarError::Io)?;
+    } else {
+        let _ = std::fs::remove_file(caminho_gif(dir, user_id));
+    }
     Ok(saida.len())
 }
 
@@ -126,10 +146,15 @@ pub async fn store(dir: &Path, user_id: &str, bytes: &[u8]) -> Result<usize, Ava
 pub async fn remove(dir: &Path, user_id: &str) {
     // Sumir com um arquivo que ja nao existe nao e erro.
     let _ = tokio::fs::remove_file(caminho(dir, user_id)).await;
+    let _ = tokio::fs::remove_file(caminho_gif(dir, user_id)).await;
 }
 
 pub async fn read(dir: &Path, user_id: &str) -> Option<Vec<u8>> {
     tokio::fs::read(caminho(dir, user_id)).await.ok()
+}
+
+pub async fn read_gif(dir: &Path, user_id: &str) -> Option<Vec<u8>> {
+    tokio::fs::read(caminho_gif(dir, user_id)).await.ok()
 }
 
 /// O recorte central na proporcao pedida. Cortar antes de redimensionar e o que

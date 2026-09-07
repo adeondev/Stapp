@@ -107,11 +107,13 @@ pub async fn detail(state: &AppState, peer_id: &str, user_id: UserId) {
 /// Guarda a imagem e avisa todo mundo. Devolve o tamanho gravado.
 pub async fn set_avatar(state: &AppState, user_id: &UserId, bytes: &[u8]) -> Result<usize, String> {
     let dir = avatar_dir(state);
+    let is_gif = avatar::is_gif(bytes);
     let tamanho = avatar::store(&dir, user_id, bytes).await.map_err(|erro| erro.to_string())?;
+    let ext = if is_gif { "gif" } else { avatar::extensao() };
 
     if let Err(err) = state
         .db
-        .set_avatar(user_id, Some(avatar::extensao()), now_ms())
+        .set_avatar(user_id, Some(ext), now_ms())
         .await
     {
         tracing::error!(%err, "falha marcando o avatar no banco");
@@ -134,8 +136,14 @@ pub async fn clear_avatar(state: &AppState, user_id: &UserId) {
     announce(state, user_id).await;
 }
 
-pub async fn read_avatar(state: &AppState, user_id: &UserId) -> Option<Vec<u8>> {
-    avatar::read(&avatar_dir(state), user_id).await
+pub async fn read_avatar(state: &AppState, user_id: &UserId, want_gif: bool) -> Option<(Vec<u8>, &'static str)> {
+    let dir = avatar_dir(state);
+    if want_gif {
+        if let Some(bytes) = avatar::read_gif(&dir, user_id).await {
+            return Some((bytes, "image/gif"));
+        }
+    }
+    avatar::read(&dir, user_id).await.map(|bytes| (bytes, "image/webp"))
 }
 
 /// O banner passa pelo mesmo processo do avatar; muda so a forma do corte.

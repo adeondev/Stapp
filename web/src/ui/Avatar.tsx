@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { PeerId, Profile, UserId } from '../protocol'
-import { avatarUrl } from '../net/avatars'
+import { avatarGifUrl, avatarStaticUrl, avatarUrl } from '../net/avatars'
 import { resolveProfile, type StappState } from '../store'
 import { usePresenceStore } from '../stores/presenceStore'
 import type { Placement } from './anchored'
@@ -91,9 +91,30 @@ export function Avatar({ userId, className, fallbackName, title, peerId, speakin
   // tentar depois de um erro.
   useEffect(() => setFalhou(false), [profile.updated_at, profile.has_avatar])
 
+  const user = useMemo(() => {
+    const resolve = (url?: string | null) => {
+      if (!url) return undefined
+      if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) return url
+      return avatarBase ? `${avatarBase}${url.startsWith('/') ? '' : '/'}${url}` : url
+    }
+    const isGif = Boolean(profile.avatar_gif || (profile.avatar_gif_url && profile.avatar_gif_url.length > 0))
+    const defaultStatic = profile.has_avatar && avatarBase
+      ? (isGif ? avatarStaticUrl(avatarBase, profile.user_id, profile.updated_at) : avatarUrl(avatarBase, profile.user_id, profile.updated_at))
+      : undefined
+    const staticUrl = resolve(profile.avatar_static_url) ?? defaultStatic
+    const gifUrl = resolve(profile.avatar_gif_url) ?? (isGif && avatarBase ? avatarGifUrl(avatarBase, profile.user_id, profile.updated_at) : undefined)
+    return {
+      ...profile,
+      avatar_static_url: staticUrl,
+      avatar_gif_url: gifUrl,
+    }
+  }, [profile, avatarBase])
+
   const imagem =
-    profile.has_avatar && avatarBase && !falhou
-      ? avatarUrl(avatarBase, profile.user_id, profile.updated_at)
+    (profile.has_avatar || user.avatar_static_url) && !falhou
+      ? (user.avatar_gif_url
+          ? (isSpeaking ? user.avatar_gif_url : user.avatar_static_url)
+          : (user.avatar_static_url ?? (avatarBase ? avatarUrl(avatarBase, profile.user_id, profile.updated_at) : null)))
       : null
 
   const combinedClass = `${className ?? ''} ${isSpeaking ? 'is-speaking' : ''} ${interactive ? 'is-interactive' : ''}`.trim()
@@ -111,9 +132,13 @@ export function Avatar({ userId, className, fallbackName, title, peerId, speakin
       }
     >
       {imagem ? (
-        // Se o arquivo sumiu do servidor, cai no gerado em vez de deixar o
-        // quadrado quebrado do navegador.
-        <img className="avatar__img" src={imagem} alt="" onError={() => setFalhou(true)} />
+        // Se o avatar for um GIF, alterna a URL conforme a voz sem canvas na thread principal
+        <img
+          className="avatar__img"
+          src={user.avatar_gif_url ? (isSpeaking ? user.avatar_gif_url : user.avatar_static_url) : imagem}
+          alt=""
+          onError={() => setFalhou(true)}
+        />
       ) : (
         inicial(profile.display_name)
       )}
