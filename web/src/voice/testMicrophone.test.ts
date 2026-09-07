@@ -173,6 +173,36 @@ describe('startMicrophoneTest', () => {
     expect(resultado.map((d) => d.deviceId)).toEqual(['mic-1', 'mic-3', 'mic-5'])
   })
 
+  /* No Windows o MESMO microfone aparece tres vezes: o dispositivo real e dois
+     apelidos do sistema (`default` e `communications`), com id e rotulo
+     diferentes. A comparacao literal nao via duplicata nenhuma. */
+  it('reconhece os apelidos do Windows como o mesmo hardware', () => {
+    const lista = [
+      { deviceId: 'default', groupId: 'g1', label: 'Padrão - Microfone (Realtek Audio)' },
+      { deviceId: 'communications', groupId: 'g1', label: 'Comunicações - Microfone (Realtek Audio)' },
+      { deviceId: 'hw-realtek', groupId: 'g1', label: 'Microfone (Realtek Audio)' },
+      { deviceId: 'hw-usb', groupId: 'g2', label: 'Headset USB' },
+    ]
+    const resultado = deduplicateDevices(lista)
+    expect(resultado.map((d) => d.deviceId)).toEqual(['hw-realtek', 'hw-usb'])
+  })
+
+  it('cai no rótulo quando o navegador não expõe groupId', () => {
+    const lista = [
+      { deviceId: 'default', label: 'Default - Webcam Mic' },
+      { deviceId: 'hw-1', label: 'Webcam Mic' },
+    ]
+    expect(deduplicateDevices(lista).map((d) => d.deviceId)).toEqual(['hw-1'])
+  })
+
+  it('mantém dispositivos distintos que só compartilham o prefixo', () => {
+    const lista = [
+      { deviceId: 'hw-1', groupId: 'g1', label: 'Microfone (Realtek Audio)' },
+      { deviceId: 'hw-2', groupId: 'g2', label: 'Microfone (Blue Yeti)' },
+    ]
+    expect(deduplicateDevices(lista)).toHaveLength(2)
+  })
+
   it('suporta troca de microfone em tempo real via applyConstraints', async () => {
     const teste = await startMicrophoneTest({}, () => {}, { monitor: true })
     await teste.setInputDevice('novo-mic-usb')
