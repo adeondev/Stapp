@@ -124,3 +124,31 @@ export function canPersistSession(raw: string): boolean {
     return false
   }
 }
+
+const TOKEN_KEY_PREFIX = 'stapp.token.'
+
+export function getSavedToken(serverUrl: string): string | null {
+  try {
+    return sessionStorage.getItem(TOKEN_KEY_PREFIX + serverUrl) ?? localStorage.getItem(TOKEN_KEY_PREFIX + serverUrl)
+  } catch {
+    return null
+  }
+}
+
+export function saveToken(serverUrl: string, token: string, remember = true) {
+  try {
+    if (remember) {
+      localStorage.setItem(TOKEN_KEY_PREFIX + serverUrl, token)
+    } else {
+      sessionStorage.setItem(TOKEN_KEY_PREFIX + serverUrl, token)
+    }
+  } catch { /* ignore */ }
+}
+
+export function clearSavedToken(serverUrl: string) {
+  try {
+    sessionStorage.removeItem(TOKEN_KEY_PREFIX + serverUrl)
+    localStorage.removeItem(TOKEN_KEY_PREFIX + serverUrl)
+  } catch { /* ignore */ }
+}
+

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import stappLogo from '../assets/imgs/svg/stapp_logo.svg'
-import { AuthApi, AuthApiError } from './net/auth'
+import { AuthApi, AuthApiError, clearSavedToken, getSavedToken, saveToken } from './net/auth'
 import { Connection, type ConnectionStatus } from './net/connection'
 import { IncomingRequestTracker, notificationSound } from './net/notifications'
 import { callSounds } from './net/callSounds'
@@ -19,6 +19,7 @@ import { CallPanel } from './ui/CallPanel'
 import { Chat } from './ui/Chat'
 import { Connect, type AuthInfo } from './ui/Connect'
 import { FriendsHome, type SocialAction } from './ui/FriendsHome'
+import { JoinServerModal } from './ui/JoinServerModal'
 import { MembersPanel } from './ui/MembersPanel'
 import { ServerRail } from './ui/ServerRail'
 import { Sidebar, sidebarModeFor, type View } from './ui/Sidebar'
@@ -59,6 +60,11 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [authBusy, setAuthBusy] = useState(false)
   const [authenticated, setAuthenticated] = useState(false)
+  const [isJoinServerOpen, setIsJoinServerOpen] = useState(false)
+  const [hasInitialToken, setHasInitialToken] = useState(() => {
+    const profile = lastServer()
+    return profile ? Boolean(getSavedToken(profile.url)) : false
+  })
   const attemptedUsername = useRef(active?.profile.username ?? '')
 
   const selfPeerId = usePresenceStore((s) => s.selfPeerId)
@@ -260,12 +266,21 @@ export default function App() {
             setAuthError(`Versão incompatível: servidor ${msg.protocol_version}, aplicativo ${PROTOCOL_VERSION}.`)
             return
           }
-          if (!conn.hasAccess()) void attemptRefresh()
+          if (!conn.hasAccess()) {
+            const savedToken = getSavedToken(serverUrl)
+            if (savedToken && !active.profile.logoutPending) {
+              conn.authenticate(savedToken)
+            } else {
+              void attemptRefresh()
+            }
+          }
           return
         }
 
         if (msg.t === 'auth.error') {
           conn.clearAccess()
+          clearSavedToken(serverUrl)
+          setHasInitialToken(false)
           setAuthBusy(false)
           setAuthError(msg.message)
           if (msg.code === 'client_outdated') {
@@ -281,6 +296,10 @@ export default function App() {
           setAuthBusy(false)
           setAuthError(null)
           setAuthenticated(true)
+          setHasInitialToken(true)
+          if (activeRef.current?.profile.url) {
+            localStorage.setItem('stapp.last-server.v2', activeRef.current.profile.url)
+          }
           updateActiveProfile({ username: attemptedUsername.current, lastUsed: Date.now(), logoutPending: undefined })
 
           const currentCall = useVoiceStore.getState().call
@@ -448,6 +467,10 @@ export default function App() {
     setAuthError(null)
     try {
       const session = await api.authenticate(mode, username, password, remember)
+      if (active?.profile.url) {
+        saveToken(active.profile.url, session.access_token, remember)
+        setHasInitialToken(true)
+      }
       connection.current?.authenticate(session.access_token)
       updateActiveProfile({ username, lastUsed: Date.now() })
     } catch (error) {
@@ -458,11 +481,13 @@ export default function App() {
         setAuthError(error instanceof Error ? error.message : 'Não foi possível autenticar.')
       }
     }
-  }, [updateActiveProfile])
+  }, [active?.profile.url, updateActiveProfile])
 
   const logout = useCallback(async () => {
     const profile = active?.profile
     if (!profile) return
+    clearSavedToken(profile.url)
+    setHasInitialToken(false)
     const revoked = await authApi.current?.logout()
     const next = markLogoutPending(profile, revoked !== true)
     setPendingLogout(profile.url, revoked !== true)
@@ -479,6 +504,18 @@ export default function App() {
     setAuthInfo(null)
     setAuthError(null)
   }, [resetRoom])
+
+  const handleJoinServerSuccess = useCallback((profile: SavedServer, session?: AuthSession) => {
+    setIsJoinServerOpen(false)
+    if (session?.access_token) {
+      saveToken(profile.url, session.access_token, true)
+      setHasInitialToken(true)
+    }
+    const next = saveServer(profile)
+    setServers(next)
+    setActive({ profile, persisted: true })
+    setConnectionEpoch((value) => value + 1)
+  }, [])
 
   const sendMessage = useCallback(
     (text: string, attachmentIds?: string[], replyTo?: string, clientNonce?: string) => {
@@ -791,6 +828,12 @@ export default function App() {
   }
 
   if (!active || !authenticated) {
+    if (active && hasInitialToken && authBusy && !authError) {
+      return (
+        <div className="app app--loading" style={{ display: 'grid', placeItems: 'center', height: '100vh', background: 'var(--bg-canvas)' }} aria-label="Conectando..." />
+      )
+    }
+
     return (
       <>
         <Connect serverUrl={active?.profile.url ?? null} serverProfile={active?.profile ?? null}
@@ -855,7 +898,7 @@ export default function App() {
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
       <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
         homeNotificationCount={homeNotificationCount}
-        onHome={selectHome} onSelect={selectServer} onAdd={backToServers}
+        onHome={selectHome} onSelect={selectServer} onAdd={() => setIsJoinServerOpen(true)}
         onMarkAsRead={markServerAsRead} onRemoveServer={(srv) => removeSaved(srv.url)} />
       <Sidebar state={state} status={status} view={view} mode={sidebarMode}
         onSelectHome={selectHome}
@@ -1029,6 +1072,14 @@ export default function App() {
         onStartUpdate={updater.startUpdate}
         onRelaunch={updater.relaunch}
       />
+
+      {isJoinServerOpen && (
+        <JoinServerModal
+          open={isJoinServerOpen}
+          onClose={() => setIsJoinServerOpen(false)}
+          onSuccess={handleJoinServerSuccess}
+        />
+      )}
     </div>
     </UserProfileProvider>
     </UserMenuProvider>

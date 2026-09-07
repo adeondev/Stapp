@@ -454,5 +454,70 @@ describe('App', () => {
     expect(useVoiceStore.getState().deafened).toBe(true)
     expect(useVoiceStore.getState().muted).toBe(true)
   })
+
+  it('abre o modal JoinServerModal ao clicar em Adicionar servidor sem derrubar a conexao ativa', async () => {
+    const user = userEvent.setup()
+    render(<App />)
+
+    act(() => connectionMock.onMessage?.({
+      t: 'welcome', self_peer_id: 'peer-deon', self_user_id: 'user-deon', server_name: 'Stapp local',
+      channels: [
+        { id: 'geral', name: 'geral', kind: 'text' },
+      ],
+      users: [{ user_id: 'user-deon', username: 'deon' }],
+      directory: [{ user_id: 'user-deon', username: 'deon' }],
+      profiles: [{
+        user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
+        bio: '', has_avatar: false, has_banner: false, created_at: 0, updated_at: 1,
+      }],
+      voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
+    }))
+
+    // Confirma que o servidor ativo está conectado e carregado
+    expect(screen.getByRole('button', { name: 'Stapp local' })).toBeTruthy()
+
+    // Clica no botão '+' (Adicionar servidor)
+    const addServerBtn = screen.getByRole('button', { name: 'Adicionar servidor' })
+    await user.click(addServerBtn)
+
+    // O modal abre
+    expect(screen.getByRole('dialog', { name: 'Adicionar servidor' })).toBeTruthy()
+
+    // O servidor ativo continua na tela e visível (não desconectou)
+    expect(screen.getByRole('button', { name: 'Stapp local' })).toBeTruthy()
+
+    // Clicar em cancelar fecha o modal sem alterar o estado
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+    expect(screen.queryByRole('dialog', { name: 'Adicionar servidor' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Stapp local' })).toBeTruthy()
+  })
+
+  it('conecta automaticamente no boot ignorando a tela de Connect quando ha servidor salvo e token valido', async () => {
+    localStorage.setItem('stapp.token.ws://127.0.0.1:8787/ws', 'valid-boot-token')
+    render(<App />)
+
+    // A tela de Connect nao e exibida
+    expect(screen.queryByRole('heading', { name: 'Boas-vindas de volta!' })).toBeNull()
+    expect(screen.getByLabelText('Conectando...')).toBeTruthy()
+
+    // O servidor responde com welcome
+    act(() => connectionMock.onMessage?.({
+      t: 'welcome', self_peer_id: 'peer-deon', self_user_id: 'user-deon', server_name: 'Stapp local',
+      channels: [{ id: 'geral', name: 'geral', kind: 'text' }],
+      users: [{ user_id: 'user-deon', username: 'deon' }],
+      directory: [{ user_id: 'user-deon', username: 'deon' }],
+      profiles: [{
+        user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
+        bio: '', has_avatar: false, has_banner: false, created_at: 0, updated_at: 1,
+      }],
+      voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
+    }))
+
+    // A interface principal carrega imediatamente
+    expect(await screen.findByRole('button', { name: 'Stapp local' })).toBeTruthy()
+    expect(screen.queryByLabelText('Conectando...')).toBeNull()
+  })
 })
 
