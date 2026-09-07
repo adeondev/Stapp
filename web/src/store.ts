@@ -370,6 +370,7 @@ export function reduce(state: StappState, msg: StappAction): StappState {
     case 'call.ringing':
     case 'call.accepted':
     case 'call.ended':
+    case 'voice.invite':
     case 'voice.grant':
     case 'voice.denied':
     case 'rtc.signal':

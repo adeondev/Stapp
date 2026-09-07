@@ -346,6 +346,7 @@ export type ClientMsg =
   | { t: 'call.decline'; user_id: UserId }
   | { t: 'call.cancel'; user_id: UserId }
   | { t: 'voice.join'; channel: string }
+  | { t: 'voice.invite'; target_user_id: UserId; channel_id: string }
   | { t: 'voice.leave' }
   | { t: 'voice.connected'; channel: string }
   | {
@@ -443,6 +444,7 @@ export type ServerMsg =
   | { t: 'call.ringing'; user_id: UserId }
   | { t: 'call.accepted'; user_id: UserId; channel: string }
   | { t: 'call.ended'; user_id: UserId; reason: CallEndReason }
+  | { t: 'voice.invite'; from_user_id: UserId; channel_id: string }
   | { t: 'voice.roster'; channel: string; peers: VoicePeer[] }
   | { t: 'voice.grant'; channel: string; url: string; token: string; expires_at: number }
   | { t: 'voice.denied'; channel: string; code: VoiceDeniedCode; message: string }

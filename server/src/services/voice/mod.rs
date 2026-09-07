@@ -51,6 +51,21 @@ pub fn direct_participants(channel: &str) -> Option<(UserId, UserId)> {
     Some((a.to_string(), b.to_string()))
 }
 
+pub async fn invite(state: &Arc<AppState>, peer_id: &str, target_user_id: UserId, channel_id: String) {
+    let Some(me) = state.identity_of(peer_id).await else {
+        return;
+    };
+    for session in state.sessions_of(&target_user_id).await {
+        state.send_to(
+            &session,
+            ServerMsg::VoiceInvite {
+                from_user_id: me.user_id.clone(),
+                channel_id: channel_id.clone(),
+            },
+        );
+    }
+}
+
 pub fn client_config(state: &AppState) -> VoiceConfig {
     match state.config.voice.backend.as_str() {
         "livekit" => VoiceConfig::Livekit {

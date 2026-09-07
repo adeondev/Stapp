@@ -127,6 +127,9 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
         ClientMsg::CallCancel { user_id } => call::cancel(state, peer_id, user_id).await,
 
         ClientMsg::VoiceJoin { channel } => voice::join(state, peer_id, &channel).await,
+        ClientMsg::VoiceInvite { target_user_id, channel_id } => {
+            voice::invite(state, peer_id, target_user_id, channel_id).await
+        }
         ClientMsg::VoiceLeave => voice::leave(state, peer_id).await,
         ClientMsg::VoiceConnected { channel } => voice::connected(state, peer_id, &channel).await,
         ClientMsg::VoiceState {

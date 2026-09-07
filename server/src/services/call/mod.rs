@@ -38,6 +38,9 @@ pub async fn start(state: &Arc<AppState>, peer_id: &str, to: UserId) {
 
     let destinos = state.sessions_of(&to).await;
     if destinos.is_empty() {
+        let hora = chrono::Local::now().format("%H:%M");
+        let texto = format!("Chamada perdida às {hora}");
+        record_direct_call(state, &me.user_id, &to, me.username.clone(), texto).await;
         return ended_to_caller(state, &me.user_id, &to, CallEndReason::Offline).await;
     }
 
@@ -49,12 +52,20 @@ pub async fn start(state: &Arc<AppState>, peer_id: &str, to: UserId) {
     };
 
     // Toca do outro lado...
-    for destino in destinos {
+    let channel_id = voice::direct_channel(&me.user_id, &to);
+    for destino in &destinos {
         state.send_to(
-            &destino,
+            destino,
             ServerMsg::CallIncoming {
                 user_id: me.user_id.clone(),
                 username: me.username.clone(),
+            },
+        );
+        state.send_to(
+            destino,
+            ServerMsg::VoiceInvite {
+                from_user_id: me.user_id.clone(),
+                channel_id: channel_id.clone(),
             },
         );
     }
@@ -189,8 +200,11 @@ async fn finish(state: &Arc<AppState>, call: &PendingCall, reason: CallEndReason
 /// fica sabendo que tentaram falar com ela enquanto estava fora.
 async fn record(state: &Arc<AppState>, call: &PendingCall, reason: CallEndReason) {
     let texto = match reason {
-        CallEndReason::Declined => "chamada recusada",
-        CallEndReason::Canceled | CallEndReason::Missed => "chamada perdida",
+        CallEndReason::Declined => "chamada recusada".to_string(),
+        CallEndReason::Canceled | CallEndReason::Missed => {
+            let hora = chrono::Local::now().format("%H:%M");
+            format!("Chamada perdida às {hora}")
+        }
         // Nao chegou a tocar: nao vale uma linha no historico.
         CallEndReason::Busy | CallEndReason::Offline | CallEndReason::Unavailable => return,
     };
@@ -198,12 +212,22 @@ async fn record(state: &Arc<AppState>, call: &PendingCall, reason: CallEndReason
     let Some(quem_ligou) = state.db.account_by_id(&call.from).await.ok().flatten() else {
         return;
     };
+    record_direct_call(state, &call.from, &call.to, quem_ligou.username, texto).await;
+}
+
+async fn record_direct_call(
+    state: &Arc<AppState>,
+    from: &UserId,
+    to: &UserId,
+    author_username: String,
+    texto: String,
+) {
     let msg = DirectMessage {
         id: Uuid::new_v4().to_string(),
-        author_id: quem_ligou.id,
-        author_username: quem_ligou.username,
+        author_id: from.clone(),
+        author_username,
         kind: DirectMessageKind::Call,
-        text: texto.to_string(),
+        text: texto,
         ts: now_ms(),
         attachments: Vec::new(),
         poll: None,
@@ -214,12 +238,12 @@ async fn record(state: &Arc<AppState>, call: &PendingCall, reason: CallEndReason
         mentions_everyone: false,
     };
 
-    let conversation = conversation_id(&call.from, &call.to);
+    let conversation = conversation_id(from, to);
     if let Err(err) = state.db.insert_direct(&conversation, &msg).await {
         tracing::error!(%err, "falha gravando o rastro da chamada");
         return;
     }
-    direct::deliver(state, &call.from, &call.to, msg).await;
+    direct::deliver(state, from, to, msg).await;
 }
 
 /// Depois de [`RING_TIMEOUT`] a chamada vira perdida sozinha. O id evita que um

@@ -149,6 +149,14 @@ export default function App() {
   const authApi = useRef<AuthApi | null>(null)
   const voice = useRef<VoiceTransport | null>(null)
   const unsubscribeVoice = useRef<(() => void) | null>(null)
+  const outgoingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearOutgoingTimeout = useCallback(() => {
+    if (outgoingTimeoutRef.current) {
+      clearTimeout(outgoingTimeoutRef.current)
+      outgoingTimeoutRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const preventNativeContextMenu = (event: MouseEvent) => {
@@ -160,6 +168,7 @@ export default function App() {
   }, [])
 
   const resetRoom = useCallback(() => {
+    clearOutgoingTimeout()
     callSounds.stopAll()
     voice.current?.destroy()
     voice.current = null
@@ -326,7 +335,19 @@ export default function App() {
           setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
           callSounds.playRingtone()
         }
+        if (msg.t === 'voice.invite') {
+          const user = usePresenceStore.getState().users.find((u) => u.user_id === msg.from_user_id)
+          const username = user?.username || msg.from_user_id
+          setRinging((current) => {
+            if (!current) {
+              callSounds.playRingtone()
+              return { userId: msg.from_user_id, username, direction: 'incoming' }
+            }
+            return current
+          })
+        }
         if (msg.t === 'call.accepted') {
+          clearOutgoingTimeout()
           callSounds.stopLoop()
           setRinging(null)
           void voice.current?.join(msg.channel).then((started) => {
@@ -336,12 +357,17 @@ export default function App() {
               voice.current?.setMuted(m || d)
               voice.current?.setDeafened(d)
               setCall({ channel: msg.channel, muted: m, deafened: d })
+              useVoiceStore.getState().setVoip((prev) =>
+                prev ? { ...prev, status: 'connected' } : null
+              )
             }
           })
         }
         if (msg.t === 'call.ended') {
+          clearOutgoingTimeout()
           callSounds.stopLoop()
           setRinging(null)
+          useVoiceStore.getState().setVoip(null)
           setNotice(CALL_REASON[msg.reason])
         }
         if (msg.t === 'error') setNotice(msg.message)
@@ -358,6 +384,7 @@ export default function App() {
 
     return () => {
       disposed = true
+      clearOutgoingTimeout()
       voice.current?.destroy()
       voice.current = null
       conn.close()
@@ -586,26 +613,67 @@ export default function App() {
   }, [call?.channel, joinCall, openServerCallView])
 
   const startCall = useCallback((userId: UserId, username: string) => {
+    clearOutgoingTimeout()
+    const selfId = selfUserIdRef.current ?? ''
+    const channelId = `dm:${[selfId, userId].sort().join(':')}`
     setRinging({ userId, username, direction: 'outgoing' })
+    useVoiceStore.getState().setVoip({
+      status: 'ringing',
+      userId,
+      username,
+      direction: 'outgoing',
+      channel: channelId,
+    })
     connection.current?.send({ t: 'call.start', user_id: userId })
+    connection.current?.send({ t: 'voice.invite', target_user_id: userId, channel_id: channelId })
     callSounds.playCalling()
-  }, [])
-  const acceptCall = useCallback(() => setRinging((current) => {
-    if (current) {
+
+    outgoingTimeoutRef.current = setTimeout(() => {
       callSounds.stopLoop()
-      connection.current?.send({ t: 'call.accept', user_id: current.userId })
-    }
-    return current
-  }), [])
-  const dismissCall = useCallback(() => setRinging((current) => {
-    if (current) {
-      callSounds.stopLoop()
-      connection.current?.send(current.direction === 'incoming'
-        ? { t: 'call.decline', user_id: current.userId }
-        : { t: 'call.cancel', user_id: current.userId })
-    }
-    return null
-  }), [])
+      setRinging((current) => {
+        if (current && current.direction === 'outgoing' && current.userId === userId) {
+          connection.current?.send({ t: 'call.cancel', user_id: userId })
+          useVoiceStore.getState().setVoip(null)
+          setNotice('Chamada não atendida')
+          return null
+        }
+        return current
+      })
+    }, 30000)
+  }, [clearOutgoingTimeout])
+
+  const acceptCall = useCallback(() => {
+    clearOutgoingTimeout()
+    setRinging((current) => {
+      if (current) {
+        callSounds.stopLoop()
+        connection.current?.send({ t: 'call.accept', user_id: current.userId })
+        useVoiceStore.getState().setVoip((prev) =>
+          prev ? { ...prev, status: 'connecting' } : {
+            status: 'connecting',
+            userId: current.userId,
+            username: current.username,
+            direction: 'incoming',
+          }
+        )
+      }
+      return current
+    })
+  }, [clearOutgoingTimeout])
+
+  const dismissCall = useCallback(() => {
+    clearOutgoingTimeout()
+    setRinging((current) => {
+      if (current) {
+        callSounds.stopLoop()
+        connection.current?.send(current.direction === 'incoming'
+          ? { t: 'call.decline', user_id: current.userId }
+          : { t: 'call.cancel', user_id: current.userId })
+        useVoiceStore.getState().setVoip(null)
+      }
+      return null
+    })
+  }, [clearOutgoingTimeout])
   /**
    * Sobe (ou remove) uma imagem de perfil. `null` remove.
    *
@@ -654,6 +722,7 @@ export default function App() {
     callSounds.playLeave()
     voice.current?.leave()
     setCall(null)
+    useVoiceStore.getState().setVoip(null)
     setView((current) => current?.kind === 'voice'
       ? (previousServerView.current ?? { kind: 'home' })
       : current)

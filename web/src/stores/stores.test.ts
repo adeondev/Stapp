@@ -248,4 +248,79 @@ describe('Zustand Atomic Stores', () => {
     expect(peersFinal.filter((p) => p.user_id === 'user-alice')).toHaveLength(1)
     expect(peersFinal.find((p) => p.user_id === 'user-alice')?.channel).toBe('voz-1')
   })
+
+  it('unifica maquina de estados do VoIP com transicoes atomicas (idle -> ringing/incoming -> connecting -> connected -> ended)', () => {
+    // 1. Inicial: idle
+    expect(useVoiceStore.getState().voip).toBeNull()
+
+    // 2. Transicao para incoming via call.incoming
+    dispatchServerMessage({
+      t: 'call.incoming',
+      user_id: 'user-bob',
+      username: 'Bob',
+    })
+    expect(useVoiceStore.getState().voip).toEqual({
+      status: 'incoming',
+      userId: 'user-bob',
+      username: 'Bob',
+      direction: 'incoming',
+    })
+
+    // 3. Transicao para connecting via call.accepted
+    dispatchServerMessage({
+      t: 'call.accepted',
+      user_id: 'user-bob',
+      channel: 'dm:user-alice:user-bob',
+    })
+    expect(useVoiceStore.getState().voip).toEqual({
+      status: 'connecting',
+      userId: 'user-bob',
+      username: 'Bob',
+      direction: 'incoming',
+      channel: 'dm:user-alice:user-bob',
+    })
+
+    // 4. Transicao para connected
+    useVoiceStore.getState().setVoip((prev) => (prev ? { ...prev, status: 'connected' } : null))
+    expect(useVoiceStore.getState().voip?.status).toBe('connected')
+
+    // 5. Transicao para ended (retorna a null/idle) via call.ended
+    dispatchServerMessage({
+      t: 'call.ended',
+      user_id: 'user-bob',
+      reason: 'declined',
+    })
+    expect(useVoiceStore.getState().voip).toBeNull()
+
+    // 6. Chamada sainte: transicao para ringing via call.ringing
+    useVoiceStore.getState().setVoip({
+      status: 'ringing',
+      userId: 'user-bob',
+      username: 'Bob',
+      direction: 'outgoing',
+      channel: 'dm:user-alice:user-bob',
+    })
+    expect(useVoiceStore.getState().voip?.status).toBe('ringing')
+
+    dispatchServerMessage({
+      t: 'call.ringing',
+      user_id: 'user-bob',
+    })
+    expect(useVoiceStore.getState().voip?.status).toBe('ringing')
+
+    // 7. Convite de voz simultaneo via voice.invite
+    useVoiceStore.getState().setVoip(null)
+    dispatchServerMessage({
+      t: 'voice.invite',
+      from_user_id: 'user-charlie',
+      channel_id: 'dm:user-alice:user-charlie',
+    })
+    expect(useVoiceStore.getState().voip).toEqual({
+      status: 'incoming',
+      userId: 'user-charlie',
+      username: 'user-charlie',
+      direction: 'incoming',
+      channel: 'dm:user-alice:user-charlie',
+    })
+  })
 })

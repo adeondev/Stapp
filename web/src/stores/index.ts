@@ -4,7 +4,7 @@ import { useVoiceStore } from './voiceStore'
 import { useChatStore } from './chatStore'
 
 export { usePresenceStore, type PresenceState } from './presenceStore'
-export { useVoiceStore, type VoiceState, type CallState } from './voiceStore'
+export { useVoiceStore, type VoiceState, type CallState, type VoipStatus, type VoipCall } from './voiceStore'
 export { useChatStore, type ChatState } from './chatStore'
 
 export function dispatchServerMessage(msg: ServerMsg | { t: 'app.reset' }): void {

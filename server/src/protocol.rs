@@ -531,6 +531,12 @@ pub enum ClientMsg {
     #[serde(rename = "voice.join")]
     VoiceJoin { channel: String },
 
+    #[serde(rename = "voice.invite")]
+    VoiceInvite {
+        target_user_id: UserId,
+        channel_id: String,
+    },
+
     #[serde(rename = "voice.leave")]
     VoiceLeave,
 
@@ -762,6 +768,12 @@ pub enum ServerMsg {
     CallEnded {
         user_id: UserId,
         reason: CallEndReason,
+    },
+
+    #[serde(rename = "voice.invite")]
+    VoiceInvite {
+        from_user_id: UserId,
+        channel_id: String,
     },
 
     #[serde(rename = "voice.roster")]

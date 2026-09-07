@@ -250,6 +250,43 @@ describe('App', () => {
     stopLoopSpy.mockRestore()
   })
 
+  it('dispara ringtone ao receber voice.invite permitindo tocar no desktop e web', async () => {
+    const playRingtoneSpy = vi.spyOn(callSounds, 'playRingtone')
+    const stopLoopSpy = vi.spyOn(callSounds, 'stopLoop')
+
+    render(<App />)
+    act(() => connectionMock.onMessage?.({
+      t: 'welcome', self_peer_id: 'peer-deon', self_user_id: 'user-deon', server_name: 'Stapp local',
+      channels: [{ id: 'geral', name: 'geral', kind: 'text' }],
+      users: [{ user_id: 'user-deon', username: 'deon' }, { user_id: 'user-bob', username: 'bob' }],
+      directory: [{ user_id: 'user-deon', username: 'deon' }, { user_id: 'user-bob', username: 'bob' }],
+      profiles: [],
+      voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
+      limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
+    }))
+
+    act(() => connectionMock.onMessage?.({
+      t: 'voice.invite',
+      from_user_id: 'user-bob',
+      channel_id: 'dm:user-bob:user-deon',
+    }))
+
+    expect(playRingtoneSpy).toHaveBeenCalled()
+    expect(screen.getByRole('alertdialog', { name: 'chamada' })).toBeTruthy()
+
+    act(() => connectionMock.onMessage?.({
+      t: 'call.ended',
+      user_id: 'user-bob',
+      reason: 'canceled',
+    }))
+
+    expect(stopLoopSpy).toHaveBeenCalled()
+    expect(screen.queryByRole('alertdialog', { name: 'chamada' })).toBeNull()
+
+    playRingtoneSpy.mockRestore()
+    stopLoopSpy.mockRestore()
+  })
+
   it('exibe a tela de splash no desktop enquanto o bootstrap esta em checking', () => {
     vi.mocked(useAutoUpdater).mockReturnValueOnce({
       isDesktop: true,
