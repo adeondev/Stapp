@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import type { VoiceSnapshot } from '../../voice/VoiceTransport'
 import {
   applyMotionPreference,
   applyTheme,
@@ -123,14 +124,18 @@ describe('appearance settings', () => {
         updated_at: 0,
       }
 
-      const snapshot = {
-        status: 'idle' as const,
-        activeChannelId: null,
-        peers: [],
-        speaking: new Set<string>(),
-        screensharePeers: new Set<string>(),
-        speakingSince: new Map<string, number>(),
-        peerStats: new Map(),
+      const snapshot: VoiceSnapshot = {
+        status: 'idle',
+        channel: null,
+        muted: false,
+        deafened: false,
+        cameraEnabled: false,
+        screenSharing: false,
+        screenHasAudio: null,
+        participants: [],
+        media: [],
+        audioProcessor: { status: 'idle', effective: 'none' },
+        error: null,
       }
 
       const updater = {
@@ -151,6 +156,7 @@ describe('appearance settings', () => {
         channel: 'stable' as const,
         setChannel: () => {},
         checkNow: async () => false,
+        checkForUpdates: async () => null,
         mandatoryRequirement: null,
         enforceMandatoryVersion: () => {},
         bootPhase: 'ready' as const,

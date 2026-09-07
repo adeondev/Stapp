@@ -134,13 +134,14 @@ pub async fn serve(config: Config) -> Result<()> {
     let max_peers = config.voice.max_peers;
     let (app, state) = build_app(config).await?;
 
+    let version = env!("CARGO_PKG_VERSION");
     if is_tls {
-        tracing::info!("\"{name}\" no ar com TLS em https://{tls_addr}");
+        tracing::info!("Stapp v{version} — \"{name}\" no ar com TLS em https://{tls_addr}");
         if let Some(raddr) = redirect_addr {
             tracing::info!("redirecionamento HTTP -> HTTPS no ar em http://{raddr}");
         }
     } else {
-        tracing::info!("\"{name}\" no ar em http://{addr}");
+        tracing::info!("Stapp v{version} — \"{name}\" no ar em http://{addr}");
     }
 
     tracing::info!("banco: {}", database.display());

@@ -209,7 +209,7 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'Voz e vídeo' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sobre' })).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Sobre' }))
-    expect(screen.getByText(/Stapp 0.1.0-beta.6/)).toBeTruthy()
+    expect(screen.getByText(/Stapp 0.1.0-beta.7/)).toBeTruthy()
   })
 
   it('dispara ringtone ao receber chamada entrante e interrompe som ao encerrar', async () => {

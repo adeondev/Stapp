@@ -6,7 +6,7 @@ import { IncomingRequestTracker, notificationSound } from './net/notifications'
 import { callSounds } from './net/callSounds'
 import { hasPendingLogout, lastServer, loadServers, markLogoutPending, normalizeServerUrl,
   removeServer, saveServer, setPendingLogout, type SavedServer } from './net/servers'
-import type { AuthMode, CallEndReason, PeerId, UserId } from './protocol'
+import type { AuthMode, AuthSession, CallEndReason, PeerId, UserId } from './protocol'
 import { PROTOCOL_VERSION } from './protocol'
 import { directChannelPartner, directChannelPartnerId, profileOf, totalUnread, type StappState } from './store'
 import { dispatchServerMessage, resetAllStores, useChatStore, usePresenceStore, useVoiceStore } from './stores'
@@ -360,9 +360,10 @@ export default function App() {
             (eu !== null && msg.msg.mentions?.includes(eu)) || Boolean(msg.msg.mentions_everyone)
           if (meChama && msg.msg.author_id !== eu) {
             notificationSound.play()
-            const ch = usePresenceStore.getState().channels.find((c) => c.id === msg.channel_id)
+            const ch = usePresenceStore.getState().channels.find((c) => c.id === msg.channel)
             const author = usePresenceStore.getState().users.find((u) => u.user_id === msg.msg.author_id)
-            const authorName = author?.display_name || author?.username || msg.msg.author_id
+            const authorProfile = usePresenceStore.getState().profiles[msg.msg.author_id]
+            const authorName = authorProfile?.display_name || author?.username || msg.msg.author_id
             notifyMention(authorName, ch?.name || 'chat', msg.msg.text)
           }
         }
@@ -370,7 +371,8 @@ export default function App() {
           if (msg.unread > 0 && msg.msg.kind === 'text') {
             notificationSound.play()
             const author = usePresenceStore.getState().users.find((u) => u.user_id === msg.msg.author_id)
-            const authorName = author?.display_name || author?.username || msg.msg.author_id
+            const authorProfile = usePresenceStore.getState().profiles[msg.msg.author_id]
+            const authorName = authorProfile?.display_name || author?.username || msg.msg.author_id
             notifyNewDm(authorName, msg.msg.text)
           }
         }

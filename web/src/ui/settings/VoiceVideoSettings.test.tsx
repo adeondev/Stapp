@@ -21,6 +21,7 @@ function micTestHandle() {
     setMonitor: vi.fn(),
     setMonitorVolume: vi.fn(),
     setOutputDevice: vi.fn(async () => {}),
+    setInputDevice: vi.fn(async () => {}),
     isMonitoring: () => false,
   }
 }

@@ -254,7 +254,7 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
                     aria-label="Código hexadecimal da cor do banner"
                   />
                   {bannerColor && (
-                    <SettingsButton size="sm" onClick={() => setBannerColor('')}>
+                    <SettingsButton onClick={() => setBannerColor('')}>
                       Limpar
                     </SettingsButton>
                   )}

@@ -2,15 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { PeerId, UserId } from '../protocol'
 import type { VoiceMediaState, VoiceSnapshot, VoiceTransport } from '../voice/VoiceTransport'
 import type { ScreenPreset } from '../voice/preferences'
-import { Avatar, useProfile } from './Avatar'
 import { CallTile } from './CallTile'
 import { ScreenSharePicker } from './ScreenSharePicker'
-import { useUserMenu, type UserMenuRequest } from './UserMenu'
 import { MenuDivider, MenuItem, MenuLabel, PopupMenu, type MenuPosition } from './Menu'
 import {
   IconCamera, IconCameraOff, IconChevronDown, IconChevronUp,
-  IconFullscreen, IconHeadphones, IconHeadphonesOff, IconLeave, IconMic, IconMicOff,
-  IconMinimize, IconMore, IconScreen, IconSettings, IconSignal,
+  IconHeadphones, IconHeadphonesOff, IconLeave, IconMic, IconMicOff,
+  IconScreen, IconSettings, IconSignal,
 } from './Icons'
 import { useVoiceStore } from '../stores'
 import { calculateCallGridLayout } from './callGridLayout'

@@ -38,6 +38,9 @@ const webPackageJsonPath = path.resolve(rootDir, 'web/package.json')
 const tauriCargoPath = path.resolve(rootDir, 'web/src-tauri/Cargo.toml')
 const serverCargoPath = path.resolve(rootDir, 'server/Cargo.toml')
 
+const tauriConfJsonPath = path.resolve(rootDir, 'web/src-tauri/tauri.conf.json')
+const updaterIndexPath = path.resolve(rootDir, 'web/src/platform/updater/index.ts')
+
 function updatePackageJson(filePath, version) {
   const content = fs.readFileSync(filePath, 'utf-8')
   const pkg = JSON.parse(content)
@@ -47,6 +50,13 @@ function updatePackageJson(filePath, version) {
   return oldVersion
 }
 
+function updateTauriConfJson(filePath, version) {
+  const content = fs.readFileSync(filePath, 'utf-8')
+  const conf = JSON.parse(content)
+  conf.version = version
+  fs.writeFileSync(filePath, JSON.stringify(conf, null, 2) + '\n', 'utf-8')
+}
+
 function updateCargoToml(filePath, version) {
   let content = fs.readFileSync(filePath, 'utf-8')
   // Substitui apenas o 'version = "..."' que fica sob [package]
@@ -54,18 +64,33 @@ function updateCargoToml(filePath, version) {
   fs.writeFileSync(filePath, updated, 'utf-8')
 }
 
+function updateUpdaterIndex(filePath, version) {
+  if (fs.existsSync(filePath)) {
+    let content = fs.readFileSync(filePath, 'utf-8')
+    content = content.replace(/export const CURRENT_VERSION = '[^']+'/, `export const CURRENT_VERSION = '${version}'`)
+    fs.writeFileSync(filePath, content, 'utf-8')
+  }
+}
+
 console.log(`\n🚀 Atualizando versão do Stapp para v${targetVersion}...\n`)
 
-// 1. web/package.json (e o tauri.conf.json herda dele automaticamente)
+// 1. web/package.json
 const oldVer = updatePackageJson(webPackageJsonPath, targetVersion)
 console.log(`  ✓ web/package.json (${oldVer} -> ${targetVersion})`)
-console.log(`  ✓ web/src-tauri/tauri.conf.json (herda automaticamente de package.json)`)
 
-// 2. web/src-tauri/Cargo.toml
+// 2. web/src-tauri/tauri.conf.json
+updateTauriConfJson(tauriConfJsonPath, targetVersion)
+console.log(`  ✓ web/src-tauri/tauri.conf.json -> ${targetVersion}`)
+
+// 3. web/src/platform/updater/index.ts
+updateUpdaterIndex(updaterIndexPath, targetVersion)
+console.log(`  ✓ web/src/platform/updater/index.ts -> ${targetVersion}`)
+
+// 4. web/src-tauri/Cargo.toml
 updateCargoToml(tauriCargoPath, targetVersion)
 console.log(`  ✓ web/src-tauri/Cargo.toml -> ${targetVersion}`)
 
-// 3. server/Cargo.toml
+// 5. server/Cargo.toml
 updateCargoToml(serverCargoPath, targetVersion)
 console.log(`  ✓ server/Cargo.toml -> ${targetVersion}`)
 

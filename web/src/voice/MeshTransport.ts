@@ -35,7 +35,6 @@ interface Monitor {
 /** ~43ms de audio por leitura a 48kHz — janela larga o bastante para nao cair
  *  no vao entre duas silabas. */
 const FFT_SIZE = 2048
-const SPEAKING_LEVEL = 8
 /** Segura o indicador aceso um instante para nao piscar entre silabas. */
 const SPEAKING_HOLD_MS = 250
 

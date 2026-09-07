@@ -177,7 +177,7 @@ describe('UserProfilePopover', () => {
   })
 
   it('renderiza banner com cor sólida customizada (banner_color)', async () => {
-    const { container } = montar(
+    montar(
       {
         members: [{ user_id: 'bob', username: 'bob', relationship: 'none', can_start_dm: false, has_conversation: false }],
       },

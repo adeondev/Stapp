@@ -196,10 +196,10 @@ function HomeNavigation({ state, view, conversations, filtro, incomingRequests, 
                 }}
               >
                 <IconChevronDown
-                  size={14}
+                  size={16}
                   className={`sidebar__dm-group-chevron ${collapsed ? 'is-collapsed' : ''}`}
                 />
-                <IconServer size={14} className="sidebar__dm-group-icon" />
+                <IconServer size={16} className="sidebar__dm-group-icon" />
                 <span className="sidebar__dm-group-name">{sName}</span>
                 <span className="sidebar__dm-group-count">{groupConvs.length}</span>
               </button>
