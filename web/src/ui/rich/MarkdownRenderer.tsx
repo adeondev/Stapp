@@ -114,7 +114,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
   const isJumbo = isOnlyEmojis(parsedContent)
 
   return (
-    <div className={`stapp-markdown ${isJumbo ? 'stapp-markdown-jumbo' : ''} ${className}`}>
+    <div className={`stapp-markdown ${isJumbo ? 'stapp-markdown-jumbo chat__emoji--jumbo' : ''} ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[[rehypeSanitize, sanitizeSchema]]}

@@ -131,7 +131,8 @@
 /* Jumboji: mensagem que so tem emoji sai grande.
    Com o Twemoji virando fonte, "aumentar o emoji" e so font-size — antes era
    width/height de um <img> por emoji. */
-.stapp-markdown-jumbo {
+.stapp-markdown-jumbo,
+.chat__emoji--jumbo {
   font-size: 2.75rem;
   line-height: 1.15;
 }

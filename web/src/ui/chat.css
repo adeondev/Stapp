@@ -560,3 +560,9 @@
 .chat__respondendo-fechar:hover {
   color: var(--text);
 }
+
+.chat__emoji--jumbo {
+  font-size: 2.75rem;
+  line-height: 1.15;
+}
+

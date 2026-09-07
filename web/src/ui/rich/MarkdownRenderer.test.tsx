@@ -72,5 +72,11 @@ fn main() { println!("olá"); }
   it('marca a mensagem so de emoji como jumbo', () => {
     const { container } = render(<MarkdownRenderer content=":sob::smile:" />)
     expect(container.firstElementChild?.className).toContain('stapp-markdown-jumbo')
+    expect(container.firstElementChild?.className).toContain('chat__emoji--jumbo')
+
+    // Com texto comum, não deve ter classe jumbo
+    const { container: withText } = render(<MarkdownRenderer content="olá :smile:" />)
+    expect(withText.firstElementChild?.className).not.toContain('chat__emoji--jumbo')
+    expect(withText.firstElementChild?.className).not.toContain('stapp-markdown-jumbo')
   })
 })
