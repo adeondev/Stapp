@@ -1,8 +1,10 @@
-import React, { memo, useState } from 'react'
+import React, { memo, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import { openExternalLink } from '../../platform/externalLink'
+import { IconStar } from '../Icons'
+import { GIF_FAVORITES_EVENT, isFavoriteGif, isGifMedia, toggleFavoriteGif } from './gifFavorites'
 import { isOnlyEmojis, parseShortcodesToUnicode } from './twemoji'
 import './markdown.css'
 
@@ -59,6 +61,49 @@ function CodeBlock({ children, className }: { children: React.ReactNode; classNa
         <code>{children}</code>
       </pre>
     </div>
+  )
+}
+
+function MarkdownImage({ src, alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) {
+  const [favorited, setFavorited] = useState(() => (src ? isFavoriteGif(src) : false))
+
+  useEffect(() => {
+    if (!src) return
+    const onUpdate = () => setFavorited(isFavoriteGif(src))
+    window.addEventListener(GIF_FAVORITES_EVENT, onUpdate)
+    window.addEventListener('storage', onUpdate)
+    return () => {
+      window.removeEventListener(GIF_FAVORITES_EVENT, onUpdate)
+      window.removeEventListener('storage', onUpdate)
+    }
+  }, [src])
+
+  const isGif = src ? isGifMedia(src, alt) : false
+
+  if (!isGif || !src) {
+    return <img src={src} alt={alt} loading="lazy" {...props} />
+  }
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const novo = toggleFavoriteGif(src)
+    setFavorited(novo)
+  }
+
+  return (
+    <span className="stapp-chat-gif-wrapper">
+      <img src={src} alt={alt} loading="lazy" {...props} />
+      <button
+        type="button"
+        className={`stapp-chat-gif-fav-btn ${favorited ? 'is-favorited' : ''}`}
+        onClick={handleToggle}
+        title={favorited ? 'Remover dos favoritos' : 'Favoritar GIF'}
+        aria-label={favorited ? 'Remover dos favoritos' : 'Favoritar GIF'}
+      >
+        <IconStar size={16} filled={favorited} />
+      </button>
+    </span>
   )
 }
 
@@ -163,6 +208,7 @@ export const MarkdownRenderer = memo(function MarkdownRenderer({ content, classN
           em: ({ children }) => <em>{mapear(children, nomes)}</em>,
           td: ({ children }) => <td>{mapear(children, nomes)}</td>,
           blockquote: ({ children }) => <blockquote>{mapear(children, nomes)}</blockquote>,
+          img: ({ src, alt, ...props }) => <MarkdownImage src={src} alt={alt} {...props} />,
         }}
       >
         {parsedContent}

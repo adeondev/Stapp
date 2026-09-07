@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { openExternalLink } from '../../platform/externalLink'
@@ -78,5 +78,27 @@ fn main() { println!("olá"); }
     const { container: withText } = render(<MarkdownRenderer content="olá :smile:" />)
     expect(withText.firstElementChild?.className).not.toContain('chat__emoji--jumbo')
     expect(withText.firstElementChild?.className).not.toContain('stapp-markdown-jumbo')
+  })
+
+  it('renderiza botao de favoritar em GIFs no markdown e atualiza localStorage', () => {
+    localStorage.removeItem('stapp_gif_favorites')
+    const gifUrl = 'https://media.klipy.com/dancing.gif'
+    render(<MarkdownRenderer content={`![GIF](${gifUrl})`} />)
+
+    const favBtn = screen.getByRole('button', { name: 'Favoritar GIF' })
+    expect(favBtn).toBeTruthy()
+    expect(favBtn.className).not.toContain('is-favorited')
+
+    fireEvent.click(favBtn)
+
+    const stored = JSON.parse(localStorage.getItem('stapp_gif_favorites') || '[]')
+    expect(stored).toContain(gifUrl)
+    expect(favBtn.className).toContain('is-favorited')
+    expect(favBtn.getAttribute('aria-label')).toBe('Remover dos favoritos')
+
+    fireEvent.click(favBtn)
+    const storedAfter = JSON.parse(localStorage.getItem('stapp_gif_favorites') || '[]')
+    expect(storedAfter).not.toContain(gifUrl)
+    expect(favBtn.className).not.toContain('is-favorited')
   })
 })

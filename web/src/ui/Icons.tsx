@@ -26,7 +26,8 @@ import {
   RiSearchFill, RiSearchLine, RiSendPlane2Fill, RiSendPlane2Line,
   RiServerFill, RiServerLine, RiSettings3Fill, RiSettings3Line,
   RiShieldFill, RiShieldLine, RiSignalTowerFill, RiSignalTowerLine,
-  RiSpeedFill, RiSpeedLine, RiSubtractLine, RiTimeFill, RiTimeLine,
+  RiSpeedFill, RiSpeedLine, RiStarFill, RiStarLine, RiHeartFill, RiHeartLine,
+  RiSubtractLine, RiTimeFill, RiTimeLine,
   RiUploadCloud2Fill, RiUploadCloud2Line, RiUserFill, RiUserLine, RiVidiconFill, RiVidiconLine,
   RiVideoOffFill, RiVideoOffLine, RiVolumeDownFill, RiVolumeDownLine,
   RiVolumeMuteFill, RiVolumeMuteLine, RiVolumeUpFill, RiVolumeUpLine,
@@ -148,6 +149,8 @@ export const IconTrash = par('IconTrash', RiDeleteBinLine, RiDeleteBinFill)
 export const IconReaction = par('IconReaction', RiEmotionLine, RiEmotionFill)
 export const IconSend = par('IconSend', RiSendPlane2Line, RiSendPlane2Fill)
 export const IconGif = par('IconGif', RiFileGifLine, RiFileGifFill)
+export const IconStar = par('IconStar', RiStarLine, RiStarFill)
+export const IconHeart = par('IconHeart', RiHeartLine, RiHeartFill)
 export const IconPin = par('IconPin', RiPushpinLine, RiPushpinFill)
 export const IconPoll = par('IconPoll', RiBarChartBoxLine, RiBarChartBoxFill)
 

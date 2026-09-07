@@ -1,6 +1,9 @@
+import { useEffect, useState } from 'react'
 import type { Attachment } from '../../protocol'
+import { IconStar } from '../Icons'
 import { AudioPlayer } from './AudioPlayer'
 import { FileAttachment } from './FileAttachment'
+import { GIF_FAVORITES_EVENT, isFavoriteGif, isGifMedia, toggleFavoriteGif } from './gifFavorites'
 import { VideoPlayer } from './VideoPlayer'
 import './attachments.css'
 
@@ -58,6 +61,76 @@ export interface AttachmentRendererProps {
   onOpenViewer?(attachmentId: string): void
 }
 
+function AttachmentImageItem({
+  attachment,
+  url,
+  onOpenViewer,
+  caixa,
+}: {
+  attachment: Attachment
+  url: string
+  onOpenViewer?(attachmentId: string): void
+  caixa?: React.CSSProperties
+}) {
+  const isGif = isGifMedia(url, attachment.filename, attachment.content_type)
+  const [favorited, setFavorited] = useState(() => (isGif ? isFavoriteGif(url) : false))
+
+  useEffect(() => {
+    if (!isGif) return
+    const onUpdate = () => setFavorited(isFavoriteGif(url))
+    window.addEventListener(GIF_FAVORITES_EVENT, onUpdate)
+    window.addEventListener('storage', onUpdate)
+    return () => {
+      window.removeEventListener(GIF_FAVORITES_EVENT, onUpdate)
+      window.removeEventListener('storage', onUpdate)
+    }
+  }, [isGif, url])
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    const novo = toggleFavoriteGif(url)
+    setFavorited(novo)
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      className="stapp-attachment-image-wrapper max-w-[480px] max-h-[380px] w-auto h-auto"
+      style={caixa}
+      onClick={() => onOpenViewer?.(attachment.id)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onOpenViewer?.(attachment.id)
+        }
+      }}
+      aria-label={`Abrir ${attachment.filename}`}
+    >
+      <img
+        src={url}
+        alt={attachment.description || attachment.filename}
+        loading="lazy"
+        width={attachment.width}
+        height={attachment.height}
+        className="stapp-attachment-image max-w-[480px] max-h-[380px] w-auto h-auto object-contain"
+      />
+      {isGif && (
+        <button
+          type="button"
+          className={`stapp-chat-gif-fav-btn ${favorited ? 'is-favorited' : ''}`}
+          onClick={handleToggle}
+          title={favorited ? 'Remover dos favoritos' : 'Favoritar GIF'}
+          aria-label={favorited ? 'Remover dos favoritos' : 'Favoritar GIF'}
+        >
+          <IconStar size={16} filled={favorited} />
+        </button>
+      )}
+    </div>
+  )
+}
+
 export function AttachmentRenderer({ attachment, url, onOpenViewer }: AttachmentRendererProps) {
   const kind = attachmentKind(attachment)
 
@@ -101,22 +174,12 @@ export function AttachmentRenderer({ attachment, url, onOpenViewer }: Attachment
       }
       : undefined
     return (
-      <button
-        type="button"
-        className="stapp-attachment-image-wrapper max-w-[480px] max-h-[380px] w-auto h-auto"
-        style={caixa}
-        onClick={() => onOpenViewer?.(attachment.id)}
-        aria-label={`Abrir ${attachment.filename}`}
-      >
-        <img
-          src={url}
-          alt={attachment.description || attachment.filename}
-          loading="lazy"
-          width={attachment.width}
-          height={attachment.height}
-          className="stapp-attachment-image max-w-[480px] max-h-[380px] w-auto h-auto object-contain"
-        />
-      </button>
+      <AttachmentImageItem
+        attachment={attachment}
+        url={url}
+        onOpenViewer={onOpenViewer}
+        caixa={caixa}
+      />
     )
   }
 
