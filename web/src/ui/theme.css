@@ -80,6 +80,7 @@
   --radius-lg: var(--radius-lg);
   --radius-xl: var(--radius-xl);
   --radius-pill: var(--radius-pill);
+  --radius-card: var(--radius-card);
 
   /* Proibição estrita de box-shadow no design system do Stapp */
   --shadow-none: none;
@@ -242,6 +243,7 @@
   --radius-lg: 12px;
   --radius-xl: 16px;
   --radius-pill: 999px;
+  --radius-card: var(--radius-lg);
 
   /* Escada de espaco. Antes eram ~23 valores de `gap` misturando px e rem; o
      degrau existe para a proxima tela nao inventar o 24o. */

@@ -561,6 +561,24 @@ export default function App() {
     connection.current?.send({ t: 'dm.send', user_id: userId, text })
   }, [])
 
+  const markServerAsRead = useCallback((server?: SavedServer) => {
+    if (!server || server.url === active?.profile.url) {
+      for (const [channelId, msgs] of Object.entries(state.messages)) {
+        if (msgs.length > 0) {
+          const lastMsg = msgs[msgs.length - 1]
+          connection.current?.send({ t: 'chat.read', channel: channelId, message_id: lastMsg.id })
+        }
+      }
+      for (const [userId, dms] of Object.entries(state.directMessages)) {
+        if (dms.length > 0) {
+          const lastDm = dms[dms.length - 1]
+          connection.current?.send({ t: 'dm.read', user_id: userId, message_id: lastDm.id })
+        }
+      }
+      useChatStore.getState().markAllAsRead()
+    }
+  }, [active?.profile.url, state.messages, state.directMessages])
+
   const selectHome = useCallback(() => {
     setView({ kind: 'home' })
   }, [])
@@ -837,7 +855,8 @@ export default function App() {
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
       <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
         homeNotificationCount={homeNotificationCount}
-        onHome={selectHome} onSelect={selectServer} onAdd={backToServers} />
+        onHome={selectHome} onSelect={selectServer} onAdd={backToServers}
+        onMarkAsRead={markServerAsRead} onRemoveServer={(srv) => removeSaved(srv.url)} />
       <Sidebar state={state} status={status} view={view} mode={sidebarMode}
         onSelectHome={selectHome}
         onSelectChannel={selectChannel} onSelectDirect={selectDirect}

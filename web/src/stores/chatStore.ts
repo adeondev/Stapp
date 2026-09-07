@@ -19,6 +19,7 @@ export interface ChatState {
 
   handleChatMessage: (msg: ServerMsg) => void
   patchMessage: (messageId: string, patch: Partial<Message> & Partial<DirectMessage>) => void
+  markAllAsRead: () => void
   resetChat: () => void
 }
 
@@ -290,6 +291,16 @@ export const useChatStore = create<ChatState>((set) => ({
     set((state) => {
       const patched = patchMessageStore(state.messages, state.directMessages, messageId, patch)
       return patched ?? state
+    })
+  },
+
+  markAllAsRead: () => {
+    set((state) => {
+      const nextConversations: Record<UserId, DirectSummary> = {}
+      for (const [userId, conversation] of Object.entries(state.conversations)) {
+        nextConversations[userId] = { ...conversation, unread: 0 }
+      }
+      return { conversations: nextConversations }
     })
   },
 

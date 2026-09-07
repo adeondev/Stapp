@@ -59,21 +59,18 @@
   width: 48px;
   height: 48px;
   place-items: center;
-  /* O ladrilho nasce redondo e vira quadrado-arredondado quando e o atual.
-     E a transicao de FORMA que marca o estado; a cor entra so no acento. */
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-card);
   background: var(--pill-surface);
   color: var(--interactive-hover);
   font-size: var(--fs-md);
   font-weight: 600;
   letter-spacing: -0.02em;
-  transition: border-radius var(--dur-slow) var(--motion-spring),
-    background var(--dur-slow) ease, color var(--dur-slow) ease;
+  transition: background var(--dur-base) ease, color var(--dur-base) ease;
 }
 
 .serverrail__item:hover,
 .serverrail__slot.is-active .serverrail__item {
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-card);
 }
 
 /* So o Home se pinta de acento. O ladrilho de um SERVIDOR ativo continua do
@@ -154,3 +151,37 @@
   .serverrail__item { width: 40px; height: 40px; }
   .serverrail__slot.is-active .serverrail__pill { height: 32px; }
 }
+
+.serverrail__modal-p {
+  color: var(--text-soft);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.serverrail__modal-btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--modifier-hover);
+  color: var(--text);
+  transition: background var(--dur-fast) ease;
+}
+
+.serverrail__modal-btn:hover {
+  background: var(--modifier-active);
+}
+
+.serverrail__modal-btn--danger {
+  background: var(--danger);
+  color: var(--on-danger);
+}
+
+.serverrail__modal-btn--danger:hover {
+  background: var(--danger);
+  filter: brightness(0.9);
+}
+
