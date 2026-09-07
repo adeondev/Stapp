@@ -144,6 +144,11 @@ pub async fn serve(config: Config) -> Result<()> {
     }
 
     tracing::info!("banco: {}", database.display());
+    tracing::info!(
+        "armazenamento: {} [{}]",
+        state.media.location_info(),
+        state.media.backend_name()
+    );
     for ch in &channels {
         match ch.kind {
             ChannelKind::Text => tracing::info!("  # {}", ch.name),

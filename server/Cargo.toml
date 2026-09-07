@@ -6,7 +6,7 @@ license = "MIT"
 description = "Servidor do Stapp — chat de texto e sinalizacao de voz"
 
 [features]
-default = []
+default = ["s3"]
 s3 = [
     "dep:aws-sdk-s3",
     "dep:aws-config",

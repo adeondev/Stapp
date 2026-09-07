@@ -138,7 +138,7 @@ pub struct VoiceSettings {
     pub api_secret_env: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct S3Config {
     #[serde(default = "default_s3_endpoint")]
     pub endpoint: String,
@@ -152,6 +152,16 @@ pub struct S3Config {
     pub secret_key: String,
     #[serde(default = "default_s3_public_url")]
     pub public_url: Option<String>,
+}
+
+impl S3Config {
+    /// Retorna `true` se as credenciais e parâmetros essenciais de S3/Cloudflare R2
+    /// (bucket, access_key, secret_key) foram preenchidos e não estão vazios.
+    pub fn is_configured(&self) -> bool {
+        !self.bucket.trim().is_empty()
+            && !self.access_key.trim().is_empty()
+            && !self.secret_key.trim().is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -374,8 +384,70 @@ impl Config {
         if let Some(val) = parse_env_usize(&["STAPP_STORAGE_HISTORY_LIMIT", "STAPP_HISTORY_LIMIT"]) {
             self.storage.history_limit = val;
         }
-        if let Some(val) = env_var(&["STAPP_STORAGE_ATTACHMENTS_DIR", "STAPP_ATTACHMENTS_DIR"]) {
+        if let Some(val) = env_var(&[
+            "STAPP_STORAGE_ATTACHMENTS_DIR",
+            "STAPP_ATTACHMENTS_DIR",
+            "STAPP_STORAGE_UPLOADS_DIR",
+            "STAPP_UPLOADS_DIR",
+        ]) {
             self.storage.attachments_dir = PathBuf::from(val);
+        }
+
+        // Suporte a S3 / Cloudflare R2 via variaveis de ambiente
+        let s3_endpoint = env_var(&["STAPP_S3_ENDPOINT", "S3_ENDPOINT"]);
+        let s3_bucket = env_var(&["STAPP_S3_BUCKET", "S3_BUCKET"]);
+        let s3_region = env_var(&[
+            "STAPP_S3_REGION",
+            "S3_REGION",
+            "AWS_REGION",
+            "AWS_DEFAULT_REGION",
+        ]);
+        let s3_access_key = env_var(&[
+            "STAPP_S3_ACCESS_KEY",
+            "S3_ACCESS_KEY",
+            "AWS_ACCESS_KEY_ID",
+        ]);
+        let s3_secret_key = env_var(&[
+            "STAPP_S3_SECRET_KEY",
+            "S3_SECRET_KEY",
+            "AWS_SECRET_ACCESS_KEY",
+        ]);
+        let s3_public_url = env_var(&["STAPP_S3_PUBLIC_URL", "S3_PUBLIC_URL"]);
+
+        if s3_endpoint.is_some()
+            || s3_bucket.is_some()
+            || s3_region.is_some()
+            || s3_access_key.is_some()
+            || s3_secret_key.is_some()
+            || s3_public_url.is_some()
+        {
+            let mut s3 = self.storage.s3.take().unwrap_or_else(|| S3Config {
+                endpoint: default_s3_endpoint(),
+                bucket: default_s3_bucket(),
+                region: default_s3_region(),
+                access_key: default_s3_access_key(),
+                secret_key: default_s3_secret_key(),
+                public_url: None,
+            });
+            if let Some(val) = s3_endpoint {
+                s3.endpoint = val;
+            }
+            if let Some(val) = s3_bucket {
+                s3.bucket = val;
+            }
+            if let Some(val) = s3_region {
+                s3.region = val;
+            }
+            if let Some(val) = s3_access_key {
+                s3.access_key = val;
+            }
+            if let Some(val) = s3_secret_key {
+                s3.secret_key = val;
+            }
+            if let Some(val) = s3_public_url {
+                s3.public_url = Some(val);
+            }
+            self.storage.s3 = Some(s3);
         }
 
         if let Some(val) = parse_env_usize(&["STAPP_LIMITS_MAX_UPLOAD_MB", "STAPP_MAX_UPLOAD_MB"]) {
@@ -655,16 +727,16 @@ fn default_s3_endpoint() -> String {
     "http://127.0.0.1:9000".into()
 }
 fn default_s3_bucket() -> String {
-    "stapp-media".into()
+    String::new()
 }
 fn default_s3_region() -> String {
-    "us-east-1".into()
+    "auto".into()
 }
 fn default_s3_access_key() -> String {
-    "minioadmin".into()
+    String::new()
 }
 fn default_s3_secret_key() -> String {
-    "minioadminpassword".into()
+    String::new()
 }
 fn default_s3_public_url() -> Option<String> {
     None
