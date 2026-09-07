@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DiagnosticReport, MediaDeviceLists, VoiceSnapshot, VoiceTransport } from '../../voice/VoiceTransport'
-import type { MicrophoneTest } from '../../voice/testMicrophone'
+import { deduplicateDevices, type MicrophoneTest } from '../../voice/testMicrophone'
 import { DEFAULT_VOICE_PREFERENCES, resetVoicePreferences, type VoicePreferences } from '../../voice/preferences'
 import { IconCamera, IconHeadphones, IconMic } from '../Icons'
 import {
@@ -54,9 +54,8 @@ export function VoiceVideoSettings({ transport, snapshot, onPreferencesChange }:
 
   /* O teste abre uma captura PROPRIA, separada da que a chamada publica: ligar
      ou desligar daqui nunca mexe numa call em andamento. O `handle` fica numa
-     ref para o retorno local poder mudar de volume, de saida e de liga/desliga
-     sem reabrir o microfone. A troca de DISPOSITIVO DE ENTRADA, essa sim, exige
-     reabrir — por isso `preferences.inputDeviceId` esta nas dependencias. */
+     ref para o retorno local poder mudar de volume, de saida e de microfone em
+     tempo real sem recriar o teste ou desmontar a interface. */
   useEffect(() => {
     if (!testing) return
     let vivo = true
@@ -79,12 +78,13 @@ export function VoiceVideoSettings({ transport, snapshot, onPreferencesChange }:
       micTest.current?.stop()
       micTest.current = null
     }
-  }, [testing, transport, preferences.inputDeviceId])
+  }, [testing, transport])
 
-  // Retorno, volume e saida mudam no grafo vivo; nada disso reabre a captura.
+  // Retorno, volume, saida e entrada mudam no grafo vivo sem recriar a captura
   useEffect(() => { micTest.current?.setMonitor(preferences.monitorMic) }, [preferences.monitorMic])
   useEffect(() => { micTest.current?.setMonitorVolume(preferences.monitorVolume) }, [preferences.monitorVolume])
   useEffect(() => { void micTest.current?.setOutputDevice(preferences.outputDeviceId) }, [preferences.outputDeviceId])
+  useEffect(() => { void micTest.current?.setInputDevice(preferences.inputDeviceId) }, [preferences.inputDeviceId])
 
   /* Se o dispositivo em uso for arrancado no meio do teste, o navegador nao
      avisa por erro — a barra so congela. `devicechange` e o unico sinal.
@@ -143,7 +143,7 @@ export function VoiceVideoSettings({ transport, snapshot, onPreferencesChange }:
 
   const dispositivos = (lista: MediaDeviceInfo[], rotulo: string, icon: React.ReactNode) => [
     { value: '', label: 'Padrão do sistema', icon },
-    ...lista.map((device, index) => ({
+    ...deduplicateDevices(lista).map((device, index) => ({
       value: device.deviceId,
       label: device.label || `${rotulo} ${index + 1}`,
       icon,

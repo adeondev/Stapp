@@ -43,8 +43,34 @@ export interface MicrophoneTest {
   setMonitorVolume(volume: number): void
   /** Troca a saida do retorno durante o teste. */
   setOutputDevice(deviceId: string): Promise<void>
+  /** Troca o microfone ativo em tempo real via applyConstraints ou reinicialização dinâmica. */
+  setInputDevice(deviceId: string): Promise<void>
   /** `true` se o retorno esta audivel neste instante. */
   isMonitoring(): boolean
+}
+
+/**
+ * Deduplica lista de dispositivos de mídia que compartilhem o mesmo deviceId
+ * ou rótulo (label) idêntico, prevenindo duplicatas na interface.
+ */
+export function deduplicateDevices<T extends { deviceId?: string; label?: string }>(devices: T[]): T[] {
+  const seenIds = new Set<string>()
+  const seenLabels = new Set<string>()
+  const result: T[] = []
+
+  for (const device of devices) {
+    const id = device.deviceId?.trim()
+    const label = device.label?.trim()
+
+    if (id && id !== '' && seenIds.has(id)) continue
+    if (label && label !== '' && seenLabels.has(label.toLowerCase())) continue
+
+    if (id && id !== '') seenIds.add(id)
+    if (label && label !== '') seenLabels.add(label.toLowerCase())
+    result.push(device)
+  }
+
+  return result
 }
 
 /** `HTMLMediaElement.setSinkId` ainda nao esta na lib padrao do TS. */
@@ -71,7 +97,8 @@ export async function startMicrophoneTest(
   })
 
   const context = new AudioContext()
-  const source = context.createMediaStreamSource(stream)
+  let currentStream = stream
+  let source = context.createMediaStreamSource(currentStream)
   const analyser = context.createAnalyser()
   analyser.fftSize = 1024
   source.connect(analyser)
@@ -141,7 +168,7 @@ export async function startMicrophoneTest(
       alto.pause()
       alto.srcObject = null
       alto.remove()
-      stream.getTracks().forEach((track) => track.stop())
+      currentStream.getTracks().forEach((track) => track.stop())
       void context.close()
       onLevel(0)
     },
@@ -158,6 +185,43 @@ export async function startMicrophoneTest(
     async setOutputDevice(deviceId: string) {
       if (parado) return
       await aplicarSaida(deviceId)
+    },
+    async setInputDevice(deviceId: string) {
+      if (parado) return
+      const track = currentStream.getAudioTracks()[0]
+      if (track && typeof track.applyConstraints === 'function') {
+        try {
+          if (deviceId) {
+            await track.applyConstraints({ deviceId: { exact: deviceId } })
+          } else {
+            await track.applyConstraints({ deviceId: undefined })
+          }
+          return
+        } catch {
+          // Se applyConstraints não for suportado pelo driver/SO, reconecta dinamicamente
+        }
+      }
+
+      try {
+        const nextConstraints = monitor ? { ...constraints, echoCancellation: true } : constraints
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: deviceId ? { ...nextConstraints, deviceId: { exact: deviceId } } : nextConstraints,
+          video: false,
+        })
+        if (parado) {
+          newStream.getTracks().forEach((t) => t.stop())
+          return
+        }
+        currentStream.getTracks().forEach((t) => t.stop())
+        source.disconnect()
+
+        currentStream = newStream
+        source = context.createMediaStreamSource(currentStream)
+        source.connect(analyser)
+        source.connect(ganho)
+      } catch (err) {
+        console.warn('[testMicrophone] Falha ao trocar dispositivo de microfone:', err)
+      }
     },
     isMonitoring() {
       return monitorando && !parado

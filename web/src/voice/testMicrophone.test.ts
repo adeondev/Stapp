@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { startMicrophoneTest } from './testMicrophone'
+import { deduplicateDevices, startMicrophoneTest } from './testMicrophone'
 
 /* O teste de microfone era so um medidor: o grafo terminava no `AnalyserNode` e
    nada chegava na saida, entao ninguem nunca conseguiu se ouvir. O que estes
@@ -19,6 +19,7 @@ let destino: object
 let saidaStream: MediaStream
 let contextoFechado: boolean
 let tracksParadas: number
+let mockAudioTrack: any
 
 function no(tipo: string): NoFalso {
   const item: NoFalso = { connect: vi.fn(), disconnect: vi.fn() }
@@ -32,13 +33,19 @@ beforeEach(() => {
   tracksParadas = 0
   destino = { __destino: true }
   saidaStream = { id: 'monitor' } as unknown as MediaStream
+  mockAudioTrack = {
+    kind: 'audio',
+    stop: vi.fn(() => { tracksParadas += 1 }),
+    applyConstraints: vi.fn(async () => {}),
+  }
 
   Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
     value: {
       getUserMedia: vi.fn(async () => ({
-        getTracks: () => [{ stop: () => { tracksParadas += 1 } }],
+        getTracks: () => [mockAudioTrack],
+        getAudioTracks: () => [mockAudioTrack],
       })),
     },
   })
@@ -150,5 +157,28 @@ describe('startMicrophoneTest', () => {
     Object.defineProperty(window, 'isSecureContext', { value: false, configurable: true })
     await expect(startMicrophoneTest({}, () => {})).rejects.toThrow(/segura/i)
     expect(navigator.mediaDevices.getUserMedia).not.toHaveBeenCalled()
+  })
+
+  it('deduplica dispositivos com mesmo deviceId ou rótulo idêntico', () => {
+    const lista = [
+      { deviceId: 'mic-1', label: 'Microfone Realtek' },
+      { deviceId: 'mic-1', label: 'Microfone Realtek (Duplicado)' },
+      { deviceId: 'mic-2', label: 'Microfone Realtek' }, // Rótulo idêntico
+      { deviceId: 'mic-3', label: 'Headset USB' },
+      { deviceId: 'mic-4', label: 'Headset USB' }, // Rótulo idêntico
+      { deviceId: 'mic-5', label: 'Outro microfone' },
+    ]
+    const resultado = deduplicateDevices(lista)
+    expect(resultado).toHaveLength(3)
+    expect(resultado.map((d) => d.deviceId)).toEqual(['mic-1', 'mic-3', 'mic-5'])
+  })
+
+  it('suporta troca de microfone em tempo real via applyConstraints', async () => {
+    const teste = await startMicrophoneTest({}, () => {}, { monitor: true })
+    await teste.setInputDevice('novo-mic-usb')
+    expect(mockAudioTrack.applyConstraints).toHaveBeenCalledWith({
+      deviceId: { exact: 'novo-mic-usb' },
+    })
+    teste.stop()
   })
 })

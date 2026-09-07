@@ -41,7 +41,7 @@ import {
 } from './VoiceAudioProcessor'
 import { callSounds } from '../net/callSounds'
 import { PlaybackGraph } from './PlaybackGraph'
-import type { MicrophoneTest, MicrophoneTestOptions } from './testMicrophone'
+import { deduplicateDevices, type MicrophoneTest, type MicrophoneTestOptions } from './testMicrophone'
 
 type LiveKitModule = typeof import('livekit-client')
 
@@ -398,9 +398,8 @@ export class LiveKitTransport implements VoiceTransport {
   async setInputDevice(deviceId: string) {
     this.preferences = { ...this.preferences, inputDeviceId: deviceId }
     saveVoicePreferences(this.preferences)
-    // Reiniciar recria tambem o processador. Se RNNoise caiu para o fallback
-    // nesta sessao, uma troca de microfone faz uma tentativa limpa sem apagar
-    // a preferencia "Aprimorada" escolhida pela pessoa.
+    // Reiniciar recria tambem o processador dinamicamente sem reload. Se RNNoise
+    // caiu para o fallback nesta sessao, uma troca de microfone faz uma tentativa limpa.
     if (this.room) await this.restartMicrophone()
   }
 
@@ -425,9 +424,9 @@ export class LiveKitTransport implements VoiceTransport {
     }
     const devices = await navigator.mediaDevices.enumerateDevices()
     return {
-      inputs: devices.filter((device) => device.kind === 'audioinput'),
-      outputs: devices.filter((device) => device.kind === 'audiooutput'),
-      cameras: devices.filter((device) => device.kind === 'videoinput'),
+      inputs: deduplicateDevices(devices.filter((device) => device.kind === 'audioinput')),
+      outputs: deduplicateDevices(devices.filter((device) => device.kind === 'audiooutput')),
+      cameras: deduplicateDevices(devices.filter((device) => device.kind === 'videoinput')),
     }
   }
 

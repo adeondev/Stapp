@@ -7,6 +7,7 @@ import type {
   VoiceTransport,
   VoiceTransportOptions,
 } from './VoiceTransport'
+import { deduplicateDevices } from './testMicrophone'
 import { loadVoicePreferences, saveVoicePreferences } from './preferences'
 import type { VoicePreferences } from './preferences'
 import { callSounds } from '../net/callSounds'
@@ -263,6 +264,19 @@ export class MeshTransport implements VoiceTransport {
     this.preferences.inputDeviceId = deviceId
     saveVoicePreferences(this.preferences)
     if (!this.channel) return
+    const activeTrack = this.local?.getAudioTracks()[0]
+    if (activeTrack && typeof activeTrack.applyConstraints === 'function') {
+      try {
+        if (deviceId) {
+          await activeTrack.applyConstraints({ deviceId: { exact: deviceId } })
+        } else {
+          await activeTrack.applyConstraints({ deviceId: undefined })
+        }
+        return
+      } catch {
+        // Se applyConstraints falhar no navegador, executa fallback para substituição de track
+      }
+    }
     const replacement = await navigator.mediaDevices.getUserMedia({ audio: this.audioConstraints() })
     const track = replacement.getAudioTracks()[0]
     if (!track) return
@@ -297,9 +311,9 @@ export class MeshTransport implements VoiceTransport {
     }
     const devices = await navigator.mediaDevices.enumerateDevices()
     return {
-      inputs: devices.filter((device) => device.kind === 'audioinput'),
-      outputs: devices.filter((device) => device.kind === 'audiooutput'),
-      cameras: devices.filter((device) => device.kind === 'videoinput'),
+      inputs: deduplicateDevices(devices.filter((device) => device.kind === 'audioinput')),
+      outputs: deduplicateDevices(devices.filter((device) => device.kind === 'audiooutput')),
+      cameras: deduplicateDevices(devices.filter((device) => device.kind === 'videoinput')),
     }
   }
 
