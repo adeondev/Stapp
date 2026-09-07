@@ -32,6 +32,7 @@ import { UserProfileProvider } from './ui/profile/UserProfilePopover'
 import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
 import { useAutoUpdater } from './platform/updater/useAutoUpdater'
+import { notifyIncomingCall, notifyNewDm, notifyMention } from './platform/notifications'
 import { UpdateModal } from './ui/updater/UpdateModal'
 import { MandatoryUpdateLock } from './ui/updater/MandatoryUpdateLock'
 import { SplashScreen } from './ui/updater/SplashScreen'
@@ -357,15 +358,27 @@ export default function App() {
           const eu = selfUserIdRef.current
           const meChama =
             (eu !== null && msg.msg.mentions?.includes(eu)) || Boolean(msg.msg.mentions_everyone)
-          if (meChama && msg.msg.author_id !== eu) notificationSound.play()
+          if (meChama && msg.msg.author_id !== eu) {
+            notificationSound.play()
+            const ch = usePresenceStore.getState().channels.find((c) => c.id === msg.channel_id)
+            const author = usePresenceStore.getState().users.find((u) => u.user_id === msg.msg.author_id)
+            const authorName = author?.display_name || author?.username || msg.msg.author_id
+            notifyMention(authorName, ch?.name || 'chat', msg.msg.text)
+          }
         }
         if (msg.t === 'dm.new') {
-          if (msg.unread > 0 && msg.msg.kind === 'text') notificationSound.play()
+          if (msg.unread > 0 && msg.msg.kind === 'text') {
+            notificationSound.play()
+            const author = usePresenceStore.getState().users.find((u) => u.user_id === msg.msg.author_id)
+            const authorName = author?.display_name || author?.username || msg.msg.author_id
+            notifyNewDm(authorName, msg.msg.text)
+          }
         }
         if (msg.t === 'dm.denied') setNotice('Essa pessoa aceita novas conversas apenas de amigos.')
         if (msg.t === 'call.incoming') {
           setRinging({ userId: msg.user_id, username: msg.username, direction: 'incoming' })
           callSounds.playRingtone()
+          notifyIncomingCall(msg.username || msg.user_id)
         }
         if (msg.t === 'voice.invite') {
           const user = usePresenceStore.getState().users.find((u) => u.user_id === msg.from_user_id)
@@ -373,6 +386,7 @@ export default function App() {
           setRinging((current) => {
             if (!current) {
               callSounds.playRingtone()
+              notifyIncomingCall(username)
               return { userId: msg.from_user_id, username, direction: 'incoming' }
             }
             return current
