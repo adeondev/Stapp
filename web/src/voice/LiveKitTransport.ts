@@ -398,9 +398,31 @@ export class LiveKitTransport implements VoiceTransport {
   async setInputDevice(deviceId: string) {
     this.preferences = { ...this.preferences, inputDeviceId: deviceId }
     saveVoicePreferences(this.preferences)
+    const room = this.room
+    if (!room) return
+    // `switchActiveDevice` e o caminho do proprio LiveKit para trocar o
+    // dispositivo de uma faixa JA publicada — ele reinicia a captura no lugar,
+    // sem derrubar a publicacao, e vale tambem com o microfone silenciado.
+    // Voltar ao padrao do sistema (`deviceId` vazio) nao tem dispositivo para
+    // apontar, entao ali so resta republicar.
+    if (deviceId) {
+      const trocou = await room.switchActiveDevice('audioinput', deviceId, true).catch(() => false)
+      if (trocou) {
+        // A faixa e outra depois do restart; o processador tem que ser religado
+        // nela, senao o ganho, o gate e o RNNoise ficam pendurados na antiga.
+        const faixa = this.localMicrophoneTrack()
+        if (faixa) {
+          await this.audioProcessor?.destroy().catch(() => {})
+          this.audioProcessor = null
+          await this.enableAudioProcessor(faixa)
+        }
+        this.sync()
+        return
+      }
+    }
     // Reiniciar recria tambem o processador dinamicamente sem reload. Se RNNoise
     // caiu para o fallback nesta sessao, uma troca de microfone faz uma tentativa limpa.
-    if (this.room) await this.restartMicrophone()
+    await this.restartMicrophone()
   }
 
   async setOutputDevice(deviceId: string) {
@@ -994,12 +1016,31 @@ export class LiveKitTransport implements VoiceTransport {
       .catch((error) => this.fail(mediaError(error, 'Nao consegui alterar o microfone.')))
   }
 
+  /**
+   * Republica o microfone do zero, com as opcoes de captura atuais.
+   *
+   * `setMicrophoneEnabled(false)` NAO basta: o `publishDefaults` usa
+   * `stopMicTrackOnMute: false`, entao desligar apenas silencia a faixa e a
+   * deixa publicada — e `setMicrophoneEnabled(true, opcoes)` REUSA essa faixa,
+   * ignorando as opcoes novas. Era por isso que escolher outro microfone nas
+   * configuracoes nao trocava o hardware: a faixa antiga continuava viva, presa
+   * no dispositivo anterior. Despublicar de verdade e o que obriga o
+   * `enableMicrophone` a abrir uma captura nova.
+   */
   private async restartMicrophone() {
     const room = this.room
+    const sdk = this.sdk
     if (!room) return
     await this.audioProcessor?.destroy().catch(() => {})
     this.audioProcessor = null
-    await room.localParticipant.setMicrophoneEnabled(false)
+    const publication = sdk
+      ? room.localParticipant.getTrackPublication(sdk.Track.Source.Microphone)
+      : undefined
+    const faixa = publication?.track ?? publication?.audioTrack
+    if (faixa) {
+      await room.localParticipant.unpublishTrack(faixa, true).catch(() => undefined)
+    }
+    await room.localParticipant.setMicrophoneEnabled(false).catch(() => undefined)
     await this.enableMicrophone()
     this.sync()
   }

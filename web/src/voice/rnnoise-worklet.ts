@@ -23,6 +23,9 @@ interface Settings {
 
 type RnnoiseModule = ReturnType<typeof createRnnoiseModule>
 
+/** Quanto o limiar afrouxa enquanto o gate ja esta aberto. Igual ao do gate simples. */
+const HISTERESE_DB = 6
+
 class StappRnnoiseProcessor extends AudioWorkletProcessor {
   private module: RnnoiseModule | null = null
   private state = 0
@@ -116,8 +119,13 @@ class StappRnnoiseProcessor extends AudioWorkletProcessor {
     }
     const rms = Math.sqrt(energy / Math.max(1, target.length))
     const db = 20 * Math.log10(Math.max(rms, 0.00001))
-    const automaticThreshold = Math.max(-60, Math.min(-30, this.noiseFloor + 10))
-    const threshold = this.settings.automaticSensitivity ? automaticThreshold : this.settings.sensitivity
+    // Mesma faixa e mesma histerese do `voice-audio-worklet`: os dois gates
+    // precisam abrir no mesmo ponto, senao trocar a supressao de ruido mudaria
+    // a sensibilidade da voz junto — e o anel verde piscaria em um modo e nao no
+    // outro. Ver o comentario la para o porque de -75/-45.
+    const automaticThreshold = Math.max(-75, Math.min(-45, this.noiseFloor + 10))
+    const base = this.settings.automaticSensitivity ? automaticThreshold : this.settings.sensitivity
+    const threshold = this.holdFrames > 0 ? base - HISTERESE_DB : base
     const speaking = this.settings.inputMode !== 'voice_activity' || db >= threshold
     if (!speaking) this.noiseFloor = this.noiseFloor * 0.995 + db * 0.005
     this.holdFrames = speaking ? 75 : Math.max(0, this.holdFrames - 1)

@@ -41,6 +41,17 @@ services:
       - "${STAPP_LIVEKIT_API_KEY:-stapp_dev_key}: ${STAPP_LIVEKIT_API_SECRET:-stapp_dev_secret_must_be_at_least_32_chars_long}"
       - "--node-ip"
       - "${STAPP_HOST_IP:-127.0.0.1}"
+    environment:
+      # Deteccao de quem esta falando — e ela que acende o anel verde no cliente.
+      # O padrao (-35 dBov, 40% do intervalo) so reconhece voz projetada; quem
+      # fala em volume medio nunca era anunciado como falante. Mesmos valores do
+      # `infra/livekit/livekit.template.yaml`, que serve a stack avulsa.
+      LIVEKIT_CONFIG: |
+        audio:
+          active_level: 45
+          min_percentile: 15
+          update_interval: 250
+          smooth_intervals: 2
     ports:
       - "${STAPP_LIVEKIT_PORT:-7880}:7880/tcp"
       - "${STAPP_LIVEKIT_TCP_PORT:-7881}:7881/tcp"

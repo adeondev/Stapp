@@ -14,7 +14,18 @@ use crate::protocol::{PeerId, SecretString, now_ms};
 use crate::session::AppState;
 
 pub(super) const GRANT_TTL: Duration = Duration::from_secs(60);
-pub(super) const RESERVATION_TTL: Duration = Duration::from_secs(15);
+
+/// A reserva tem que durar **pelo menos** o que dura o grant.
+///
+/// Eram 15s contra 60s de grant, e o intervalo entre `voice.join` e
+/// `voice.connected` nao e curto: o cliente ainda vai baixar o `livekit-client`,
+/// abrir a conexao com o SFU, pedir o microfone (com dialogo de permissao na
+/// primeira vez) e carregar o WASM do RNNoise. Numa maquina fria isso passa dos
+/// 15s com folga, e a reserva vencia com o grant ainda valido — o servidor
+/// recusava com "A autorizacao de midia expirou" alguem que ja estava dentro da
+/// sala. O invariante: `RESERVATION_TTL >= GRANT_TTL`, senao a vaga morre antes
+/// do bilhete que a paga.
+pub(super) const RESERVATION_TTL: Duration = GRANT_TTL;
 
 pub(super) struct Grant {
     pub url: String,

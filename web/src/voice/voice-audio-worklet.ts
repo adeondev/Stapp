@@ -68,6 +68,9 @@ function softLimit(sample: number): number {
   return sample
 }
 
+/** Quanto o limiar afrouxa enquanto o gate ja esta aberto. */
+const HISTERESE_DB = 6
+
 function calculateGate(
   samples: Float32Array,
   settings: Settings,
@@ -81,8 +84,18 @@ function calculateGate(
   for (const sample of samples) energy += sample * sample
   const rms = Math.sqrt(energy / Math.max(1, samples.length))
   const db = 20 * Math.log10(Math.max(rms, 0.00001))
-  const automaticThreshold = Math.max(-60, Math.min(-30, previousNoiseFloor + 10))
-  const threshold = settings.automaticSensitivity ? automaticThreshold : settings.sensitivity
+  // A faixa era [-60, -30] dBFS e deixava de fora fala em volume medio: alguem
+  // falando baixo, longe do microfone ou com ganho de entrada modesto fica por
+  // volta de -45 dBFS, o gate nao abria, o LiveKit recebia silencio e o anel
+  // verde nunca acendia. Descer 15 dB nos dois extremos cobre esse caso sem
+  // abrir o gate em sala silenciosa — a adaptacao pelo ruido continua mandando
+  // dentro da faixa.
+  const automaticThreshold = Math.max(-75, Math.min(-45, previousNoiseFloor + 10))
+  const base = settings.automaticSensitivity ? automaticThreshold : settings.sensitivity
+  // Histerese: abrir exige o limiar cheio, continuar aberto aceita 6 dB a menos.
+  // Sem isso a fala oscilando em volta do limiar picotava — e o anel verde
+  // piscava junto, que era metade da queixa.
+  const threshold = previousHold > 0 ? base - HISTERESE_DB : base
   const speaking = db >= threshold
   const noiseFloor = !speaking
     ? previousNoiseFloor * 0.995 + db * 0.005

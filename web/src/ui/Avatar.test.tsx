@@ -65,6 +65,53 @@ describe('Avatar', () => {
     expect(screen.queryByText('D')).toBeNull()
   })
 
+  /* O `<span>` em volta pinta `--avatar-accent` para a inicial ter contraste.
+     Atras de uma foto isso virava cor solida vazando pela borda arredondada e
+     por qualquer transparencia do PNG — e um retangulo colorido piscando
+     enquanto a imagem carregava. */
+  it('com foto, nao pinta fundo nenhum atras dela', () => {
+    const { container } = desenhar(
+      { 'user-1': perfil({ has_avatar: true, updated_at: 1700 }) },
+      'user-1',
+      undefined,
+      'https://servidor.exemplo',
+    )
+    const span = container.querySelector('.teste__avatar') as HTMLElement
+    expect(span.style.getPropertyValue('--avatar-accent')).toBe('transparent')
+  })
+
+  it('a cor volta quando a foto falha e a inicial reaparece', () => {
+    const { container } = desenhar(
+      { 'user-1': perfil({ has_avatar: true, updated_at: 1700 }) },
+      'user-1',
+      undefined,
+      'https://servidor.exemplo',
+    )
+    fireEvent.error(container.querySelector('img') as HTMLImageElement)
+    const span = container.querySelector('.teste__avatar') as HTMLElement
+    expect(span.style.getPropertyValue('--avatar-accent')).toBe('var(--accent-purple)')
+  })
+
+  /* O servidor publica `avatar_static_url` RELATIVA. Usada crua, ela e resolvida
+     contra a origem da PAGINA — `tauri://localhost` no app desktop, `:5173` no
+     dev — e a imagem nunca chega. */
+  it('resolve a URL relativa que o servidor publica contra a base do servidor', () => {
+    const { container } = desenhar(
+      {
+        'user-1': perfil({
+          has_avatar: true,
+          updated_at: 1700,
+          avatar_static_url: '/avatars/user-1?v=1700&static=1',
+        }),
+      },
+      'user-1',
+      undefined,
+      'https://servidor.exemplo',
+    )
+    const img = container.querySelector('img') as HTMLImageElement
+    expect(img.getAttribute('src')).toBe('https://servidor.exemplo/avatars/user-1?v=1700&static=1')
+  })
+
   it('foto que nao carrega cai no avatar gerado, sem quadrado quebrado', () => {
     const { container } = desenhar(
       { 'user-1': perfil({ has_avatar: true, updated_at: 1700 }) },

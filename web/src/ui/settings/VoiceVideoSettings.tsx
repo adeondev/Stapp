@@ -141,6 +141,15 @@ export function VoiceVideoSettings({ transport, snapshot, onPreferencesChange }:
     await navigator.clipboard.writeText(JSON.stringify(next, null, 2))
   }
 
+  /* O medidor devolve 0..1 numa escala linear de amplitude; a sensibilidade e
+     dB. Para as duas coisas caberem no mesmo eixo, o limiar em dB vira a mesma
+     escala linear do medidor — e nao o contrario, porque converter a barra para
+     dB faria a parte util dela sumir no canto esquerdo. O `* 4` repete o ganho
+     que `startMicrophoneTest` aplica ao RMS. */
+  const limiarLinear = Math.min(1, 10 ** (preferences.sensitivity / 20) * 4)
+  const posicaoDoLimiar = Math.round(limiarLinear * 100)
+  const acimaDoLimiar = testing && level >= limiarLinear
+
   const dispositivos = (lista: MediaDeviceInfo[], rotulo: string, icon: React.ReactNode) => [
     { value: '', label: 'Padrão do sistema', icon },
     ...deduplicateDevices(lista).map((device, index) => ({
@@ -241,8 +250,30 @@ export function VoiceVideoSettings({ transport, snapshot, onPreferencesChange }:
             min={-100}
             max={0}
             suffix=" dB"
-            description={preferences.automaticSensitivity ? 'Valor de referência manual para a calibração automática.' : 'Fale normalmente para certificar-se de que o anel verde responde com fidelidade.'}
+            description={preferences.automaticSensitivity ? 'Valor de referência manual para a calibração automática.' : 'Fale normalmente e confira abaixo: o limiar precisa ficar à esquerda de onde a barra chega.'}
             onChange={(value) => update('sensitivity', value)}
+          />
+          {/* O deslizante sozinho e um numero em dB, que ninguem consegue julgar
+              sem ouvir. Aqui ele ganha o volume de entrada ao vivo e a marca do
+              limiar no mesmo eixo: da para ver, enquanto fala, se a voz passa
+              do ponto em que o anel verde acende. */}
+          <SettingsRow
+            label="Nível de entrada agora"
+            description={testing
+              ? 'A marca é o limiar atual. Enquanto a barra passa dela, o microfone está aberto.'
+              : 'Ligue o teste de microfone acima para ver a sua voz aqui.'}
+            stacked
+            control={
+              <div className={`voicevideo__vad ${acimaDoLimiar ? 'is-open' : ''}`}
+                role="meter"
+                aria-label="Nível de entrada comparado ao limiar de voz"
+                aria-valuenow={Math.round(level * 100)}
+                aria-valuemin={0}
+                aria-valuemax={100}>
+                <span className="voicevideo__vad-fill" style={{ width: `${level * 100}%` }} />
+                <span className="voicevideo__vad-mark" style={{ left: `${posicaoDoLimiar}%` }} aria-hidden="true" />
+              </div>
+            }
           />
         </SettingsGroup>
 

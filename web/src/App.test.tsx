@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ServerMsg } from './protocol'
 import { callSounds } from './net/callSounds'
+import { CURRENT_VERSION } from './platform/updater'
 import { useAutoUpdater } from './platform/updater/useAutoUpdater'
 import { useVoiceStore } from './stores'
 import App from './App'
@@ -207,9 +208,13 @@ describe('App', () => {
 
     expect(screen.getByRole('button', { name: 'Perfil' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Voz e vídeo' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Notificações' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Sobre' })).toBeTruthy()
     await user.click(screen.getByRole('button', { name: 'Sobre' }))
-    expect(screen.getByText(/Stapp 0.1.0-beta.7/)).toBeTruthy()
+    // Contra o manifesto, e nao contra um numero escrito aqui: com a versao
+    // fixa no teste, todo bump quebrava a suite e o conserto era editar a
+    // string — o que nao verifica nada.
+    expect(screen.getByText(`Stapp ${CURRENT_VERSION}`)).toBeTruthy()
   })
 
   it('dispara ringtone ao receber chamada entrante e interrompe som ao encerrar', async () => {

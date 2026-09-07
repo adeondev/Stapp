@@ -1,6 +1,6 @@
 [package]
 name = "stapp-desktop"
-version = "0.1.0-beta.7"
+version = "0.1.0-beta.8"
 description = "Cliente desktop privado do Stapp"
 authors = ["Stapp"]
 license = ""
@@ -29,6 +29,9 @@ tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-notification = "2"
+# Segura o app numa instancia so: abrir o EXE com a janela escondida na bandeja
+# tem que trazer a janela de volta, nao subir um segundo Stapp.
+tauri-plugin-single-instance = "2.4.3"
 base64 = "0.22"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 xcap = "0.9.8"

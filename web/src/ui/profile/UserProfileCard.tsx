@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { Profile, RelationshipState, UserId } from '../../protocol'
-import { bannerUrl } from '../../net/avatars'
-import { Avatar, useProfile } from '../Avatar'
+import { bannerUrl, resolveMediaUrl } from '../../net/avatars'
+import { Avatar, useAvatarBase, useProfile } from '../Avatar'
 import { IconChat, IconMore, IconPhone, IconShield, IconUser, IconX } from '../Icons'
 import { IconButton } from '../IconButton'
 import './profilecard.css'
@@ -99,8 +99,17 @@ export function UserProfileCard({
   // Trocar de pessoa nao pode carregar o texto digitado para a proxima.
   useEffect(() => setRascunho(''), [userId])
 
+  // ARMADILHA: `banner_url` chega do servidor RELATIVA (`/banners/<id>?v=...`).
+  // Usada crua ela e resolvida contra a origem da PAGINA — que no app desktop e
+  // `tauri://localhost` e no dev e `:5173`, nao o servidor. O banner existia,
+  // estava salvo, e mesmo assim so aparecia a faixa de cor com um icone de
+  // imagem quebrada. A base vem da prop e, quando ela nao vier, do contexto de
+  // perfis — que toda tela ja tem.
+  const baseDoContexto = useAvatarBase()
+  const base = avatarBase ?? baseDoContexto
   const banner = bannerPreview
-    ?? (profile.banner_url ? profile.banner_url : (profile.has_banner && avatarBase ? bannerUrl(avatarBase, profile.user_id, profile.updated_at) : null))
+    ?? resolveMediaUrl(base, profile.banner_url)
+    ?? (profile.has_banner && base ? bannerUrl(base, profile.user_id, profile.updated_at) : null)
   const desde = membroDesde(profile.created_at)
   const rotuloRelacao = relation ? RELACAO[relation.relationship] : null
   const somenteLeitura = variant === 'preview'
@@ -125,9 +134,12 @@ export function UserProfileCard({
   return (
     <section className={`profile-card profile-card--${variant} ${className}`} style={estilo}>
       {/* Sem imagem, a faixa e a cor de destaque da pessoa ou banner_color customizada. */}
+      {/* Imagem e cor solida sao exclusivas: com imagem a cor nao pinta nada
+          atras dela — pintaria so a moldura, e a troca de uma para a outra
+          parecia nao ter funcionado. */}
       <div
         className={`profile-card__banner ${banner ? 'has-image' : 'profile-card__banner--flat'}`}
-        style={profile.banner_color ? { backgroundColor: profile.banner_color } : undefined}
+        style={!banner && profile.banner_color ? { backgroundColor: profile.banner_color } : undefined}
       >
         {banner && <img src={banner} alt="" className="profile-card__banner-img" />}
       </div>

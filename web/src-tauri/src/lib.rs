@@ -9,9 +9,38 @@ use tauri::{
     Emitter, Manager, WindowEvent,
 };
 
+/// Traz a janela principal de volta para a frente, venha o pedido de onde vier.
+///
+/// Sao tres estados diferentes e os tres precisam ser tratados na ordem: a
+/// janela pode estar **escondida** (o `CloseRequested` abaixo esconde em vez de
+/// fechar, entao esse e o estado normal de quem "fechou" o app), **minimizada**
+/// ou apenas atras de outra janela. `set_focus` sozinho nao mostra o que esta
+/// escondido, e `show` sozinho nao desminimiza.
+fn trazer_para_frente(app: &tauri::AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    if !window.is_visible().unwrap_or(true) {
+        let _ = window.show();
+    }
+    if window.is_minimized().unwrap_or(false) {
+        let _ = window.unminimize();
+    }
+    let _ = window.set_focus();
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // PRIMEIRO plugin de proposito: ele decide se este processo e o dono do
+        // app ou um duplicado. Com o Stapp escondido na bandeja, clicar no
+        // executavel de novo subia um SEGUNDO Stapp — duas conexoes, dois
+        // apelidos na lista e a janela original continuava escondida. Aqui o
+        // processo novo so avisa o que ja esta rodando e encerra; quem aparece e
+        // a janela que ja existia, com a sessao e a chamada intactas.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            trazer_para_frente(app);
+        }))
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
@@ -46,13 +75,7 @@ pub fn run() {
                 .menu(&tray_menu)
                 .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
-                        }
-                    }
+                    "open" => trazer_para_frente(app),
                     "mute" => {
                         if let Some(window) = app.get_webview_window("main") {
                             let _ = window.emit("stapp:toggle-mute", ());
@@ -69,12 +92,7 @@ pub fn run() {
                         ..
                     } = event
                     {
-                        let app = tray.app_handle();
-                        if let Some(window) = app.get_webview_window("main") {
-                            let _ = window.show();
-                            let _ = window.unminimize();
-                            let _ = window.set_focus();
-                        }
+                        trazer_para_frente(tray.app_handle());
                     }
                 })
                 .build(app)?;

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { PeerId, Profile, UserId } from '../protocol'
-import { avatarGifUrl, avatarStaticUrl, avatarUrl } from '../net/avatars'
+import { avatarGifUrl, avatarStaticUrl, avatarUrl, resolveMediaUrl } from '../net/avatars'
 import { resolveProfile, type StappState } from '../store'
 import { usePresenceStore } from '../stores/presenceStore'
 import type { Placement } from './anchored'
@@ -44,6 +44,15 @@ export function ProfileProvider({
 }) {
   const valor = useMemo(() => ({ profiles, avatarBase }), [profiles, avatarBase])
   return <ProfilesContext.Provider value={valor}>{children}</ProfilesContext.Provider>
+}
+
+/**
+ * A base HTTP do servidor. Existe porque `banner_url` e `avatar_*_url` chegam
+ * relativas e precisam ser resolvidas contra ela em qualquer tela — inclusive
+ * nas que nao recebem `avatarBase` por prop.
+ */
+export function useAvatarBase(): string | null {
+  return useContext(ProfilesContext).avatarBase
 }
 
 /** O perfil de alguem, com um provisorio enquanto o servidor nao mandou. */
@@ -92,11 +101,7 @@ export function Avatar({ userId, className, fallbackName, title, peerId, speakin
   useEffect(() => setFalhou(false), [profile.updated_at, profile.has_avatar])
 
   const user = useMemo(() => {
-    const resolve = (url?: string | null) => {
-      if (!url) return undefined
-      if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) return url
-      return avatarBase ? `${avatarBase}${url.startsWith('/') ? '' : '/'}${url}` : url
-    }
+    const resolve = (url?: string | null) => resolveMediaUrl(avatarBase, url)
     const isGif = Boolean(profile.avatar_gif || (profile.avatar_gif_url && profile.avatar_gif_url.length > 0))
     const defaultStatic = profile.has_avatar && avatarBase
       ? (isGif ? avatarStaticUrl(avatarBase, profile.user_id, profile.updated_at) : avatarUrl(avatarBase, profile.user_id, profile.updated_at))
@@ -126,7 +131,11 @@ export function Avatar({ userId, className, fallbackName, title, peerId, speakin
       title={title}
       style={
         {
-          '--avatar-accent': `var(--accent-${profile.accent})`,
+          // Com imagem o fundo some. As telas pintam `--avatar-accent` atras do
+          // circulo para a inicial ter contraste; atras de uma foto isso virava
+          // uma cor solida vazando pelas bordas e por qualquer transparencia do
+          // PNG — e um retangulo colorido piscando enquanto a imagem carregava.
+          '--avatar-accent': imagem ? 'transparent' : `var(--accent-${profile.accent})`,
           '--avatar-ink': `var(--accent-${profile.accent}-ink)`,
         } as React.CSSProperties
       }

@@ -50,27 +50,62 @@ export interface MicrophoneTest {
 }
 
 /**
- * Deduplica lista de dispositivos de mídia que compartilhem o mesmo deviceId
- * ou rótulo (label) idêntico, prevenindo duplicatas na interface.
+ * O Windows entrega o MESMO microfone tres vezes.
+ *
+ * `enumerateDevices()` devolve, alem do dispositivo real, dois apelidos do
+ * sistema: `deviceId: 'default'` e `deviceId: 'communications'`, rotulados
+ * "Padrão - Microfone (Realtek)" e "Comunicações - Microfone (Realtek)". Como o
+ * id e o rotulo sao diferentes, a comparacao literal nao via duplicata nenhuma e
+ * a lista mostrava o mesmo hardware tres vezes.
+ *
+ * Aqui a chave de identidade e o hardware, em tres passos, do mais confiavel ao
+ * menos: id igual, `groupId` igual (o navegador usa o mesmo grupo para os
+ * apelidos e o dispositivo real) e, por fim, rotulo igual depois de tirar o
+ * prefixo do sistema.
+ *
+ * Os apelidos perdem a disputa de proposito: quem quer "o que o sistema
+ * escolher" usa a opcao "Padrão do sistema" da lista, que e o `deviceId` vazio.
+ * Manter `default` junto criaria duas entradas para a mesma escolha.
  */
-export function deduplicateDevices<T extends { deviceId?: string; label?: string }>(devices: T[]): T[] {
-  const seenIds = new Set<string>()
-  const seenLabels = new Set<string>()
-  const result: T[] = []
+const PREFIXO_DO_SISTEMA = /^\s*(padr[ãa]o|default|comunica[çc][õo]es|communications)\s*[-–—:]\s*/i
 
-  for (const device of devices) {
-    const id = device.deviceId?.trim()
-    const label = device.label?.trim()
+/** `default` e `communications` sao apelidos do sistema, nao hardware. */
+const APELIDOS = new Set(['default', 'communications'])
 
-    if (id && id !== '' && seenIds.has(id)) continue
-    if (label && label !== '' && seenLabels.has(label.toLowerCase())) continue
+function rotuloCanonico(label?: string): string {
+  return (label ?? '').replace(PREFIXO_DO_SISTEMA, '').trim().toLowerCase()
+}
 
-    if (id && id !== '') seenIds.add(id)
-    if (label && label !== '') seenLabels.add(label.toLowerCase())
-    result.push(device)
+export function deduplicateDevices<T extends { deviceId?: string; label?: string; groupId?: string }>(
+  devices: T[],
+): T[] {
+  // Apelido depois do dispositivo real: assim o primeiro a ocupar uma chave de
+  // hardware e sempre o item que a pessoa reconhece pelo nome.
+  const ordenados = [...devices].sort((a, b) =>
+    Number(APELIDOS.has(a.deviceId ?? '')) - Number(APELIDOS.has(b.deviceId ?? '')))
+
+  const ids = new Set<string>()
+  const grupos = new Set<string>()
+  const rotulos = new Set<string>()
+  const escolhidos = new Set<T>()
+
+  for (const device of ordenados) {
+    const id = device.deviceId?.trim() ?? ''
+    const grupo = device.groupId?.trim() ?? ''
+    const rotulo = rotuloCanonico(device.label)
+
+    if (id && ids.has(id)) continue
+    if (grupo && grupos.has(grupo)) continue
+    if (rotulo && rotulos.has(rotulo)) continue
+
+    if (id) ids.add(id)
+    if (grupo) grupos.add(grupo)
+    if (rotulo) rotulos.add(rotulo)
+    escolhidos.add(device)
   }
 
-  return result
+  // A ordem devolvida e a de entrada — a do sistema —, nao a da desempate.
+  return devices.filter((device) => escolhidos.has(device))
 }
 
 /** `HTMLMediaElement.setSinkId` ainda nao esta na lib padrao do TS. */

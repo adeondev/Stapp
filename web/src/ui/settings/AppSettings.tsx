@@ -4,13 +4,17 @@ import type { VoiceSnapshot, VoiceTransport } from '../../voice/VoiceTransport'
 import type { VoicePreferences } from '../../voice/preferences'
 import type { UserMenuUpdater } from '../UserMenu'
 import {
-  IconAccount, IconCamera, IconInfo, IconPalette, IconRefresh,
+  IconAccount, IconAlert, IconCamera, IconInfo, IconPalette, IconRefresh,
 } from '../Icons'
 import { SettingsShell, type SettingsGroupDef } from './SettingsShell'
 import {
   SettingsButton, SettingsGroup, SettingsRow, SettingsSection,
-  SettingsSegmented, SettingsUnavailable,
+  SettingsSegmented, SettingsToggle, SettingsUnavailable,
 } from './primitives'
+import {
+  loadNotificationPreferences, saveNotificationPreferences,
+  type NotificationPreferences,
+} from './notificationPreferences'
 import { ProfileSettings } from './ProfileSettings'
 import { VoiceVideoSettings } from './VoiceVideoSettings'
 import {
@@ -44,7 +48,7 @@ export interface AppSettingsProps {
 
   profile: Profile
   avatarBase: string | null
-  onSaveProfile(change: { display_name: string; accent: AccentName; bio: string; banner_color?: string }): void
+  onSaveProfile(change: { display_name: string; accent: AccentName; bio: string; banner_color: string }): void
   onAvatar(file: File | null): Promise<void>
   onBanner(file: File | null): Promise<void>
 
@@ -107,6 +111,12 @@ export function AppSettings({
                 {voiceUnavailable ?? 'A voz não está disponível neste servidor.'}
               </SettingsUnavailable>
             ),
+        },
+        {
+          id: 'notifications',
+          label: 'Notificações',
+          icon: <IconAlert size={16} />,
+          render: () => <NotificationSettings />,
         },
         {
           id: 'appearance',
@@ -202,6 +212,69 @@ const THEME_OPTIONS: ThemeOption[] = [
     accentColor: '#6366f1',
   },
 ]
+
+/**
+ * Notificacoes nativas do sistema operacional.
+ *
+ * A categoria existia e sumiu; enquanto isso as notificacoes continuaram
+ * disparando sempre, sem interruptor nenhum. Os tres itens sao os tres unicos
+ * disparos que o app faz hoje (`platform/notifications.ts`) — nada de opcao
+ * para o que nao existe.
+ *
+ * A permissao em si nao e pedida daqui: quem pede e o primeiro disparo, e um
+ * dialogo do sistema aberto por uma tela de configuracao, sem nada acontecendo,
+ * e o tipo de pedido que as pessoas negam por reflexo.
+ */
+function NotificationSettings() {
+  const [preferencias, setPreferencias] = useState<NotificationPreferences>(loadNotificationPreferences)
+
+  const alternar = (chave: keyof NotificationPreferences, valor: boolean) => {
+    const proximo = { ...preferencias, [chave]: valor }
+    setPreferencias(proximo)
+    saveNotificationPreferences(proximo)
+  }
+
+  const suportado = typeof window !== 'undefined'
+    && ('__TAURI_INTERNALS__' in window || 'Notification' in window)
+
+  return (
+    <SettingsSection
+      title="Notificações do sistema"
+      description="Avisos fora da janela do Stapp. Só aparecem quando o aplicativo está minimizado, escondido na bandeja ou sem foco — com a janela na frente, o aviso é o próprio app."
+    >
+      {!suportado && (
+        <SettingsUnavailable title="Este navegador não tem notificações nativas">
+          As notificações do sistema operacional existem no aplicativo desktop e nos navegadores
+          que implementam a API de notificação. Os sons e os marcadores dentro do Stapp continuam
+          funcionando normalmente.
+        </SettingsUnavailable>
+      )}
+      <SettingsGroup>
+        <SettingsToggle
+          checked={preferencias.calls}
+          onChange={(valor) => alternar('calls', valor)}
+          disabled={!suportado}
+          label="Chamadas recebidas"
+          description="Quando alguém te liga ou te chama para uma sala de voz."
+        />
+        <SettingsToggle
+          checked={preferencias.directMessages}
+          onChange={(valor) => alternar('directMessages', valor)}
+          disabled={!suportado}
+          label="Mensagens diretas"
+          description="Cada mensagem nova numa conversa direta que você ainda não leu."
+        />
+        <SettingsToggle
+          checked={preferencias.mentions}
+          onChange={(valor) => alternar('mentions', valor)}
+          disabled={!suportado}
+          label="Menções"
+          description="Quando alguém cita você com @ num canal, incluindo @everyone."
+        />
+      </SettingsGroup>
+    </SettingsSection>
+  )
+}
 
 function AppearanceSettings() {
   const [theme, setTheme] = useState<AppTheme>(loadThemePreference)

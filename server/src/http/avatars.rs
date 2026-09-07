@@ -97,12 +97,78 @@ fn responder(status: StatusCode, corpo: &str, contexto: &OriginContext) -> Respo
 
 #[derive(serde::Deserialize, Default)]
 struct AvatarQuery {
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bool_flexivel")]
     gif: Option<bool>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "bool_flexivel")]
     r#static: Option<bool>,
     #[serde(default)]
     format: Option<String>,
+}
+
+/// Aceita `1`/`0`, `true`/`false`, `yes`/`no` e a chave vazia (`?gif=`).
+///
+/// PROTOTYPE: `serde_urlencoded` — o desserializador do `axum::extract::Query` —
+/// so entende a forma que `bool::from_str` entende, ou seja `true`/`false`.
+/// O cliente e o proprio servidor montam `?static=1` e `?gif=1` (ver
+/// `storage/profiles.rs` e `net/avatars.ts`), entao o extrator devolvia
+/// **400 Bad Request** e o avatar simplesmente nao carregava — sintoma que
+/// enganava porque a rota parecia certa. O invariante que nao pode quebrar:
+/// a query e opcional em toda forma, e um valor que nao da para entender vale
+/// `None` em vez de derrubar a requisicao inteira.
+/// FUTURE: se mais rotas ganharem flag de query, este helper sai daqui para um
+/// `http/query.rs` compartilhado.
+fn bool_flexivel<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct Visitante;
+
+    impl<'de> serde::de::Visitor<'de> for Visitante {
+        type Value = Option<bool>;
+
+        fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+            f.write_str("um booleano em qualquer forma aceita numa query (1, 0, true, false)")
+        }
+
+        fn visit_bool<E>(self, valor: bool) -> Result<Self::Value, E> {
+            Ok(Some(valor))
+        }
+
+        fn visit_u64<E>(self, valor: u64) -> Result<Self::Value, E> {
+            Ok(Some(valor != 0))
+        }
+
+        fn visit_i64<E>(self, valor: i64) -> Result<Self::Value, E> {
+            Ok(Some(valor != 0))
+        }
+
+        fn visit_str<E>(self, valor: &str) -> Result<Self::Value, E> {
+            Ok(match valor.trim().to_ascii_lowercase().as_str() {
+                // Chave sem valor (`?gif=`) e o jeito curto de dizer "sim".
+                "" | "1" | "true" | "yes" | "y" | "on" => Some(true),
+                "0" | "false" | "no" | "n" | "off" => Some(false),
+                // Lixo na query nao derruba a resposta: vale como "nao pediu".
+                _ => None,
+            })
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+        where
+            D: serde::Deserializer<'de>,
+        {
+            deserializer.deserialize_any(self)
+        }
+    }
+
+    deserializer.deserialize_any(Visitante)
 }
 
 /// PROTOTYPE: entrega sem autenticacao. A URL leva o user_id, que e um UUID —

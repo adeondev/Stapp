@@ -283,6 +283,12 @@
   --z-dock: 40;
   --z-popover: 300;
   --z-modal: 400;
+  /* Menu e dropdown ficam ACIMA do modal de proposito: sao superficies
+     transitorias abertas a partir do que ja esta na tela, e o `PopupMenu` vai
+     para o `document.body` por portal. Em 300 — abaixo do modal — a lista de um
+     `<select>` das configuracoes abria atras do scrim: parecia que o controle
+     nao respondia ao clique, quando na verdade ele abria escondido. */
+  --z-menu: 450;
   --z-toast: 500;
   --rail-width: 72px;
   --sidebar-width: 240px;
@@ -353,6 +359,14 @@ button:disabled,
   animation-duration: 0.01ms !important;
   animation-iteration-count: 1 !important;
 }
+
+/* O Edge e a WebView2 (o navegador do app desktop) desenham SOZINHOS um olho e
+   um "x" dentro de todo `input[type=password]`. Ao lado do nosso proprio botao
+   de ver senha viravam dois olhos no mesmo campo, um deles fora do desenho do
+   Stapp e sem rotulo acessivel. Quem manda e o nosso: `IconEye`/`IconEyeOff`,
+   com `aria-label`. */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear { display: none; }
 
 /* A imagem preenche o circulo que a tela ja definiu, sem esticar. */
 .avatar__img {

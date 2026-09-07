@@ -340,8 +340,23 @@ pub async fn avatar_delete(addr: SocketAddr, token: &str) -> u16 {
 /// Status, corpo cru e cabecalhos em minusculas — da para conferir que veio
 /// WebP e que a imagem pode ser embutida a partir de outra origem.
 pub async fn avatar_get(addr: SocketAddr, user_id: &str) -> (u16, Vec<u8>, String) {
+    avatar_get_com_query(addr, user_id, "").await
+}
+
+/// A mesma coisa, com a query que o proprio servidor publica em
+/// `Profile::avatar_static_url` e `avatar_gif_url` (`?v=...&static=1`).
+pub async fn avatar_get_com_query(
+    addr: SocketAddr,
+    user_id: &str,
+    query: &str,
+) -> (u16, Vec<u8>, String) {
+    let caminho = if query.is_empty() {
+        format!("/avatars/{user_id}")
+    } else {
+        format!("/avatars/{user_id}?{query}")
+    };
     let pedido =
-        format!("GET /avatars/{user_id} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+        format!("GET {caminho} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
     let resposta = requisicao_binaria(addr, pedido.as_bytes()).await;
     let corte = encontrar(&resposta, b"\r\n\r\n");
     let cabecalhos = match corte {

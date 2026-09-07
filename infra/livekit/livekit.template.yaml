@@ -23,6 +23,19 @@ room:
     - mime: video/h264
     - mime: video/vp9
 
+# Deteccao de quem esta falando — e ela que acende o anel verde no cliente.
+#
+# O padrao do LiveKit e `active_level: 35` (-35 dBov) com 40% do intervalo acima
+# desse nivel. Isso e voz projetada: quem fala em volume medio, longe do
+# microfone ou sem ganho automatico fica por volta de -45 dBov e simplesmente
+# nunca era anunciado como falante. Descer o nivel e o percentil, e olhar em
+# janelas mais curtas, acende o anel quando a pessoa realmente fala.
+audio:
+  active_level: 45
+  min_percentile: 15
+  update_interval: 250
+  smooth_intervals: 2
+
 turn:
   enabled: false
 

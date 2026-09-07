@@ -9,6 +9,7 @@
  */
 
 import { isTauriRuntime } from './externalLink'
+import { notificationAllowed } from '../ui/settings/notificationPreferences'
 
 export interface NativeNotificationOptions {
   title: string
@@ -127,8 +128,14 @@ export async function showDesktopNotification(options: NativeNotificationOptions
   }
 }
 
-/** Dispara notificação nativa para chamada de áudio recebida */
+/**
+ * Dispara notificação nativa para chamada de áudio recebida.
+ *
+ * O interruptor é lido aqui, e não em quem chama, para que nenhuma tela nova
+ * possa esquecer de consultá-lo — a decisão mora junto do disparo.
+ */
 export function notifyIncomingCall(callerName: string): Promise<void> {
+  if (!notificationAllowed('calls')) return Promise.resolve()
   return showDesktopNotification({
     title: 'Chamada de áudio recebida',
     body: `${callerName} está te ligando...`,
@@ -138,6 +145,7 @@ export function notifyIncomingCall(callerName: string): Promise<void> {
 
 /** Dispara notificação nativa para nova mensagem direta (DM) */
 export function notifyNewDm(senderName: string, previewText?: string): Promise<void> {
+  if (!notificationAllowed('directMessages')) return Promise.resolve()
   return showDesktopNotification({
     title: `Mensagem direta de ${senderName}`,
     body: previewText || 'Nova mensagem direta',
@@ -147,6 +155,7 @@ export function notifyNewDm(senderName: string, previewText?: string): Promise<v
 
 /** Dispara notificação nativa para menção direta (@) em canal */
 export function notifyMention(authorName: string, channelOrContext: string, messageText?: string): Promise<void> {
+  if (!notificationAllowed('mentions')) return Promise.resolve()
   return showDesktopNotification({
     title: `${authorName} mencionou você em #${channelOrContext}`,
     body: messageText || 'Você foi mencionado em uma mensagem',
