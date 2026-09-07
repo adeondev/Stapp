@@ -247,13 +247,13 @@ pub async fn connected(state: &AppState, peer_id: &PeerId, channel: &str) {
     if state.config.voice.backend != "livekit" {
         return;
     }
-    if authorize_channel(state, peer_id, channel).await.is_none() {
+    let Some(max_peers) = authorize_channel(state, peer_id, channel).await else {
         state.cancel_voice_reservation(peer_id).await;
         if let Err(err) = livekit::remove_participant(state, peer_id, channel).await {
             tracing::warn!(peer = %peer_id, %err, "nao foi possivel revogar grant sem autorizacao");
         }
         return;
-    }
+    };
     match livekit::participant_connected(state, peer_id, channel).await {
         Ok(true) => {}
         Ok(false) => {
@@ -282,14 +282,40 @@ pub async fn connected(state: &AppState, peer_id: &PeerId, channel: &str) {
     }
     match state.confirm_voice(peer_id, channel).await {
         Ok(joined) => publish_join(state, peer_id, channel, joined).await,
-        Err(VoiceJoinError::GrantExpired | VoiceJoinError::NoReservation) => denied(
-            state,
-            peer_id,
-            channel,
-            VoiceDeniedCode::GrantExpired,
-            "A autorizacao de midia expirou; tente entrar novamente",
-        ),
-        Err(error) => deny_join_error(state, peer_id, channel, state.config.voice.max_peers, error),
+        // Sem reserva valida, mas o SFU acabou de confirmar que esta identidade
+        // ESTA na sala opaca — o `participant_connected` logo acima e quem diz
+        // isso, e o grant que a colocou la foi assinado por este servidor.
+        //
+        // Recusar aqui era o bug: a sessao antiga da mesma conta (queda abrupta,
+        // troca de aparelho) ainda segurava a vaga, ou a reserva vencia enquanto
+        // o cliente subia o microfone, e quem levava "A autorizacao de midia
+        // expirou" era a sessao NOVA — a unica que estava mesmo conectada.
+        //
+        // O comportamento canonico e o inverso: a sessao nova ganha, e
+        // `join_voice` desaloja as anteriores da conta (takeover) antes de
+        // publicar a presenca.
+        Err(VoiceJoinError::GrantExpired | VoiceJoinError::NoReservation) => {
+            tracing::info!(
+                peer = %peer_id,
+                channel = %channel,
+                "sem reserva valida, mas confirmado no SFU: assumindo a vaga por takeover"
+            );
+            match state.join_voice(peer_id, channel, max_peers).await {
+                Ok((joined, takeovers)) => {
+                    for takeover in &takeovers {
+                        handle_takeover(state, takeover).await;
+                    }
+                    publish_join(state, peer_id, channel, joined).await;
+                }
+                Err(error) => {
+                    if let Err(err) = livekit::remove_participant(state, peer_id, channel).await {
+                        tracing::warn!(peer = %peer_id, %err, "nao foi possivel revogar grant apos takeover recusado");
+                    }
+                    deny_join_error(state, peer_id, channel, max_peers, error);
+                }
+            }
+        }
+        Err(error) => deny_join_error(state, peer_id, channel, max_peers, error),
     }
 }
 
