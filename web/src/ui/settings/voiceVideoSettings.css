@@ -16,6 +16,39 @@
   transition: width 60ms linear;
 }
 
+/* O mesmo medidor, com a marca do limiar de voz por cima. A barra so fica verde
+   quando passa da marca: e o instante em que o microfone abre e o anel de fala
+   acende. Abaixo dela a barra e cinza — som que existe, mas nao e tratado como
+   voz. Separacao por tom, sem linha divisoria. */
+.voicevideo__vad {
+  position: relative;
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--bg-input);
+}
+
+.voicevideo__vad-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--text-faint);
+  transition: width 60ms linear, background var(--dur-fast) ease;
+}
+
+.voicevideo__vad.is-open .voicevideo__vad-fill { background: var(--online); }
+
+.voicevideo__vad-mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  transform: translateX(-1px);
+}
+
 /* A previa nasce com altura zero para nao empurrar a pagina antes de existir. */
 .voicevideo__camera {
   height: 0;
