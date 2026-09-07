@@ -55,6 +55,33 @@ describe('MessageAttachments', () => {
     expect(proporcaoDe(caixa)).toBeCloseTo(1080 / 1920)
   })
 
+  it('preserva proporcao real sem distorcao em imagem ultra-vertical (1:4) com classes utilitarias', () => {
+    const { container } = render(
+      <MessageAttachments
+        attachments={[
+          {
+            id: 'att-vertical',
+            filename: 'vertical.png',
+            content_type: 'image/png',
+            size_bytes: 1024,
+            width: 250,
+            height: 1000,
+            url: 'https://stapp.chat/files/vertical.png',
+          },
+        ]}
+      />
+    )
+
+    const caixa = container.querySelector('.stapp-attachment-image-wrapper') as HTMLElement
+    expect(proporcaoDe(caixa)).toBeCloseTo(250 / 1000)
+    expect(caixa.style.maxWidth).toBe('95px')
+    expect(caixa.className).toContain('max-w-[480px]')
+    expect(caixa.className).toContain('max-h-[380px]')
+
+    const img = container.querySelector('.stapp-attachment-image') as HTMLImageElement
+    expect(img.className).toContain('object-contain')
+  })
+
   it('renderiza video no player do app, e nao nos controles do navegador', () => {
     const { container } = render(
       <MessageAttachments

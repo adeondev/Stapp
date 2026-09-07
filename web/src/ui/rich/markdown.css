@@ -144,13 +144,13 @@
   /* `min(100%, …)`: max-width fixo vence o `max-width:100%` do preflight do
      Tailwind, e ai em painel estreito a midia estoura e o scroller da conversa
      corta a lateral (overflow-y:auto faz o overflow-x usado virar auto). */
-  max-width: min(100%, 360px);
-  max-height: 300px;
+  max-width: min(100%, 480px);
+  max-height: 380px;
   width: auto;
   height: auto;
   margin: 0.25rem 0;
   border-radius: var(--radius);
-  background: var(--bg-raised);
+  background: transparent;
   object-fit: contain;
 }
 

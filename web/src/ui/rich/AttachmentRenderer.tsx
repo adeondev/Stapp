@@ -21,8 +21,8 @@ export type AttachmentKind = 'image' | 'video' | 'audio' | 'voice' | 'file'
 
 /* Tetos em pixel, iguais aos do player de video: o que se limita e o tamanho da
    caixa, nunca a proporcao. */
-const LARGURA_MAXIMA = 440
-const ALTURA_MAXIMA = 420
+const LARGURA_MAXIMA = 480
+const ALTURA_MAXIMA = 380
 
 /** Tipos de imagem que o navegador desenha sem susto. */
 const IMAGENS_SEGURAS = new Set([
@@ -96,13 +96,14 @@ export function AttachmentRenderer({ attachment, url, onOpenViewer }: Attachment
     const caixa = proporcao
       ? {
         aspectRatio: String(proporcao),
-        maxWidth: Math.max(120, Math.min(LARGURA_MAXIMA, Math.round(ALTURA_MAXIMA * proporcao))),
+        maxWidth: Math.min(LARGURA_MAXIMA, Math.round(ALTURA_MAXIMA * proporcao)),
+        maxHeight: `${ALTURA_MAXIMA}px`,
       }
       : undefined
     return (
       <button
         type="button"
-        className="stapp-attachment-image-wrapper"
+        className="stapp-attachment-image-wrapper max-w-[480px] max-h-[380px] w-auto h-auto"
         style={caixa}
         onClick={() => onOpenViewer?.(attachment.id)}
         aria-label={`Abrir ${attachment.filename}`}
@@ -113,7 +114,7 @@ export function AttachmentRenderer({ attachment, url, onOpenViewer }: Attachment
           loading="lazy"
           width={attachment.width}
           height={attachment.height}
-          className="stapp-attachment-image"
+          className="stapp-attachment-image max-w-[480px] max-h-[380px] w-auto h-auto object-contain"
         />
       </button>
     )
