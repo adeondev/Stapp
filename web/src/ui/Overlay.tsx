@@ -30,6 +30,17 @@ import './overlay.css'
  * do scrim.
  */
 
+/**
+ * A pilha de dialogos abertos.
+ *
+ * Existe porque dialogo dentro de dialogo virou caso real (o enquadramento de
+ * imagem abre por cima das configuracoes). Os dois escutam `keydown` na janela
+ * em captura, e quem foi montado PRIMEIRO recebe o evento primeiro: Escape no
+ * dialogo de cima fechava o de baixo, levando os dois junto, e o Tab ficava
+ * preso na caixa errada. Aqui so o topo responde ao teclado.
+ */
+const abertos: symbol[] = []
+
 /** Tudo que pode receber foco por teclado dentro do dialogo. */
 const FOCAVEL = [
   'a[href]', 'button:not(:disabled)', 'input:not(:disabled)', 'select:not(:disabled)',
@@ -64,6 +75,7 @@ export function Modal({
 }: ModalProps) {
   const dialogo = useRef<HTMLDivElement>(null)
   const devolverFoco = useRef<HTMLElement | null>(null)
+  const identidade = useRef(Symbol('overlay'))
 
   const fechar = useCallback(() => {
     if (dismissible) onClose()
@@ -87,7 +99,11 @@ export function Modal({
 
   useEffect(() => {
     if (!open) return
+    const eu = identidade.current
+    abertos.push(eu)
     const aoTeclar = (event: KeyboardEvent) => {
+      // Nao sou o dialogo do topo: o teclado nao e meu.
+      if (abertos[abertos.length - 1] !== eu) return
       if (event.key === 'Escape') {
         event.stopPropagation()
         fechar()
@@ -115,7 +131,11 @@ export function Modal({
       }
     }
     window.addEventListener('keydown', aoTeclar, true)
-    return () => window.removeEventListener('keydown', aoTeclar, true)
+    return () => {
+      window.removeEventListener('keydown', aoTeclar, true)
+      const posicao = abertos.indexOf(eu)
+      if (posicao >= 0) abertos.splice(posicao, 1)
+    }
   }, [open, fechar])
 
   if (!open) return null
