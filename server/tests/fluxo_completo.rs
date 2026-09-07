@@ -689,6 +689,30 @@ async fn o_avatar_sobe_aparece_para_os_outros_e_pode_ser_removido() {
         image::ImageFormat::WebP
     );
 
+    // A URL que o PROPRIO servidor publica no perfil precisa ser servida por
+    // ele. Ela leva `static=1`, e o extrator de query recusava "1" como
+    // booleano: a resposta era 400 e nenhum avatar carregava em lugar nenhum.
+    let publicada = evento["profile"]["avatar_static_url"]
+        .as_str()
+        .expect("o perfil com avatar precisa publicar avatar_static_url")
+        .to_string();
+    let query = publicada
+        .split_once('?')
+        .expect("a URL publicada leva query")
+        .1;
+    assert_eq!(
+        common::avatar_get_com_query(addr, &eu, query).await.0,
+        200,
+        "a URL publicada pelo servidor ({publicada}) tem que ser servida por ele"
+    );
+    for forma in ["static=1", "static=true", "gif=0", "gif=1", "static=", "static=lixo"] {
+        assert_eq!(
+            common::avatar_get_com_query(addr, &eu, forma).await.0,
+            200,
+            "a flag `{forma}` nao pode derrubar a entrega do avatar"
+        );
+    }
+
     // Remover volta para o avatar gerado.
     assert_eq!(common::avatar_delete(addr, &token).await, 204);
     let voltou = alice
