@@ -25,6 +25,18 @@ const snapshot: VoiceSnapshot = {
   ],
 }
 
+
+/** O teste de microfone devolve um controle (medidor + retorno local), nao um cleanup. */
+function micTestHandle() {
+  return {
+    stop: vi.fn(),
+    setMonitor: vi.fn(),
+    setMonitorVolume: vi.fn(),
+    setOutputDevice: vi.fn(async () => {}),
+    isMonitoring: () => false,
+  }
+}
+
 function transport(): VoiceTransport {
   return {
     join: vi.fn(async () => true), leave: vi.fn(), resumeAudio: vi.fn(async () => true),
@@ -33,7 +45,7 @@ function transport(): VoiceTransport {
     listScreenSources: vi.fn(async () => []), captureScreenSourceThumbnail: vi.fn(async () => null),
     setInputDevice: vi.fn(async () => {}), setOutputDevice: vi.fn(async () => {}), setCameraDevice: vi.fn(async () => {}),
     enumerateDevices: vi.fn(async () => ({ inputs: [], outputs: [], cameras: [] })),
-    startMicrophoneTest: vi.fn(async () => () => {}), startCameraPreview: vi.fn(async () => () => {}),
+    startMicrophoneTest: vi.fn(async () => micTestHandle()), startCameraPreview: vi.fn(async () => () => {}),
     setPublicationSubscribed: vi.fn(), getVoiceVolume: vi.fn(() => 100), setVoiceVolume: vi.fn(),
     setVoiceMuted: vi.fn(), getScreenShareVolume: vi.fn(() => 100),
     setScreenShareVolume: vi.fn(), setScreenShareMuted: vi.fn(),

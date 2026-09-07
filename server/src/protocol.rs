@@ -10,7 +10,7 @@ use crate::config::Channel;
 
 pub type PeerId = String;
 pub type UserId = String;
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 /// String secreta serializada normalmente, mas sempre redigida em logs/debug.
 #[derive(Clone, Serialize, Deserialize)]
@@ -278,6 +278,13 @@ pub struct Profile {
     /// FUTURE: vira `true` quando a pessoa subir uma imagem. Ate la o avatar e
     /// a inicial na cor escolhida.
     pub has_avatar: bool,
+    /// Sem imagem, o cartao de perfil desenha uma faixa na cor de destaque.
+    #[serde(default)]
+    pub has_banner: bool,
+    /// Quando a conta foi criada. E o "Membro desde" do perfil — sai de
+    /// `users.created_at`, que existe desde a primeira migracao.
+    #[serde(default)]
+    pub created_at: i64,
     /// Muda a cada edicao; serve de cache-buster da imagem.
     pub updated_at: i64,
 }
@@ -490,6 +497,11 @@ pub enum ClientMsg {
 
     #[serde(rename = "privacy.update")]
     PrivacyUpdate { allow_member_dms: bool },
+
+    /// Pede a parte do perfil que nao viaja no `welcome`: hoje, amigos em comum.
+    /// Sai quando alguem ABRE um perfil, nao a cada avatar desenhado na tela.
+    #[serde(rename = "profile.fetch")]
+    ProfileFetch { user_id: UserId },
 
     /// Edita o proprio perfil. Campo ausente = nao mexe; `display_name: ""`
     /// limpa e volta a usar o username.
@@ -720,6 +732,15 @@ pub enum ServerMsg {
     /// servidor, e todo mundo precisa redesenhar o nome e o avatar na hora.
     #[serde(rename = "user.profile")]
     UserProfile { profile: Profile },
+
+    /// A parte do perfil que so vale quando alguem ABRE o perfil de outra
+    /// pessoa. Vai so para quem pediu, nunca por broadcast: e uma resposta a um
+    /// par de contas, nao um fato publico do servidor.
+    #[serde(rename = "profile.detail")]
+    ProfileDetail {
+        user_id: UserId,
+        mutual_friends: Vec<UserId>,
+    },
 
     #[serde(rename = "user.offline")]
     UserOffline { user_id: UserId },

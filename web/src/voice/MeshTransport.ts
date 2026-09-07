@@ -11,6 +11,7 @@ import { loadVoicePreferences, saveVoicePreferences } from './preferences'
 import type { VoicePreferences } from './preferences'
 import { callSounds } from '../net/callSounds'
 import { PlaybackGraph } from './PlaybackGraph'
+import type { MicrophoneTest, MicrophoneTestOptions } from './testMicrophone'
 
 interface PeerLink {
   pc: RTCPeerConnection
@@ -308,26 +309,30 @@ export class MeshTransport implements VoiceTransport {
     this.applyPlaybackState()
   }
 
-  async startMicrophoneTest(onLevel: (level: number) => void) {
+  async startMicrophoneTest(onLevel: (level: number) => void, options?: MicrophoneTestOptions): Promise<MicrophoneTest> {
     this.setPlaybackAttenuated(true)
     const { startMicrophoneTest } = await import('./testMicrophone')
-    let stopTest: () => void
+    let test: MicrophoneTest
     try {
-      stopTest = await startMicrophoneTest(
-        this.audioConstraints(),
-        onLevel,
-        this.preferences.outputDeviceId || undefined,
-      )
+      test = await startMicrophoneTest(this.audioConstraints(), onLevel, {
+        outputDeviceId: this.preferences.outputDeviceId,
+        monitorVolume: this.preferences.monitorVolume,
+        monitor: this.preferences.monitorMic,
+        ...options,
+      })
     } catch (error) {
       this.setPlaybackAttenuated(false)
       throw error
     }
-    return () => {
-      try {
-        stopTest()
-      } finally {
-        this.setPlaybackAttenuated(false)
-      }
+    return {
+      ...test,
+      stop: () => {
+        try {
+          test.stop()
+        } finally {
+          this.setPlaybackAttenuated(false)
+        }
+      },
     }
   }
 

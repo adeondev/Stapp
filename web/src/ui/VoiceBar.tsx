@@ -19,7 +19,7 @@ export function VoiceBar({ channelName, status = 'connected', onLeave, onOpen }:
     <div className={`voicebar ${isReconnecting ? 'voicebar--reconnecting' : ''}`}>
       <button className="voicebar__where" type="button" onClick={onOpen} title="Abrir chamada">
         <span className={`voicebar__label ${isReconnecting ? 'voicebar__label--reconnecting' : ''}`}>
-          <IconSignal size={14} className="voicebar__signal" />
+          <IconSignal size={16} className="voicebar__signal" />
           {isReconnecting ? 'Reconectando voz…' : 'Voz conectada'}
         </span>
         <span className="voicebar__channel">{channelName}</span>

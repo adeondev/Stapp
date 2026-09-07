@@ -114,3 +114,74 @@ async fn remover_apaga_e_nao_reclama_se_ja_nao_existe() {
     // Segunda vez nao pode explodir.
     remove(dir.path(), "u1").await;
 }
+
+/* O banner passa pelo mesmo processo do avatar e muda so a forma do corte. O que
+   estes casos travam e que o corte acontece ANTES do redimensionamento — sem
+   isso a foto sai esticada, que e o defeito classico de banner. */
+
+#[tokio::test]
+async fn banner_sai_sempre_em_960x360() {
+    let dir = TestDir::new();
+    store_shape(dir.path(), "u1", &png(1600, 1600), Shape::Banner)
+        .await
+        .unwrap();
+
+    let gravada = ler_gravado(dir.path(), "u1").await;
+    assert_eq!(
+        (gravada.width(), gravada.height()),
+        (BANNER_LARGURA, BANNER_ALTURA)
+    );
+}
+
+#[tokio::test]
+async fn banner_de_imagem_alta_corta_no_meio_em_vez_de_esticar() {
+    let dir = TestDir::new();
+    // 900x1800: para virar 8:3 precisa manter a largura e ficar com 337 de
+    // altura, tirando o excedente de cima e de baixo. As metades vermelha e azul
+    // sao verticais, entao elas tem que sobreviver lado a lado.
+    store_shape(dir.path(), "u1", &png(900, 1800), Shape::Banner)
+        .await
+        .unwrap();
+
+    let gravada = ler_gravado(dir.path(), "u1").await.to_rgba8();
+    let esquerda = gravada.get_pixel(60, BANNER_ALTURA / 2);
+    let direita = gravada.get_pixel(BANNER_LARGURA - 60, BANNER_ALTURA / 2);
+    assert!(
+        esquerda[0] > esquerda[2],
+        "a metade esquerda tinha que continuar vermelha, veio {esquerda:?}"
+    );
+    assert!(
+        direita[2] > direita[0],
+        "a metade direita tinha que continuar azul, veio {direita:?}"
+    );
+}
+
+#[tokio::test]
+async fn banner_de_imagem_muito_larga_corta_as_laterais() {
+    let dir = TestDir::new();
+    // 4000x300 e bem mais larga que 8:3; o corte mantem a altura e fica com os
+    // 800 do meio. O centro da imagem e a fronteira vermelho/azul, entao ela
+    // continua no meio do resultado.
+    store_shape(dir.path(), "u1", &png(4000, 300), Shape::Banner)
+        .await
+        .unwrap();
+
+    let gravada = ler_gravado(dir.path(), "u1").await.to_rgba8();
+    assert_eq!(
+        (gravada.width(), gravada.height()),
+        (BANNER_LARGURA, BANNER_ALTURA)
+    );
+    let esquerda = gravada.get_pixel(40, BANNER_ALTURA / 2);
+    let direita = gravada.get_pixel(BANNER_LARGURA - 40, BANNER_ALTURA / 2);
+    assert!(esquerda[0] > esquerda[2], "veio {esquerda:?}");
+    assert!(direita[2] > direita[0], "veio {direita:?}");
+}
+
+#[tokio::test]
+async fn banner_tambem_recusa_o_que_nao_e_imagem() {
+    let dir = TestDir::new();
+    assert!(matches!(
+        store_shape(dir.path(), "u1", b"nem de longe um png", Shape::Banner).await,
+        Err(AvatarError::NaoEImagem)
+    ));
+}

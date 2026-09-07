@@ -25,6 +25,15 @@ export interface PresenceState {
   allowMemberDms: boolean
   socialMembers: SocialMember[]
   profiles: Record<UserId, Profile>
+  /**
+   * O que so chega quando alguem ABRE um perfil.
+   *
+   * Fica separado de `profiles` porque tem ciclo de vida diferente: o perfil
+   * vem no `welcome` e vale para sempre; isto e resposta a um pedido, e so
+   * existe depois que a pessoa clicou em alguem. Ausente = ainda carregando,
+   * e a tela nao deve fingir "0 amigos em comum" enquanto espera.
+   */
+  profileDetails: Record<UserId, { mutualFriends: UserId[] }>
   limits: Limits
 
   handlePresenceMessage: (msg: ServerMsg) => void
@@ -43,6 +52,7 @@ const initialPresenceState = {
   allowMemberDms: true,
   socialMembers: [],
   profiles: {},
+  profileDetails: {},
   limits: LIMITES_PADRAO,
 }
 
@@ -67,6 +77,15 @@ export const usePresenceStore = create<PresenceState>((set) => ({
       case 'user.profile':
         set((state) => ({
           profiles: { ...state.profiles, [msg.profile.user_id]: msg.profile },
+        }))
+        break
+
+      case 'profile.detail':
+        set((state) => ({
+          profileDetails: {
+            ...state.profileDetails,
+            [msg.user_id]: { mutualFriends: msg.mutual_friends },
+          },
         }))
         break
 

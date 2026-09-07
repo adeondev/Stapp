@@ -1,104 +1,19 @@
-.help-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 20px;
-  background: var(--scrim-strong);
-  animation: help-fade-in 0.16s ease-out forwards;
-}
+/* O scrim, a moldura, o cabecalho e a animacao vem do `<Modal>` compartilhado
+   (`overlay.css`). Antes este arquivo tinha copia propria de tudo isso, com
+   `@keyframes` quase identicos aos do modal de atualizacao. Aqui fica so o que
+   e da ajuda: a lista de motivos. */
 
-@keyframes help-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
+.help-modal__dialog { max-width: 520px; }
 
-/* Modal solido, sem glassmorphism, sem outline, com os mesmos 2 cantos sharp */
-.help-modal__dialog {
-  position: relative;
-  width: 100%;
-  max-width: 520px;
-  padding: 38px 36px 34px;
-  border-radius: 40px 0 40px 0;
-  background: var(--connect-card);
-  border: 0;
-  overflow: hidden;
-  animation: help-dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-@keyframes help-dialog-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.help-modal__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.help-modal__titles {
-  flex: 1;
-  min-width: 0;
-}
-
-.help-modal__title {
-  margin: 0;
-  color: var(--text);
-  font-size: 22px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  line-height: 1.25;
-}
-
-.help-modal__desc {
-  margin: 8px 0 0;
-  color: var(--text-dim);
-  font-size: 14px;
-  line-height: 1.45;
-}
-
-.help-modal__close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  margin-top: -4px;
-  margin-right: -4px;
-  border-radius: 8px;
-  background: transparent;
-  border: 0;
-  color: var(--text-dim);
-  cursor: pointer;
-  transition: color 0.15s ease, background 0.15s ease;
-}
-
-.help-modal__close:hover {
-  color: var(--text);
-  background: var(--bg-active);
-}
-
+/* O respiro lateral e o mesmo do `ModalBody`; a lista nao usa aquele componente
+   porque rola junto com o rodape, que aqui e curto. */
 .help-modal__list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-bottom: 26px;
+  gap: var(--space-5);
+  padding: 0 var(--space-6);
+  margin-bottom: var(--space-7);
+  overflow-y: auto;
 }
 
 .help-modal__row {
@@ -109,7 +24,7 @@
   border-radius: var(--radius);
   background: var(--connect-input);
   border: 0;
-  transition: background 0.15s ease;
+  transition: background var(--dur-base) ease;
 }
 
 .help-modal__row:hover {
@@ -135,7 +50,7 @@
 .help-modal__row-title {
   display: block;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   line-height: 1.35;
   margin-bottom: 4px;
@@ -144,24 +59,24 @@
 .help-modal__row-text {
   margin: 0;
   color: var(--text-dim);
-  font-size: 13px;
+  font-size: var(--fs-base);
   line-height: 1.5;
 }
 
 .help-modal__row-text code {
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--connect-code);
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
 .help-modal__actions {
   display: flex;
   justify-content: flex-end;
-  border: 0;
-  background: transparent;
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg-sidebar);
 }
 
 .help-modal__btn-primary {
@@ -174,11 +89,11 @@
   border-radius: var(--radius);
   background: var(--accent);
   color: var(--on-accent);
-  font-size: 14px;
+  font-size: var(--fs-md);
   font-weight: 600;
   border: 0;
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.08s ease;
+  transition: background var(--dur-base) ease, transform 0.08s ease;
 }
 
 .help-modal__btn-primary:hover {
@@ -189,13 +104,6 @@
   transform: scale(0.98);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .help-modal,
-  .help-modal__dialog {
-    animation: none;
-  }
-  .help-modal__btn-primary,
-  .help-modal__close {
-    transition: none;
-  }
-}
+/* Sem bloco proprio de `prefers-reduced-motion`: a regra global do `theme.css`
+   ja zera transicao e animacao com `!important`, e uma segunda lista aqui so
+   viveria desatualizada. */

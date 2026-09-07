@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import type { SocialMember, UserId } from '../protocol'
 import { IconAt, IconCheck, IconUsers, IconX } from './Icons'
 import { useUserMenu } from './UserMenu'
+import { useProfileTrigger } from './profile/UserProfilePopover'
 import './friends.css'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add'
@@ -43,7 +44,7 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
   return (
     <section className="friends">
       <header className="friends__head">
-        <div className="friends__title"><IconUsers size={19} /><strong>Amigos</strong></div>
+        <div className="friends__title"><IconUsers size={18} /><strong>Amigos</strong></div>
         {/* A aba ativa se marca com o proprio fundo. A pilula que deslizava
             atras dos rotulos precisava medir o DOM a cada troca e a cada
             resize — muito maquinario para dizer "voce esta aqui". */}
@@ -146,28 +147,35 @@ interface FriendRowProps {
 
 function FriendRow({ member, online, request, onOpenDirect, onAction }: FriendRowProps) {
   const userMenu = useUserMenu()
+  const gatilhoPerfil = useProfileTrigger(member.user_id)
   const detail = request === 'incoming' ? 'Quer adicionar você'
     : request === 'outgoing' ? 'Pedido enviado' : online ? 'Online' : 'Offline'
   return (
     <article className="friends__row"
       onContextMenu={(event) => userMenu.open(event, { userId: member.user_id, name: member.username })}>
-      <Avatar userId={member.user_id} className="friends__avatar" fallbackName={member.username} />
-      <span className="friends__person"><strong><ProfileName userId={member.user_id} fallbackName={member.username} /></strong><small>{detail}</small></span>
+      {/* A linha inteira nao vira botao: ela ja carrega botoes de acao a
+          direita, e botao dentro de botao nao e HTML valido. Quem abre o cartao
+          e o par avatar + nome, que e o alvo que a pessoa mira. */}
+      <Avatar interactive userId={member.user_id} className="friends__avatar" fallbackName={member.username} />
+      <span className="friends__person" {...gatilhoPerfil}>
+        <strong><ProfileName userId={member.user_id} fallbackName={member.username} /></strong>
+        <small>{detail}</small>
+      </span>
       <div className="friends__actions">
         {request === 'incoming' && (
           <>
             <button className="friends__icon-action is-accept" type="button"
               aria-label={`Aceitar pedido de ${member.username}`} title="Aceitar pedido"
-              onClick={() => onAction('accept', member.user_id)}><IconCheck size={15} /></button>
+              onClick={() => onAction('accept', member.user_id)}><IconCheck size={16} /></button>
             <button className="friends__icon-action is-cancel" type="button"
               aria-label={`Recusar pedido de ${member.username}`} title="Recusar pedido"
-              onClick={() => onAction('decline', member.user_id)}><IconX size={15} /></button>
+              onClick={() => onAction('decline', member.user_id)}><IconX size={16} /></button>
           </>
         )}
         {request === 'outgoing' && (
           <button className="friends__icon-action is-cancel" type="button"
             aria-label={`Cancelar pedido para ${member.username}`} title="Cancelar pedido"
-            onClick={() => onAction('cancel', member.user_id)}><IconX size={15} /></button>
+            onClick={() => onAction('cancel', member.user_id)}><IconX size={16} /></button>
         )}
         {!request && (
           <>

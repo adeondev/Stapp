@@ -17,15 +17,12 @@ importers:
       '@emoji-mart/react':
         specifier: ^1.1.1
         version: 1.1.1(emoji-mart@5.6.0)(react@19.2.8)
-      '@hugeicons/core-free-icons':
-        specifier: ^4.3.0
-        version: 4.3.0
-      '@hugeicons/react':
-        specifier: ^1.1.10
-        version: 1.1.10(react@19.2.8)
       '@jitsi/rnnoise-wasm':
         specifier: 0.2.1
         version: 0.2.1(patch_hash=c88ca31e36a88c9a924910b47d2a744bf84f2bfa92ea8b425f09f1e965cb296c)
+      '@remixicon/react':
+        specifier: ^4.9.0
+        version: 4.9.0(react@19.2.8)
       '@tauri-apps/api':
         specifier: ^2.11.1
         version: 2.11.1
@@ -41,9 +38,6 @@ importers:
       '@tauri-apps/plugin-updater':
         specifier: ^2.11.0
         version: 2.11.0
-      hugeicons-react:
-        specifier: ^0.4.0
-        version: 0.4.0(react@19.2.8)
       livekit-client:
         specifier: 2.22.1
         version: 2.22.1(@types/dom-mediacapture-record@1.0.22)
@@ -189,17 +183,6 @@ packages:
       '@noble/hashes':
         optional: true
 
-  '@hugeicons/core-free-icons@3.3.0':
-    resolution: {integrity: sha512-qYyr4JQ2eQIHTSTbITvnJvs6ERNK64D9gpwZnf2IyuG0exzqfyABLO/oTB71FB3RZPfu1GbwycdiGSo46apjMQ==}
-
-  '@hugeicons/core-free-icons@4.3.0':
-    resolution: {integrity: sha512-5DC5gq2psNDKBQThOjpuFCtMco8nl2FkrBzZgG15cFGM0kSwUoych/pw0DmjBygF9qRDITdBPtmzJqLsOeImMg==}
-
-  '@hugeicons/react@1.1.10':
-    resolution: {integrity: sha512-9tAsd92yMVVGP+E+d8cM+wc0VnXuYZHNbWQi7TOe8k2neawmhiaFmVFbzyruejhOMa197/LbgvSED32ayUo3ZA==}
-    peerDependencies:
-      react: '>=16.0.0'
-
   '@jitsi/rnnoise-wasm@0.2.1':
     resolution: {integrity: sha512-iEj77www43pS2Yq+cfLZb+hFuI7L5ccisBzzPMcOjjLsG4/LAlkD1CY58/8gc84nHdLBGmD/OPIWGnvYnXvB0A==}
 
@@ -227,6 +210,11 @@ packages:
 
   '@oxc-project/types@0.147.0':
     resolution: {integrity: sha512-IJ3s6ltHLp45S0bh7phkX+gJO7A1Wuz2EaqpAhb8WjqDwbzMiWKHhyyT42tskaWjEYXtHtVCPpnBJVT9+dcRLg==}
+
+  '@remixicon/react@4.9.0':
+    resolution: {integrity: sha512-5/jLDD4DtKxH2B4QVXTobvV1C2uL8ab9D5yAYNtFt+w80O0Ys1xFOrspqROL3fjrZi+7ElFUWE37hBfaAl6U+Q==}
+    peerDependencies:
+      react: '>=18.2.0'
 
   '@rolldown/binding-android-arm-eabi@1.2.6':
     resolution: {integrity: sha512-b+jTcARdTiFLI6jB4a5XjTm0RWd6KcRfQj/I2356fxUZemiho9zQLxo0RtCuMDAyKcLo6cEltkgbQp6d1+sjjQ==}
@@ -785,11 +773,6 @@ packages:
 
   html-url-attributes@3.0.1:
     resolution: {integrity: sha512-ol6UPyBWqsrO6EJySPz2O7ZSr856WDrEzM5zMqp+FJJLGMW35cLYmmZnl0vztAZxRUoNZJFTCohfjuIJ8I4QBQ==}
-
-  hugeicons-react@0.4.0:
-    resolution: {integrity: sha512-HA2UI3VkDd1dNi9P4JGjaMODdGEs4QVMwQcc34W0aoGHptdsIex/756Jik4GFYN/023jGFKNVvQKhx2IpZtV+g==}
-    peerDependencies:
-      react: '>=16.0.0'
 
   inline-style-parser@0.2.7:
     resolution: {integrity: sha512-Nb2ctOyNR8DqQoR0OwRG95uNWIC0C1lCgf5Naz5H6Ji72KZ8OcFZLz2P5sNgwlyoJ8Yif11oMuYs5pBQa86csA==}
@@ -1565,14 +1548,6 @@ snapshots:
 
   '@exodus/bytes@1.15.1': {}
 
-  '@hugeicons/core-free-icons@3.3.0': {}
-
-  '@hugeicons/core-free-icons@4.3.0': {}
-
-  '@hugeicons/react@1.1.10(react@19.2.8)':
-    dependencies:
-      react: 19.2.8
-
   '@jitsi/rnnoise-wasm@0.2.1(patch_hash=c88ca31e36a88c9a924910b47d2a744bf84f2bfa92ea8b425f09f1e965cb296c)': {}
 
   '@jridgewell/gen-mapping@0.3.13':
@@ -1601,6 +1576,10 @@ snapshots:
       '@bufbuild/protobuf': 1.10.1
 
   '@oxc-project/types@0.147.0': {}
+
+  '@remixicon/react@4.9.0(react@19.2.8)':
+    dependencies:
+      react: 19.2.8
 
   '@rolldown/binding-android-arm-eabi@1.2.6':
     optional: true
@@ -2037,12 +2016,6 @@ snapshots:
       - '@noble/hashes'
 
   html-url-attributes@3.0.1: {}
-
-  hugeicons-react@0.4.0(react@19.2.8):
-    dependencies:
-      '@hugeicons/core-free-icons': 3.3.0
-      '@hugeicons/react': 1.1.10(react@19.2.8)
-      react: 19.2.8
 
   inline-style-parser@0.2.7: {}
 

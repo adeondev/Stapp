@@ -130,7 +130,7 @@ export function DropdownSelect({ label, value, options, onChange }: {
     <button ref={button} type="button" aria-haspopup="menu" aria-expanded={Boolean(position)} onClick={() => {
       const rect = button.current?.getBoundingClientRect()
       if (rect) setPosition((current) => current ? null : { x: rect.left, y: rect.bottom + 4 })
-    }}><span>{selected?.label ?? 'Escolher'}</span><IconChevronDown size={13} /></button>
+    }}><span>{selected?.label ?? 'Escolher'}</span><IconChevronDown size={16} /></button>
     {position && <PopupMenu position={position} label={label} onClose={() => setPosition(null)} className="dropdown-select__menu">
       {options.map((option) => <MenuItem key={option.value} icon={option.icon} checked={option.value === value} onClick={() => {
         onChange(option.value)

@@ -21,6 +21,7 @@ import type {
   InboundAudioDiagnostic,
   MediaDeviceLists,
   ScreenShareOptions,
+  ScreenShareResult,
   VoiceParticipantState,
   VoiceSnapshot,
   VoiceTransport,
@@ -40,6 +41,7 @@ import {
 } from './VoiceAudioProcessor'
 import { callSounds } from '../net/callSounds'
 import { PlaybackGraph } from './PlaybackGraph'
+import type { MicrophoneTest, MicrophoneTestOptions } from './testMicrophone'
 
 type LiveKitModule = typeof import('livekit-client')
 
@@ -214,7 +216,7 @@ export class LiveKitTransport implements VoiceTransport {
   async setScreenShareEnabled(
     enabled: boolean,
     options: ScreenShareOptions = {},
-  ): Promise<boolean> {
+  ): Promise<ScreenShareResult> {
     const preset = options.preset ?? this.preferences.screenPreset
     const sourceId = options.sourceId
     const includeAudio = options.includeAudio ?? this.preferences.shareAudio
@@ -376,7 +378,10 @@ export class LiveKitTransport implements VoiceTransport {
       }
       return true
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'NotAllowedError') return false
+      // Fechar o seletor do sistema tambem chega como NotAllowedError. Nao e
+      // erro: e a pessoa dizendo que mudou de ideia, e a tela nao deve acusar
+      // falha nenhuma por causa disso.
+      if (error instanceof DOMException && error.name === 'NotAllowedError') return 'canceled'
       this.fail(mediaError(error, 'Nao consegui iniciar o compartilhamento.'))
       return false
     }
@@ -432,26 +437,30 @@ export class LiveKitTransport implements VoiceTransport {
     this.applyPlaybackState()
   }
 
-  async startMicrophoneTest(onLevel: (level: number) => void) {
+  async startMicrophoneTest(onLevel: (level: number) => void, options?: MicrophoneTestOptions): Promise<MicrophoneTest> {
     this.setPlaybackAttenuated(true)
     const { startMicrophoneTest } = await import('./testMicrophone')
-    let stopTest: () => void
+    let test: MicrophoneTest
     try {
-      stopTest = await startMicrophoneTest(
-        this.audioCaptureOptions(),
-        onLevel,
-        this.preferences.outputDeviceId || undefined,
-      )
+      test = await startMicrophoneTest(this.audioCaptureOptions(), onLevel, {
+        outputDeviceId: this.preferences.outputDeviceId,
+        monitorVolume: this.preferences.monitorVolume,
+        monitor: this.preferences.monitorMic,
+        ...options,
+      })
     } catch (error) {
       this.setPlaybackAttenuated(false)
       throw error
     }
-    return () => {
-      try {
-        stopTest()
-      } finally {
-        this.setPlaybackAttenuated(false)
-      }
+    return {
+      ...test,
+      stop: () => {
+        try {
+          test.stop()
+        } finally {
+          this.setPlaybackAttenuated(false)
+        }
+      },
     }
   }
 

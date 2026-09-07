@@ -56,6 +56,44 @@ export async function removeAvatar(base: string, token: string): Promise<void> {
   if (!resposta.ok) throw new AvatarError('não consegui remover a imagem')
 }
 
+/* ── Banner do perfil ─────────────────────────────────────────────────────
+   Mesmo transporte do avatar, e de proposito: bytes crus no corpo, `Authorization`
+   no cabecalho, e a mesma renovacao de token por `comRenovacao`. O limite e maior
+   porque a imagem tambem e (960x360 contra 256x256). */
+
+/** Acima disto o servidor recusa; conferir aqui evita a subida inutil. */
+export const LIMITE_BANNER_BYTES = 4 * 1024 * 1024
+
+export function bannerUrl(base: string, userId: string, version: number): string {
+  return `${base}/banners/${encodeURIComponent(userId)}?v=${version}`
+}
+
+export async function uploadBanner(base: string, token: string, file: File): Promise<void> {
+  if (file.size > LIMITE_BANNER_BYTES) {
+    throw new AvatarError('a imagem precisa ter menos de 4MB')
+  }
+
+  const resposta = await fetch(`${base}/banners`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` },
+    body: file,
+  })
+
+  if (resposta.status === 401) throw new AvatarSessionExpired('sessão expirada')
+  if (!resposta.ok) {
+    throw new AvatarError((await resposta.text()) || 'não consegui enviar a imagem')
+  }
+}
+
+export async function removeBanner(base: string, token: string): Promise<void> {
+  const resposta = await fetch(`${base}/banners`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (resposta.status === 401) throw new AvatarSessionExpired('sessão expirada')
+  if (!resposta.ok) throw new AvatarError('não consegui remover a imagem')
+}
+
 /**
  * Executa uma chamada autenticada e, se o token tiver vencido, renova a sessao
  * e tenta **uma** vez mais.

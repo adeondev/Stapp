@@ -33,6 +33,7 @@ pub async fn build_app(config: Config) -> Result<(Router, Arc<AppState>)> {
         .route("/ws", get(ws::handler))
         .nest("/auth", http::auth::routes())
         .nest("/avatars", http::avatars::routes())
+        .nest("/banners", http::banners::routes())
         .nest("/attachments", http::attachments::routes());
 
     if let Some(dir) = static_dir.as_deref() {
@@ -66,7 +67,9 @@ pub async fn build(config: Config) -> Result<Router> {
 
 async fn security_headers(request: Request, next: Next) -> Response {
     let path = request.uri().path().to_string();
-    let is_media_path = path.starts_with("/attachments") || path.starts_with("/avatars");
+    let is_media_path = path.starts_with("/attachments")
+        || path.starts_with("/avatars")
+        || path.starts_with("/banners");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(

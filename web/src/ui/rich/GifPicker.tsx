@@ -82,15 +82,11 @@ export const GifPicker = memo(function GifPicker({ isOpen, onClose, onSelectGif 
 
       <div className="stapp-gif-grid">
         {loading && (
-          <div className="col-span-2 py-8 text-center text-xs text-[var(--text-dim)]">
-            Carregando GIFs...
-          </div>
+          <div className="stapp-gif-aviso">Carregando GIFs...</div>
         )}
 
         {!loading && gifs.length === 0 && (
-          <div className="col-span-2 py-8 text-center text-xs text-[var(--text-dim)]">
-            Nenhum GIF encontrado.
-          </div>
+          <div className="stapp-gif-aviso">Nenhum GIF encontrado.</div>
         )}
 
         {!loading &&

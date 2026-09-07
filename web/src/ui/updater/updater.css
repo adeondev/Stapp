@@ -10,7 +10,7 @@
   align-items: center;
   justify-content: center;
   padding: 20px;
-  background: rgba(10, 12, 16, 0.85);
+  background: var(--overlay-scrim);
   animation: updater-fade-in 0.15s ease-out forwards;
 }
 
@@ -24,13 +24,13 @@
   width: 100%;
   max-width: 500px;
   background: var(--bg-raised);
-  border-radius: var(--radius-lg, 12px);
+  border-radius: var(--radius-lg);
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 18px;
   border: 0;
-  animation: updater-dialog-in 0.18s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: updater-dialog-in 0.18s var(--motion-smooth) forwards;
 }
 
 @keyframes updater-dialog-in {
@@ -62,12 +62,12 @@
   align-items: center;
   gap: 6px;
   align-self: flex-start;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 8px;
-  border-radius: var(--radius-sm, 4px);
+  border-radius: var(--radius-sm);
   background: var(--accent-quiet);
   color: var(--accent);
 }
@@ -79,7 +79,7 @@
 
 .updater-header__title {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-weight: 700;
   color: var(--text);
   line-height: 1.3;
@@ -87,7 +87,7 @@
 
 .updater-header__subtitle {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: var(--text-dim);
 }
 
@@ -96,12 +96,12 @@
   border: 0;
   color: var(--text-dim);
   padding: 6px;
-  border-radius: var(--radius-sm, 4px);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.1s ease, background 0.1s ease;
+  transition: color var(--dur-fast) ease, background var(--dur-fast) ease;
 }
 
 .updater-close:hover {
@@ -123,11 +123,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: var(--text-soft);
   background: var(--bg-input);
   padding: 8px 12px;
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md);
 }
 
 .updater-version-tag strong {
@@ -136,9 +136,9 @@
 
 .updater-notes {
   background: var(--bg-input);
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md);
   padding: 12px 14px;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: var(--text-soft);
   max-height: 160px;
   overflow-y: auto;
@@ -152,14 +152,14 @@
   gap: 8px;
   background: var(--bg-input);
   padding: 12px;
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md);
 }
 
 .updater-progress-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--text-dim);
 }
 
@@ -171,25 +171,25 @@
   width: 100%;
   height: 6px;
   background: var(--bg-raised);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
 .updater-progress-fill {
   height: 100%;
   background: var(--accent);
-  transition: width 0.15s ease-out;
+  transition: width var(--dur-base) ease-out;
 }
 
 .updater-error {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--fs-base);
   color: var(--danger);
   background: var(--danger-quiet);
   padding: 10px 12px;
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md);
 }
 
 .updater-actions {
@@ -201,17 +201,17 @@
 
 .updater-btn {
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--fs-base);
   font-weight: 600;
   padding: 9px 18px;
-  border-radius: var(--radius-md, 6px);
+  border-radius: var(--radius-md);
   border: 0;
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: background 0.12s ease, opacity 0.12s ease;
+  transition: background var(--dur-base) ease, opacity var(--dur-base) ease;
 }
 
 .updater-btn:focus-visible {
@@ -262,7 +262,7 @@
   width: 100%;
   max-width: 520px;
   background: var(--bg-raised);
-  border-radius: var(--radius-lg, 12px);
+  border-radius: var(--radius-lg);
   padding: 36px 32px;
   display: flex;
   flex-direction: column;
@@ -272,7 +272,7 @@
 .updater-lock-icon {
   width: 48px;
   height: 48px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--danger-quiet);
   color: var(--danger);
   display: flex;
@@ -283,7 +283,7 @@
 
 .updater-lock-title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--fs-xl);
   font-weight: 700;
   color: var(--text);
   text-align: center;
@@ -291,7 +291,7 @@
 
 .updater-lock-desc {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--fs-md);
   color: var(--text-dim);
   text-align: center;
   line-height: 1.5;

@@ -525,11 +525,21 @@ impl Config {
     /// Onde ficam os avatares: ao lado do banco, dentro de `data/`. Assim o
     /// backup do servidor continua sendo "copie a pasta data/".
     pub fn avatar_dir(&self) -> PathBuf {
+        self.data_dir().join("avatars")
+    }
+
+    /// O banner mora ao lado do avatar, mas em pasta propria: o nome do arquivo
+    /// e o `user_id` nos dois casos, entao misturar sobrescreveria um com o outro.
+    pub fn banner_dir(&self) -> PathBuf {
+        self.data_dir().join("banners")
+    }
+
+    fn data_dir(&self) -> PathBuf {
         self.storage
             .database
             .parent()
             .unwrap_or_else(|| Path::new("."))
-            .join("avatars")
+            .to_path_buf()
     }
 
     pub fn channel(&self, id: &str) -> Option<&Channel> {

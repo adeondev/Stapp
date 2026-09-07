@@ -44,7 +44,7 @@
   place-items: center;
   width: 48px;
   height: 48px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
 }
 
 .callminipip__avatar-wrap.is-speaking {
@@ -57,10 +57,10 @@
   place-items: center;
   width: 48px;
   height: 48px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--avatar-accent, var(--accent));
   color: var(--avatar-ink, var(--on-accent));
-  font-size: 20px;
+  font-size: var(--fs-xl);
   font-weight: 700;
   overflow: hidden;
 }
@@ -70,16 +70,16 @@
   place-items: center;
   width: 48px;
   height: 48px;
-  border-radius: 50%;
+  border-radius: var(--radius-pill);
   background: var(--accent);
   color: var(--on-accent);
   font-weight: 700;
-  font-size: 20px;
+  font-size: var(--fs-xl);
 }
 
 .callminipip__speaker-name {
   color: var(--text-soft);
-  font-size: 12px;
+  font-size: var(--fs-sm);
   font-weight: 600;
   max-width: 100%;
   overflow: hidden;
@@ -96,7 +96,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px;
-  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.75), transparent);
+  background: linear-gradient(to bottom, var(--scrim-strong), transparent);
 }
 
 .callminipip__badge {
@@ -104,7 +104,7 @@
   align-items: center;
   gap: 6px;
   color: var(--text);
-  font-size: 11px;
+  font-size: var(--fs-xs);
   font-weight: 600;
 }
 
@@ -120,7 +120,7 @@
   border-radius: var(--radius-sm);
   background: var(--danger);
   color: var(--on-accent);
-  font-size: 9px;
+  font-size: var(--fs-xs);
   font-weight: 800;
   letter-spacing: 0.04em;
 }

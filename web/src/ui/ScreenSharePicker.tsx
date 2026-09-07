@@ -1,15 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { isTauriRuntime, thumbnailDataUrl, type ScreenSource } from '../platform/screenCapture'
-import type { VoiceTransport } from '../voice/VoiceTransport'
+import type { ScreenShareResult, VoiceTransport } from '../voice/VoiceTransport'
 import type { ScreenPreset } from '../voice/preferences'
-import { IconScreen, IconX } from './Icons'
+import { IconScreen } from './Icons'
+import { Modal, ModalHeader, useModalTitleId } from './Overlay'
 import './screensharepicker.css'
 
 interface Props {
   transport: VoiceTransport
   initialPreset: ScreenPreset
   onClose(): void
-  onShare(sourceId: string | undefined, preset: ScreenPreset, includeAudio: boolean): Promise<boolean>
+  onShare(sourceId: string | undefined, preset: ScreenPreset, includeAudio: boolean): Promise<ScreenShareResult>
 }
 
 const PRESETS: Array<{ id: ScreenPreset; title: string; detail: string }> = [
@@ -70,29 +71,30 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
   }, [native, refreshSources])
 
   const visible = useMemo(() => sources.filter((source) => source.kind === tab), [sources, tab])
+  const tituloId = useModalTitleId()
 
   const share = async () => {
     if (native && !selected) return
     setSharing(true)
     setError(null)
-    const ok = await onShare(selected ?? undefined, preset, includeAudio)
+    const resultado = await onShare(selected ?? undefined, preset, includeAudio)
     setSharing(false)
-    if (ok) onClose()
-    else setError('Não consegui iniciar o compartilhamento dessa fonte.')
+    if (resultado === true) {
+      onClose()
+      return
+    }
+    // Quem fechou o seletor do sistema nao errou nada: o modal continua aberto
+    // para escolher de novo, e sem mensagem de erro.
+    if (resultado === 'canceled') return
+    setError('Não consegui iniciar o compartilhamento dessa fonte.')
   }
 
+  /* O scrim, o Escape, a armadilha de foco e a devolucao de foco vem do
+     `<Modal>`. Este dialogo era um dos tres que NAO fechavam no Escape. */
   return (
-    <div className="screenpicker" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose()
-    }}>
-      <section className="screenpicker__dialog" role="dialog" aria-modal="true" aria-labelledby="screenpicker-title">
-        <header className="screenpicker__header">
-          <div>
-            <span>TRANSMISSÃO</span>
-            <h2 id="screenpicker-title">Compartilhar tela</h2>
-          </div>
-          <button onClick={onClose} aria-label="fechar seletor"><IconX size={18} /></button>
-        </header>
+    <Modal open onClose={onClose} size="lg" labelledBy={tituloId} className="screenpicker__dialog">
+      <>
+        <ModalHeader overline="Transmissão" title="Compartilhar tela" titleId={tituloId} onClose={onClose} />
 
         {native ? (
           <>
@@ -118,7 +120,7 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
                   <button key={source.id} className="screenpicker__source"
                     aria-pressed={selected === source.id} onClick={() => setSelected(source.id)}>
                     <span className="screenpicker__preview">
-                      {thumbnail ? <img src={thumbnail} alt="" /> : <IconScreen size={30} />}
+                      {thumbnail ? <img src={thumbnail} alt="" /> : <IconScreen size={32} />}
                     </span>
                     <strong>{source.name}</strong>
                     <small>{source.width} × {source.height}</small>
@@ -132,7 +134,7 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
           </>
         ) : (
           <div className="screenpicker__browser">
-            <IconScreen size={36} />
+            <IconScreen size={32} />
             <strong>Escolha a fonte no navegador</strong>
             <p>A versão web usa o seletor seguro do próprio navegador. No aplicativo instalado, esta etapa acontece toda dentro do Stapp.</p>
           </div>
@@ -164,7 +166,7 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
             {sharing ? 'Iniciando…' : native ? 'Compartilhar' : 'Abrir seletor do sistema'}
           </button>
         </footer>
-      </section>
-    </div>
+      </>
+    </Modal>
   )
 }

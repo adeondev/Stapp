@@ -209,11 +209,11 @@ export const AudioPlayer = memo(function AudioPlayer({ src, filename, initialDur
           title={volume > 0 ? 'Silenciar' : 'Voltar o som'}
         >
           {volume === 0 ? (
-            <IconVolumeOff size={15} />
+            <IconVolumeOff size={16} />
           ) : volume < 0.5 ? (
-            <IconVolumeLow size={15} />
+            <IconVolumeLow size={16} />
           ) : (
-            <IconSpeaker size={15} />
+            <IconSpeaker size={16} />
           )}
         </button>
         <input

@@ -115,6 +115,8 @@ pub(super) async fn handle(state: &Arc<AppState>, peer_id: &PeerId, msg: ClientM
             bio,
         } => profile::update(state, peer_id, display_name, accent, bio).await,
 
+        ClientMsg::ProfileFetch { user_id } => profile::detail(state, peer_id, user_id).await,
+
         ClientMsg::PrivacyUpdate { allow_member_dms } => {
             social::update_privacy(state, peer_id, allow_member_dms).await
         }

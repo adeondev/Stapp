@@ -11,7 +11,9 @@ import { PROTOCOL_VERSION } from './protocol'
 import { directChannelPartner, directChannelPartnerId, profileOf, totalUnread, type StappState } from './store'
 import { dispatchServerMessage, resetAllStores, useChatStore, usePresenceStore, useVoiceStore } from './stores'
 import { AccountBar } from './ui/AccountBar'
-import { avatarBaseFromWs, comRenovacao, removeAvatar, uploadAvatar } from './net/avatars'
+import {
+  avatarBaseFromWs, comRenovacao, removeAvatar, removeBanner, uploadAvatar, uploadBanner,
+} from './net/avatars'
 import { ProfileProvider } from './ui/Avatar'
 import { CallPanel } from './ui/CallPanel'
 import { Chat } from './ui/Chat'
@@ -23,8 +25,9 @@ import { Sidebar, sidebarModeFor, type View } from './ui/Sidebar'
 import { VoiceBar } from './ui/VoiceBar'
 import { CallStage } from './ui/CallStage'
 import { CallMiniPip } from './ui/CallMiniPip'
-import { SettingsModal, type SettingsTab } from './ui/SettingsModal'
+import { AppSettings } from './ui/settings/AppSettings'
 import { UserMenuProvider } from './ui/UserMenu'
+import { UserProfileProvider } from './ui/profile/UserProfilePopover'
 import { createVoiceTransport, type VoiceTransport } from './voice/VoiceTransport'
 import { loadVoicePreferences, type VoicePreferences } from './voice/preferences'
 import { useAutoUpdater } from './platform/updater/useAutoUpdater'
@@ -130,12 +133,16 @@ export default function App() {
   // deixa a citacao saber se e voce sem remontar a conexao a cada render.
   const selfUserIdRef = useRef<UserId | null>(null)
   selfUserIdRef.current = selfUserId
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsTab, setSettingsTab] = useState<SettingsTab>('account')
-  const [voiceSettingsOpen, setVoiceSettingsOpen] = useState(false)
+  /* Antes eram dois estados e dois modais: um para "configuracoes de voz" e
+     outro para "editar perfil". Agora e uma tela so, e o que muda e a categoria
+     em que ela abre. `null` = fechada. */
+  const [settings, setSettings] = useState<string | null>(null)
   const [_voicePreferences, setVoicePreferences] = useState<VoicePreferences>(loadVoicePreferences)
   const [ringing, setRinging] = useState<Ringing | null>(null)
-  const [editingProfile, setEditingProfile] = useState(false)
+  /* O servidor diz no `welcome` se o servico de voz esta ligado. Sem isso a
+     categoria de voz nas configuracoes nao sabe distinguir "desligado neste
+     servidor" de "ainda nao subiu nesta sessao". */
+  const [voiceEnabled, setVoiceEnabled] = useState<boolean | null>(null)
   const [membersOpen, setMembersOpen] = useState(true)
 
   const connection = useRef<Connection | null>(null)
@@ -162,10 +169,10 @@ export default function App() {
     setAuthenticated(false)
     setView(null)
     previousServerView.current = null
-    setSettingsOpen(false)
-    setVoiceSettingsOpen(false)
+    setSettings(null)
     setRinging(null)
     setNotice(null)
+    setVoiceEnabled(null)
   }, [])
 
   const updateActiveProfile = useCallback((patch: Partial<SavedServer>) => {
@@ -261,6 +268,7 @@ export default function App() {
         }
 
         if (msg.t === 'welcome') {
+          setVoiceEnabled(msg.voice_enabled ?? true)
           setAuthBusy(false)
           setAuthError(null)
           setAuthenticated(true)
@@ -514,6 +522,18 @@ export default function App() {
     })
   }, [])
 
+  /* O cartao de perfil pede o detalhe (amigos em comum) ao ABRIR, nao a cada
+     avatar desenhado. Uma consulta por clique, e nao por linha de lista. */
+  const fetchProfileDetail = useCallback((userId: UserId) => {
+    connection.current?.send({ t: 'profile.fetch', user_id: userId })
+  }, [])
+
+  /* Manda a mensagem sem sair da tela em que a pessoa estava. E o mesmo
+     `dm.send` do chat — nao existe caminho paralelo de envio. */
+  const quickMessage = useCallback((userId: UserId, text: string) => {
+    connection.current?.send({ t: 'dm.send', user_id: userId, text })
+  }, [])
+
   const selectHome = useCallback(() => {
     setView({ kind: 'home' })
   }, [])
@@ -586,16 +606,28 @@ export default function App() {
     }
     return null
   }), [])
-  /** `null` remove. O token vem do Connection para nao ter duas fontes. */
-  const enviarAvatar = useCallback(
-    async (file: File | null) => {
+  /**
+   * Sobe (ou remove) uma imagem de perfil. `null` remove.
+   *
+   * O token vem do `Connection` para nao existirem duas fontes, e a renovacao e
+   * a mesma do avatar: o access token dura 15 minutos e pode vencer com o
+   * WebSocket ainda vivo — o upload vai por HTTP e levaria um token velho.
+   */
+  const enviarImagemDePerfil = useCallback(
+    async (kind: 'avatar' | 'banner', file: File | null) => {
       const servidor = active?.profile.url
       if (!servidor) throw new Error('sua sessão expirou, entre de novo')
       const base = avatarBaseFromWs(servidor)
 
       const tentar = async (token: string) => {
-        if (file) await uploadAvatar(base, token, file)
-        else await removeAvatar(base, token)
+        if (kind === 'avatar') {
+          if (file) await uploadAvatar(base, token, file)
+          else await removeAvatar(base, token)
+        } else if (file) {
+          await uploadBanner(base, token, file)
+        } else {
+          await removeBanner(base, token)
+        }
       }
 
       await comRenovacao(tentar, connection.current?.token ?? null, async () => {
@@ -606,6 +638,15 @@ export default function App() {
       })
     },
     [active?.profile.url],
+  )
+
+  const enviarAvatar = useCallback(
+    (file: File | null) => enviarImagemDePerfil('avatar', file),
+    [enviarImagemDePerfil],
+  )
+  const enviarBanner = useCallback(
+    (file: File | null) => enviarImagemDePerfil('banner', file),
+    [enviarImagemDePerfil],
   )
 
   const leaveCall = useCallback(() => {
@@ -717,8 +758,13 @@ export default function App() {
     <ProfileProvider profiles={state.profiles} avatarBase={avatarBase}>
     <UserMenuProvider members={state.socialMembers} selfUserId={state.selfUserId}
       onMessage={selectDirect} onCall={startCall} onAction={socialAction}
-      onEditSelf={() => setEditingProfile(true)}
+      onEditSelf={() => setSettings('profile')}
       updater={updater}>
+    <UserProfileProvider selfUserId={state.selfUserId} members={state.socialMembers}
+      onlineIds={onlineIds} avatarBase={avatarBase}
+      onMessage={selectDirect} onCall={startCall} onQuickMessage={quickMessage}
+      onAction={socialAction} onEditSelf={() => setSettings('profile')}
+      onFetchDetail={fetchProfileDetail}>
     <div className={`app ${showMembers ? 'app--members' : ''}`}>
       <ServerRail servers={railServers} activeUrl={active.profile.url} homeActive={sidebarMode === 'home'}
         homeNotificationCount={homeNotificationCount}
@@ -735,24 +781,15 @@ export default function App() {
               else if (call?.channel) openServerCallView(call.channel)
             }} />}
           <AccountBar
-            onOpenProfile={() => {
-              setSettingsTab('account')
-              setSettingsOpen(true)
-            }}
+            onOpenProfile={() => setSettings('profile')}
             userId={state.selfUserId}
             username={self?.username ?? attemptedUsername.current}
             muted={muted}
             deafened={deafened}
             onToggleMute={toggleMute}
             onToggleDeafen={toggleDeafen}
-            onOpenSettings={() => {
-              setSettingsTab('account')
-              setSettingsOpen(true)
-            }}
-            onOpenVoiceSettings={() => {
-              setSettingsTab('voice')
-              setSettingsOpen(true)
-            }}
+            onOpenSettings={() => setSettings('profile')}
+            onOpenVoiceSettings={() => setSettings('voice')}
           />
         </div>} />
 
@@ -764,10 +801,7 @@ export default function App() {
             snapshot={voiceSnapshot}
             transport={voice.current}
             onLeave={leaveCall}
-            onOpenSettings={() => {
-              setSettingsTab('voice')
-              setSettingsOpen(true)
-            }}
+            onOpenSettings={() => setSettings('voice')}
             resolveUserId={resolveUserId}
             selfUserId={state.selfUserId}
             variant="fullscreen"
@@ -781,10 +815,7 @@ export default function App() {
                 snapshot={voiceSnapshot}
                 transport={voice.current}
                 onLeave={leaveCall}
-                onOpenSettings={() => {
-                  setSettingsTab('voice')
-                  setSettingsOpen(true)
-                }}
+                onOpenSettings={() => setSettings('voice')}
                 resolveUserId={resolveUserId}
                 selfUserId={state.selfUserId}
                 variant="embedded"
@@ -871,32 +902,31 @@ export default function App() {
       )}
 
       {showMembers && <MembersPanel members={state.socialMembers} onlineIds={onlineIds}
-        selfUserId={state.selfUserId} selfUsername={self?.username ?? attemptedUsername.current}
-        onEditSelf={() => {
-          setSettingsTab('account')
-          setSettingsOpen(true)
-        }} />}
+        selfUserId={state.selfUserId} selfUsername={self?.username ?? attemptedUsername.current} />}
+      {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
+        onAccept={acceptCall} onDecline={dismissCall} />}
 
-      <SettingsModal
-        isOpen={settingsOpen || editingProfile || voiceSettingsOpen}
-        initialTab={voiceSettingsOpen ? 'voice' : settingsTab}
-        onClose={() => {
-          setSettingsOpen(false)
-          setEditingProfile(false)
-          setVoiceSettingsOpen(false)
-        }}
+      {/* Uma tela so, montada sempre — nao mais escondida atras de `voice.current`.
+          Quem depende de voz e a categoria de voz, que se desabilita sozinha. */}
+      <AppSettings
+        open={settings !== null}
+        initialCategory={settings ?? undefined}
+        onClose={() => setSettings(null)}
         profile={meuPerfil}
         avatarBase={avatarBase}
         onSaveProfile={(mudanca) => connection.current?.send({ t: 'profile.update', ...mudanca })}
-        onAvatarChange={enviarAvatar}
+        onAvatar={enviarAvatar}
+        onBanner={enviarBanner}
         transport={voice.current}
         snapshot={voiceSnapshot}
-        voicePreferences={_voicePreferences}
-        onVoicePreferencesChange={setVoicePreferences}
+        onPreferencesChange={setVoicePreferences}
+        voiceUnavailable={voiceEnabled === false
+          ? 'Este servidor está com a voz desligada.'
+          : 'A voz ainda não subiu nesta sessão. Reconecte e tente de novo.'}
+        updater={updater}
+        serverName={state.serverName}
+        protocolVersion={PROTOCOL_VERSION}
       />
-
-      {ringing && <CallPanel userId={ringing.userId} username={ringing.username} direction={ringing.direction}
-        onAccept={acceptCall} onDecline={dismissCall} />}
 
       <UpdateModal
         isOpen={updater.isModalOpen}
@@ -911,6 +941,7 @@ export default function App() {
         onRelaunch={updater.relaunch}
       />
     </div>
+    </UserProfileProvider>
     </UserMenuProvider>
     </ProfileProvider>
   )

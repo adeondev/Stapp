@@ -4,7 +4,7 @@
 export type PeerId = string
 export type UserId = string
 export type ChannelKind = 'text' | 'voice'
-export const PROTOCOL_VERSION = 5
+export const PROTOCOL_VERSION = 6
 
 export interface Channel {
   id: string
@@ -195,6 +195,10 @@ export interface Profile {
   accent: AccentName
   bio: string
   has_avatar: boolean
+  /** Sem imagem, o cartao de perfil desenha uma faixa na cor de destaque. */
+  has_banner: boolean
+  /** Quando a conta foi criada — o "Membro desde" do perfil. Epoch em ms. */
+  created_at: number
   updated_at: number
 }
 
@@ -332,6 +336,11 @@ export type ClientMsg =
       accent?: AccentName
       bio?: string
     }
+  /**
+   * Pede a parte do perfil que nao viaja no `welcome`: hoje, amigos em comum.
+   * Sai quando alguem ABRE um perfil, nao a cada avatar desenhado na tela.
+   */
+  | { t: 'profile.fetch'; user_id: UserId }
   | { t: 'call.start'; user_id: UserId }
   | { t: 'call.accept'; user_id: UserId }
   | { t: 'call.decline'; user_id: UserId }
@@ -423,6 +432,11 @@ export type ServerMsg =
   | { t: 'dm.denied'; user_id: UserId }
   | { t: 'social.snapshot'; allow_member_dms: boolean; members: SocialMember[] }
   | { t: 'user.profile'; profile: Profile }
+  /**
+   * Resposta do `profile.fetch`. Vai so para quem pediu — e uma resposta sobre
+   * um PAR de contas, nao um fato publico do servidor.
+   */
+  | { t: 'profile.detail'; user_id: UserId; mutual_friends: UserId[] }
   | { t: 'user.online'; user: OnlineUser }
   | { t: 'user.offline'; user_id: UserId }
   | { t: 'call.incoming'; user_id: UserId; username: string }

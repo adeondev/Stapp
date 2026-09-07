@@ -75,7 +75,7 @@ export function ServerRail({ servers, activeUrl, homeActive, homeNotificationCou
       {slot(false, 'Adicionar servidor',
         <button className="serverrail__item serverrail__add" type="button" onClick={onAdd}
           aria-label="Adicionar servidor">
-          <IconPlus size={22} />
+          <IconPlus size={20} />
         </button>)}
 
       {dica && <span className="serverrail__tip" style={{ top: dica.y }} role="presentation">{dica.texto}</span>}

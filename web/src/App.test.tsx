@@ -80,7 +80,14 @@ describe('App', () => {
       listScreenSources: vi.fn(async () => []), captureScreenSourceThumbnail: vi.fn(async () => null),
       setInputDevice: vi.fn(async () => {}), setOutputDevice: vi.fn(async () => {}),
       setCameraDevice: vi.fn(async () => {}), enumerateDevices: vi.fn(async () => ({ inputs: [], outputs: [], cameras: [] })),
-      startMicrophoneTest: vi.fn(async () => () => {}), startCameraPreview: vi.fn(async () => () => {}),
+      startMicrophoneTest: vi.fn(async () => ({
+        stop: vi.fn(),
+        setMonitor: vi.fn(),
+        setMonitorVolume: vi.fn(),
+        setOutputDevice: vi.fn(async () => {}),
+        isMonitoring: () => false,
+      })),
+      startCameraPreview: vi.fn(async () => () => {}),
       setPublicationSubscribed: vi.fn(), getVoiceVolume: vi.fn(() => 100), setVoiceVolume: vi.fn(),
       setVoiceMuted: vi.fn(), getScreenShareVolume: vi.fn(() => 100),
       setScreenShareVolume: vi.fn(), setScreenShareMuted: vi.fn(), attachMedia: vi.fn(() => () => {}),
@@ -127,7 +134,7 @@ describe('App', () => {
         display_name: 'Deon',
         accent: 'blue',
         bio: '',
-        has_avatar: false,
+        has_avatar: false, has_banner: false, created_at: 0,
         updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 },
@@ -151,7 +158,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: '', has_avatar: false, updated_at: 1,
+        bio: '', has_avatar: false, has_banner: false, created_at: 0, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
@@ -189,7 +196,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: 'Dev do Stapp', has_avatar: false, updated_at: 1,
+        bio: 'Dev do Stapp', has_avatar: false, has_banner: false, created_at: 1, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
@@ -198,9 +205,11 @@ describe('App', () => {
     const gearBtn = screen.getByRole('button', { name: 'Configurações' })
     await user.click(gearBtn)
 
-    expect(screen.getByText('Stapp Desktop v0.1.0-beta.6')).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Minha Conta/i })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Voz & Vídeo/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Perfil' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Voz e vídeo' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Sobre' })).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Sobre' }))
+    expect(screen.getByText(/Stapp 0.1.0-beta.6/)).toBeTruthy()
   })
 
   it('dispara ringtone ao receber chamada entrante e interrompe som ao encerrar', async () => {
@@ -331,7 +340,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: '', has_avatar: false, updated_at: 1,
+        bio: '', has_avatar: false, has_banner: false, created_at: 1, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },
@@ -378,7 +387,7 @@ describe('App', () => {
       directory: [{ user_id: 'user-deon', username: 'deon' }],
       profiles: [{
         user_id: 'user-deon', username: 'deon', display_name: 'Deon', accent: 'blue',
-        bio: '', has_avatar: false, updated_at: 1,
+        bio: '', has_avatar: false, has_banner: false, created_at: 1, updated_at: 1,
       }],
       voice: { backend: 'mesh', ice_servers: [], max_peers: 6 }, voice_peers: [],
       limits: { max_upload_bytes: 15 * 1024 * 1024, max_text_chars: 4000 },

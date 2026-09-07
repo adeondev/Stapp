@@ -26,9 +26,9 @@
   color: var(--text);
   padding: 0.4rem 0.6rem;
   border-radius: var(--radius-sm);
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   outline: none;
-  transition: border-color 0.15s ease;
+  transition: border-color var(--dur-base) ease;
 }
 
 .stapp-gif-search-input:focus {
@@ -55,7 +55,7 @@
   cursor: pointer;
   border: none;
   padding: 0;
-  transition: opacity 0.15s ease;
+  transition: opacity var(--dur-base) ease;
 }
 
 .stapp-gif-item:hover {
@@ -70,10 +70,18 @@
 }
 
 .stapp-gif-attribution {
-  font-size: 10px;
+  font-size: var(--fs-xs);
   text-align: right;
   color: var(--text-dim);
   padding: 0.25rem 0.5rem;
   background: var(--bg-raised);
   border-top: 1px solid var(--bg-input);
+}
+/* Aviso de estado (carregando / nada encontrado) dentro da grade. */
+.stapp-gif-aviso {
+  grid-column: 1 / -1;
+  padding: var(--space-8) 0;
+  color: var(--text-dim);
+  font-size: var(--fs-sm);
+  text-align: center;
 }

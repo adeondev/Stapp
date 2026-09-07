@@ -31,8 +31,8 @@
   padding: 8px 16px;
   border-radius: var(--radius);
   background: var(--danger);
-  color: #ffffff;
-  font-size: 13px;
+  color: var(--on-danger);
+  font-size: var(--fs-base);
   font-weight: 600;
   translate: -50% 0;
 }
@@ -51,7 +51,7 @@
 
 .placeholder strong {
   color: var(--text);
-  font-size: 18px;
+  font-size: var(--fs-lg);
   font-weight: 700;
 }
 

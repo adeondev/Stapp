@@ -24,6 +24,16 @@ export interface VoicePreferences {
   showVideoOffParticipants: boolean
   screenPreset: ScreenPreset
   shareAudio: boolean
+  /**
+   * Ouvir a propria voz enquanto o teste de microfone esta rodando.
+   *
+   * Vive aqui, e nao no estado da tela, porque a escolha e da pessoa e precisa
+   * atravessar o fechar-e-abrir das configuracoes. Vale **somente durante o
+   * teste**: fora dele nao existe retorno local em lugar nenhum do app.
+   */
+  monitorMic: boolean
+  /** Volume do retorno local, em %. Separado do volume de saida da chamada. */
+  monitorVolume: number
 }
 
 export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
@@ -47,6 +57,8 @@ export const DEFAULT_VOICE_PREFERENCES: VoicePreferences = {
   showVideoOffParticipants: true,
   screenPreset: 'balanced',
   shareAudio: true,
+  monitorMic: true,
+  monitorVolume: 60,
 }
 
 const STORAGE_KEY = 'stapp.voice.preferences.v1'
@@ -93,6 +105,8 @@ function sanitize(value: VoicePreferences): VoicePreferences {
     showVideoOffParticipants: booleanValue(value.showVideoOffParticipants, true),
     screenPreset: oneOf(value.screenPreset, ['economy', 'balanced', 'fluid', 'original'], DEFAULT_VOICE_PREFERENCES.screenPreset),
     shareAudio: booleanValue(value.shareAudio, true),
+    monitorMic: booleanValue(value.monitorMic, true),
+    monitorVolume: clamp(value.monitorVolume, 0, 100),
   }
 }
 
