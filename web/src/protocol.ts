@@ -342,6 +342,14 @@ export type ClientMsg =
       display_name?: string
       accent?: AccentName
       bio?: string
+      /**
+       * Cor solida do banner, em hexadecimal.
+       *
+       * Ausente e "nao mexe"; **string vazia e "apaga"** — a mesma distincao que
+       * `display_name` faz, e ela importa: escolher uma imagem de banner precisa
+       * limpar a cor que estava salva, e omitir o campo deixaria a cor la.
+       */
+      banner_color?: string
     }
   /**
    * Pede a parte do perfil que nao viaja no `welcome`: hoje, amigos em comum.

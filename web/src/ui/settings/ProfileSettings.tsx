@@ -7,6 +7,7 @@ import {
   SettingsButton, SettingsDangerZone, SettingsField, SettingsGroup,
   SettingsRow, SettingsSection,
 } from './primitives'
+import { ImageCropper, precisaDeEnquadramento } from './ImageCropper'
 import './profileSettings.css'
 
 /**
@@ -40,7 +41,12 @@ const NOME_DA_COR: Record<AccentName, string> = {
 export interface ProfileSettingsProps {
   profile: Profile
   avatarBase: string | null
-  onSave(change: { display_name: string; accent: AccentName; bio: string; banner_color?: string }): void
+  /**
+   * `banner_color` vazio nao e "nao mexe": e "apaga a cor salva". O servidor faz
+   * essa distincao (`storage/profiles.rs`), e ela e o que faz escolher uma
+   * imagem de banner realmente descartar a cor que estava la.
+   */
+  onSave(change: { display_name: string; accent: AccentName; bio: string; banner_color: string }): void
   /** `null` remove a imagem e volta ao avatar gerado. */
   onAvatar(file: File | null): Promise<void>
   /** `null` remove o banner e volta a faixa de cor. */
@@ -63,6 +69,9 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
   const [enviando, setEnviando] = useState(false)
   const seletorAvatar = useRef<HTMLInputElement>(null)
   const seletorBanner = useRef<HTMLInputElement>(null)
+  // O arquivo recem-escolhido, esperando enquadramento. Nao vira `avatarNovo`
+  // nem `bannerNovo` antes de a pessoa confirmar o corte.
+  const [enquadrando, setEnquadrando] = useState<{ alvo: 'avatar' | 'banner'; file: File } | null>(null)
 
   // As previas locais sao object URLs; sem revogar, cada troca de arquivo vaza.
   const [previaAvatar, setPreviaAvatar] = useState<string | null>(null)
@@ -123,6 +132,44 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
     has_banner: Boolean(previaBanner) || (profile.has_banner && !removerBanner),
   }
 
+  /**
+   * Uma imagem escolhida abre o enquadramento antes de virar envio — o servidor
+   * corta pelo centro, e sem isto um retrato perdia o rosto. GIF passa direto:
+   * recortar mataria a animacao (ver `ImageCropper`).
+   */
+  function escolher(alvo: 'avatar' | 'banner', file: File | null) {
+    setErro(null)
+    if (!file) {
+      if (alvo === 'avatar') setAvatarNovo(null)
+      else setBannerNovo(null)
+      return
+    }
+    if (!precisaDeEnquadramento(file)) return aplicarImagem(alvo, file)
+    setEnquadrando({ alvo, file })
+  }
+
+  function aplicarImagem(alvo: 'avatar' | 'banner', file: File) {
+    if (alvo === 'avatar') {
+      setAvatarNovo(file)
+      setRemoverAvatar(false)
+      return
+    }
+    setBannerNovo(file)
+    setRemoverBanner(false)
+    // Imagem e cor solida sao EXCLUSIVAS: escolher uma imagem apaga a cor, senao
+    // a cor continuava salva e voltava sozinha ao remover a imagem depois.
+    setBannerColor('')
+  }
+
+  /** O caminho oposto: escolher uma cor solida descarta a imagem do banner. */
+  function escolherCorDoBanner(cor: string) {
+    setBannerColor(cor)
+    if (!cor) return
+    setBannerNovo(null)
+    if (profile.has_banner) setRemoverBanner(true)
+    if (seletorBanner.current) seletorBanner.current.value = ''
+  }
+
   async function salvar(event: React.FormEvent) {
     event.preventDefault()
     setErro(null)
@@ -146,7 +193,9 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
       display_name: nome.trim(),
       accent,
       bio: bio.trim(),
-      banner_color: bannerColor.trim() || undefined,
+      // Sempre string, nunca `undefined`: omitir o campo faria o servidor manter
+      // a cor antiga, e ela voltaria sozinha por tras da imagem nova.
+      banner_color: bannerColor.trim(),
     })
   }
 
@@ -159,27 +208,20 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
         >
           <SettingsGroup title="Imagens">
             <input ref={seletorAvatar} type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif"
-              onChange={(event) => {
-                const escolhido = event.target.files?.[0] ?? null
-                setAvatarNovo(escolhido)
-                if (escolhido) setRemoverAvatar(false)
-                setErro(null)
-              }} />
+              onChange={(event) => escolher('avatar', event.target.files?.[0] ?? null)} />
             <input ref={seletorBanner} type="file" hidden accept="image/png,image/jpeg,image/webp,image/gif"
-              onChange={(event) => {
-                const escolhido = event.target.files?.[0] ?? null
-                setBannerNovo(escolhido)
-                if (escolhido) setRemoverBanner(false)
-                setErro(null)
-              }} />
+              onChange={(event) => escolher('banner', event.target.files?.[0] ?? null)} />
 
             <SettingsRow
               label="Avatar"
-              description="Cortado em quadrado e reduzido para 256px. Até 2MB."
+              description="Você escolhe o enquadramento antes de enviar. Fica quadrado, com 256px. Até 2MB."
               control={
                 <div className="profile-settings__imagem">
+                  {/* Com foto o fundo colorido nao pinta nada: ele existe so
+                      para dar contraste a inicial, e atras de uma imagem vazava
+                      pelas transparencias e pela borda arredondada. */}
                   <span className="profile-settings__avatar" style={{
-                    background: `var(--accent-${accent})`,
+                    background: avatarDaPrevia ? 'transparent' : `var(--accent-${accent})`,
                     color: `var(--accent-${accent}-ink)`,
                   }}>
                     {avatarDaPrevia
@@ -204,10 +246,12 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
 
             <SettingsRow
               label="Banner"
-              description="Cortado em 8:3 e reduzido para 960px. Sem imagem, vira uma faixa na sua cor. Até 4MB."
+              description="Você escolhe o enquadramento antes de enviar. Fica em 8:3, com 960px. Sem imagem, vira uma faixa na cor escolhida. Até 4MB."
               control={
                 <div className="profile-settings__imagem">
-                  <span className="profile-settings__banner" style={{ background: bannerColor || `var(--accent-${accent})` }}>
+                  <span className="profile-settings__banner" style={{
+                    background: rascunho.has_banner ? 'transparent' : (bannerColor || `var(--accent-${accent})`),
+                  }}>
                     {rascunho.has_banner && (previaBanner || avatarBase) && (
                       <img
                         className="profile-settings__banner-img"
@@ -234,20 +278,20 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
 
             <SettingsRow
               label="Cor do banner"
-              description="Personalize a cor sólida de fundo do seu banner quando não houver imagem. Formato hexadecimal."
+              description="Vale quando o banner não tem imagem — escolher uma cor remove a imagem, e vice-versa. Formato hexadecimal."
               control={
                 <div className="profile-settings__banner-cor">
                   <input
                     type="color"
                     value={bannerColor.startsWith('#') && (bannerColor.length === 7 || bannerColor.length === 4) ? bannerColor : '#5865f2'}
-                    onChange={(event) => setBannerColor(event.target.value)}
+                    onChange={(event) => escolherCorDoBanner(event.target.value)}
                     className="profile-settings__color-input"
                     aria-label="Selecionar cor do banner"
                   />
                   <input
                     type="text"
                     value={bannerColor}
-                    onChange={(event) => setBannerColor(event.target.value)}
+                    onChange={(event) => escolherCorDoBanner(event.target.value)}
                     placeholder="#5865f2"
                     maxLength={9}
                     className="profile-settings__hex-input"
@@ -276,7 +320,7 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
 
             <SettingsRow
               label="Cor de destaque"
-              description="Pinta o seu avatar gerado, o banner padrão e o realce do seu nome."
+              description="Pinta o seu avatar quando você não tem imagem, e a faixa do banner quando ele não tem imagem nem cor."
               stacked
               control={
                 <div className="profile-settings__cores" role="radiogroup" aria-label="Cor do perfil">
@@ -339,6 +383,27 @@ export function ProfileSettings({ profile, avatarBase, onSave, onAvatar, onBanne
           online
         />
       </aside>
+
+      <ImageCropper
+        open={enquadrando !== null}
+        file={enquadrando?.file ?? null}
+        aspect={enquadrando?.alvo === 'banner' ? 8 / 3 : 1}
+        outputWidth={enquadrando?.alvo === 'banner' ? 960 : 256}
+        round={enquadrando?.alvo === 'avatar'}
+        title={enquadrando?.alvo === 'banner' ? 'Enquadrar o banner' : 'Enquadrar o avatar'}
+        description="Arraste para reposicionar e use o controle abaixo para aproximar. O que ficar dentro da moldura é o que as outras pessoas veem."
+        onCancel={() => {
+          setEnquadrando(null)
+          // Limpar o seletor deixa escolher O MESMO arquivo de novo depois de
+          // desistir; sem isto o `change` nao dispara e o botao parece morto.
+          const seletor = enquadrando?.alvo === 'banner' ? seletorBanner : seletorAvatar
+          if (seletor.current) seletor.current.value = ''
+        }}
+        onConfirm={(file) => {
+          if (enquadrando) aplicarImagem(enquadrando.alvo, file)
+          setEnquadrando(null)
+        }}
+      />
 
       {/* A barra so aparece com algo para salvar — e a mesma ideia do Discord:
           nada de um botao "salvar" permanentemente aceso sem alteracao nenhuma. */}
