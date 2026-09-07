@@ -893,6 +893,7 @@ export default function App() {
 
             {view?.kind === 'home' ? (
               <FriendsHome members={state.socialMembers} onlineIds={onlineIds}
+                serverName={state.serverName}
                 onOpenDirect={selectDirect} onAction={socialAction} />
             ) : channel ? (
               <Chat

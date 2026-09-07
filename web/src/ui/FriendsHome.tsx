@@ -1,9 +1,10 @@
 import { Avatar, ProfileName } from './Avatar'
 import { useMemo, useState } from 'react'
 import type { SocialMember, UserId } from '../protocol'
-import { IconAt, IconCheck, IconUsers, IconX } from './Icons'
+import { IconAt, IconCheck, IconChevronDown, IconServer, IconUsers, IconX } from './Icons'
 import { useUserMenu } from './UserMenu'
 import { useProfileTrigger } from './profile/UserProfilePopover'
+import { loadDmsAccordions, saveDmsAccordion } from './dmsAccordions'
 import './friends.css'
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add'
@@ -15,12 +16,14 @@ interface Props {
   onlineIds: ReadonlySet<UserId>
   onOpenDirect(userId: UserId): void
   onAction(action: SocialAction, userId: UserId): void
+  serverName?: string
 }
 
-export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Props) {
+export function FriendsHome({ members, onlineIds, onOpenDirect, onAction, serverName }: Props) {
   const [tab, setTab] = useState<Tab>('online')
   const [query, setQuery] = useState('')
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [collapsedMap, setCollapsedMap] = useState<Record<string, boolean>>(loadDmsAccordions)
   const incoming = members.filter((member) => member.relationship === 'incoming')
   const outgoing = members.filter((member) => member.relationship === 'outgoing')
   const shown = useMemo(() => members.filter((member) => {
@@ -30,6 +33,17 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
     if (tab === 'blocked') return member.relationship === 'blocked'
     return false
   }), [members, onlineIds, tab])
+
+  const groupedByServer = useMemo(() => {
+    const map = new Map<string, SocialMember[]>()
+    for (const member of shown) {
+      const serverKey = member.server_name || serverName || 'Servidor'
+      const list = map.get(serverKey) ?? []
+      list.push(member)
+      map.set(serverKey, list)
+    }
+    return map
+  }, [shown, serverName])
 
   function addFriend(event: React.FormEvent) {
     event.preventDefault()
@@ -85,12 +99,46 @@ export function FriendsHome({ members, onlineIds, onOpenDirect, onAction }: Prop
                 onAction={onAction} />
             ) : (
               <>
-                <h2>{shown.length} pessoas</h2>
+                <h2>{shown.length} {shown.length === 1 ? 'pessoa' : 'pessoas'}</h2>
                 <div className="friends__list">
-                  {shown.map((member) => (
-                    <FriendRow key={member.user_id} member={member} online={onlineIds.has(member.user_id)}
-                      onOpenDirect={onOpenDirect} onAction={onAction} />
-                  ))}
+                  {Array.from(groupedByServer.entries()).map(([sName, groupMembers]) => {
+                    const collapsed = collapsedMap[sName] === true
+                    return (
+                      <div key={sName} className="friends__accordion">
+                        <button
+                          type="button"
+                          className="friends__accordion-head"
+                          aria-expanded={!collapsed}
+                          onClick={() => {
+                            const next = !collapsed
+                            saveDmsAccordion(sName, next)
+                            setCollapsedMap((prev) => ({ ...prev, [sName]: next }))
+                          }}
+                        >
+                          <IconChevronDown
+                            size={16}
+                            className={`friends__accordion-chevron ${collapsed ? 'is-collapsed' : ''}`}
+                          />
+                          <IconServer size={18} className="friends__accordion-icon" />
+                          <span className="friends__accordion-title">{sName}</span>
+                          <span className="friends__accordion-badge">{groupMembers.length}</span>
+                        </button>
+                        {!collapsed && (
+                          <div className="friends__accordion-items">
+                            {groupMembers.map((member) => (
+                              <FriendRow
+                                key={member.user_id}
+                                member={member}
+                                online={onlineIds.has(member.user_id)}
+                                onOpenDirect={onOpenDirect}
+                                onAction={onAction}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
                   {shown.length === 0 && <div className="friends__empty">Nada por aqui ainda.</div>}
                 </div>
               </>

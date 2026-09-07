@@ -297,6 +297,72 @@
   text-align: center;
 }
 
+.friends__accordion {
+  margin-bottom: 16px;
+}
+
+.friends__accordion-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--dur-base) ease, background var(--dur-base) ease;
+}
+
+.friends__accordion-head:hover {
+  background: var(--modifier-hover);
+  color: var(--text);
+}
+
+.friends__accordion-chevron {
+  transition: transform var(--dur-base) ease;
+}
+
+.friends__accordion-chevron.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.friends__accordion-icon {
+  color: var(--text-dim);
+}
+
+.friends__accordion-title {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.friends__accordion-badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.friends__accordion-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+
 @media (max-width: 820px) {
   .friends__head {
     align-items: flex-start;

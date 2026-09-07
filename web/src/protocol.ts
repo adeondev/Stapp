@@ -170,6 +170,7 @@ export interface DirectSummary {
   username: string
   last: DirectMessage | null
   unread: number
+  server_name?: string
 }
 
 /** Alguem com conta no servidor, online ou nao. */
@@ -214,6 +215,7 @@ export interface SocialMember {
   relationship: RelationshipState
   can_start_dm: boolean
   has_conversation: boolean
+  server_name?: string
 }
 
 export interface AuthSession {
