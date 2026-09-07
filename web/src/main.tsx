@@ -1,7 +1,11 @@
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import { DesktopFrame } from './ui/DesktopFrame'
+import { applyMotionPreference, applyTheme, loadCustomThemeSettings, loadMotionPreference, loadThemePreference } from './ui/settings/appearance'
 import './ui/theme.css'
+
+applyTheme(loadThemePreference(), loadCustomThemeSettings())
+applyMotionPreference(loadMotionPreference())
 
 // Sem StrictMode de proposito: o mount duplo do dev abriria duas conexoes e o
 // mesmo apelido apareceria duas vezes na lista, atrapalhando o teste manual.

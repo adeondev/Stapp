@@ -362,3 +362,186 @@ button:disabled,
   border-radius: inherit;
   display: block;
 }
+
+/* ==========================================================================
+   5 Temas Semânticos de Cores
+   ========================================================================== */
+
+/* 1. Ônix: Preto absoluto OLED (#000000), alto contraste */
+:root[data-theme="onix"] {
+  color-scheme: dark;
+  --bg-canvas: #000000;
+  --bg-rail: #000000;
+  --bg-sidebar: #09090b;
+  --bg-app: #101012;
+  --bg-chat: #141416;
+  --bg-raised: #18181c;
+  --bg-floating: #000000;
+  --bg-input: #18181c;
+  --bg-surface: #18181c;
+
+  --text: #ffffff;
+  --text-normal: #ffffff;
+  --text-soft: #e4e4e7;
+  --text-dim: #a1a1aa;
+  --text-faint: #71717a;
+
+  --interactive: #d4d4d8;
+  --interactive-hover: #ffffff;
+  --interactive-active: #ffffff;
+
+  --separator-solid: #27272a;
+  --modifier-hover: rgba(255, 255, 255, 0.08);
+  --modifier-active: rgba(255, 255, 255, 0.14);
+  --modifier-selected: rgba(255, 255, 255, 0.18);
+
+  --call-stage: #000000;
+  --call-header: #09090b;
+  --call-tile: #121214;
+  --call-dock: #09090b;
+  --call-control: #27272a;
+  --call-control-hover: #3f3f46;
+  --call-menu: #121214;
+}
+
+/* 2. Escuro: Paleta dark moderna (#121214) */
+:root[data-theme="escuro"] {
+  color-scheme: dark;
+  --bg-canvas: #121214;
+  --bg-rail: #151518;
+  --bg-sidebar: #1a1a1e;
+  --bg-app: #202024;
+  --bg-chat: #242429;
+  --bg-raised: #1e1e22;
+  --bg-floating: #121214;
+  --bg-input: #2a2a30;
+  --bg-surface: #1e1e22;
+
+  --text: #f4f4f5;
+  --text-normal: #f4f4f5;
+  --text-soft: #d4d4d8;
+  --text-dim: #a1a1aa;
+  --text-faint: #71717a;
+
+  --interactive: #b5bac1;
+  --interactive-hover: #dbdee1;
+  --interactive-active: #f4f4f5;
+
+  --separator-solid: #2f2f35;
+  --modifier-hover: rgba(255, 255, 255, 0.06);
+  --modifier-active: rgba(255, 255, 255, 0.11);
+  --modifier-selected: rgba(255, 255, 255, 0.15);
+
+  --call-stage: #121214;
+  --call-header: #17171a;
+  --call-tile: #202024;
+  --call-dock: #17171a;
+  --call-control: #2c2c32;
+  --call-control-hover: #37373e;
+  --call-menu: #18181c;
+}
+
+/* 3. Cinza Neutro: Esquema suave balanceado (padrão) */
+:root[data-theme="cinza"] {
+  color-scheme: dark;
+  --bg-canvas: #131416;
+  --bg-rail: #1a1b1e;
+  --bg-sidebar: #232428;
+  --bg-app: #2b2d31;
+  --bg-chat: #2f3035;
+  --bg-raised: #1d1e21;
+  --bg-floating: #131416;
+  --bg-input: #383a40;
+  --bg-surface: #1d1e21;
+
+  --text: #f2f3f5;
+  --text-normal: #f2f3f5;
+  --text-soft: #dbdee1;
+  --text-dim: #949ba4;
+  --text-faint: #80848e;
+
+  --interactive: #b5bac1;
+  --interactive-hover: #dbdee1;
+  --interactive-active: #f2f3f5;
+
+  --separator-solid: #3f4147;
+  --modifier-hover: rgba(120, 124, 138, 0.22);
+  --modifier-active: rgba(120, 124, 138, 0.34);
+  --modifier-selected: rgba(120, 124, 138, 0.42);
+
+  --call-stage: #17181b;
+  --call-header: #202125;
+  --call-tile: #26282d;
+  --call-dock: #202226;
+  --call-control: #303238;
+  --call-control-hover: #3a3d44;
+  --call-menu: #1d1f23;
+}
+
+/* 4. Claro: Fundo branco limpo (#ffffff), alto contraste */
+:root[data-theme="claro"] {
+  color-scheme: light;
+  --bg-canvas: #ffffff;
+  --bg-rail: #eceff2;
+  --bg-sidebar: #f2f4f7;
+  --bg-app: #f7f9fb;
+  --bg-chat: #ffffff;
+  --bg-raised: #f2f4f7;
+  --bg-floating: #ffffff;
+  --bg-input: #e4e7ec;
+  --bg-surface: #f2f4f7;
+
+  --text: #060607;
+  --text-normal: #060607;
+  --text-soft: #2e3338;
+  --text-dim: #4e5058;
+  --text-faint: #747f8d;
+
+  --interactive: #4e5058;
+  --interactive-hover: #2e3338;
+  --interactive-active: #060607;
+
+  --separator-solid: #dcdfe3;
+  --modifier-hover: rgba(0, 0, 0, 0.05);
+  --modifier-active: rgba(0, 0, 0, 0.1);
+  --modifier-selected: rgba(0, 0, 0, 0.14);
+
+  --scroll-thumb: rgba(0, 0, 0, 0.22);
+
+  --call-stage: #eef0f3;
+  --call-header: #e3e5e8;
+  --call-tile: #ffffff;
+  --call-dock: #e3e5e8;
+  --call-control: #dcdfe3;
+  --call-control-hover: #cfd3d8;
+  --call-menu: #ffffff;
+}
+
+/* 5. Personalizado: Fundo e destaque configuráveis */
+:root[data-theme="personalizado"] {
+  color-scheme: dark;
+  --accent: var(--custom-accent, #6366f1);
+  --accent-brand: var(--custom-accent, #6366f1);
+  --accent-hover: color-mix(in srgb, var(--accent) 80%, black 20%);
+  --accent-quiet: color-mix(in srgb, var(--accent) 15%, transparent);
+  --accent-glass: color-mix(in srgb, var(--accent) 20%, transparent);
+  --accent-glow: color-mix(in srgb, var(--accent) 12%, transparent);
+
+  --bg-canvas: var(--custom-bg, #1a1a2e);
+  --bg-rail: color-mix(in srgb, var(--custom-bg, #1a1a2e) 85%, black 15%);
+  --bg-sidebar: color-mix(in srgb, var(--custom-bg, #1a1a2e) 94%, white 6%);
+  --bg-app: color-mix(in srgb, var(--custom-bg, #1a1a2e) 88%, white 12%);
+  --bg-chat: color-mix(in srgb, var(--custom-bg, #1a1a2e) 82%, white 18%);
+  --bg-raised: color-mix(in srgb, var(--custom-bg, #1a1a2e) 90%, black 10%);
+  --bg-floating: color-mix(in srgb, var(--custom-bg, #1a1a2e) 95%, black 5%);
+  --bg-input: color-mix(in srgb, var(--custom-bg, #1a1a2e) 75%, white 25%);
+  --bg-surface: color-mix(in srgb, var(--custom-bg, #1a1a2e) 90%, black 10%);
+
+  --call-stage: var(--custom-bg, #1a1a2e);
+  --call-header: color-mix(in srgb, var(--custom-bg, #1a1a2e) 85%, black 15%);
+  --call-tile: color-mix(in srgb, var(--custom-bg, #1a1a2e) 88%, white 12%);
+  --call-dock: color-mix(in srgb, var(--custom-bg, #1a1a2e) 85%, black 15%);
+  --call-control: color-mix(in srgb, var(--custom-bg, #1a1a2e) 70%, white 30%);
+  --call-control-hover: color-mix(in srgb, var(--custom-bg, #1a1a2e) 60%, white 40%);
+  --call-menu: color-mix(in srgb, var(--custom-bg, #1a1a2e) 92%, black 8%);
+}

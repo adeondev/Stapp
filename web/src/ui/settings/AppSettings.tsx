@@ -13,7 +13,11 @@ import {
 } from './primitives'
 import { ProfileSettings } from './ProfileSettings'
 import { VoiceVideoSettings } from './VoiceVideoSettings'
-import { applyMotionPreference, loadMotionPreference, type MotionPreference } from './appearance'
+import {
+  applyMotionPreference, applyTheme, loadCustomThemeSettings,
+  loadMotionPreference, loadThemePreference,
+  type AppTheme, type CustomThemeSettings, type MotionPreference,
+} from './appearance'
 
 /**
  * As configuracoes do Stapp, montadas.
@@ -135,27 +139,237 @@ export function AppSettings({
   return <SettingsShell open={open} onClose={onClose} groups={grupos} initialCategory={initialCategory} />
 }
 
+interface ThemeOption {
+  id: AppTheme
+  name: string
+  desc: string
+  railBg: string
+  sidebarBg: string
+  chatBg: string
+  textColor: string
+  accentColor: string
+}
+
+const THEME_OPTIONS: ThemeOption[] = [
+  {
+    id: 'onix',
+    name: 'Ônix',
+    desc: 'Preto absoluto OLED (#000000), alto contraste.',
+    railBg: '#000000',
+    sidebarBg: '#09090b',
+    chatBg: '#141416',
+    textColor: '#ffffff',
+    accentColor: '#209cee',
+  },
+  {
+    id: 'escuro',
+    name: 'Escuro',
+    desc: 'Paleta dark moderna (#121214), tom atual e refinado.',
+    railBg: '#151518',
+    sidebarBg: '#1a1a1e',
+    chatBg: '#242429',
+    textColor: '#f4f4f5',
+    accentColor: '#209cee',
+  },
+  {
+    id: 'cinza',
+    name: 'Cinza Neutro',
+    desc: 'Esquema suave balanceado (padrão do Stapp).',
+    railBg: '#1a1b1e',
+    sidebarBg: '#232428',
+    chatBg: '#2f3035',
+    textColor: '#f2f3f5',
+    accentColor: '#209cee',
+  },
+  {
+    id: 'claro',
+    name: 'Claro',
+    desc: 'Fundo branco limpo (#ffffff), texto escuro de alto contraste.',
+    railBg: '#eceff2',
+    sidebarBg: '#f2f4f7',
+    chatBg: '#ffffff',
+    textColor: '#060607',
+    accentColor: '#209cee',
+  },
+  {
+    id: 'personalizado',
+    name: 'Personalizado',
+    desc: 'Defina seu próprio tom de fundo e cor de destaque.',
+    railBg: '#121224',
+    sidebarBg: '#16162a',
+    chatBg: '#1a1a2e',
+    textColor: '#f2f3f5',
+    accentColor: '#6366f1',
+  },
+]
+
 function AppearanceSettings() {
+  const [theme, setTheme] = useState<AppTheme>(loadThemePreference)
+  const [custom, setCustom] = useState<CustomThemeSettings>(loadCustomThemeSettings)
   const [motion, setMotion] = useState<MotionPreference>(loadMotionPreference)
+
   useEffect(() => applyMotionPreference(motion), [motion])
 
+  const selecionarTema = (novo: AppTheme) => {
+    setTheme(novo)
+    applyTheme(novo, custom)
+  }
+
+  const atualizarCustom = (patch: Partial<CustomThemeSettings>) => {
+    const proximo = { ...custom, ...patch }
+    setCustom(proximo)
+    if (theme === 'personalizado') {
+      applyTheme('personalizado', proximo)
+    }
+  }
+
   return (
-    <SettingsSection
-      title="Movimento"
-      description="Por padrão o Stapp segue a preferência do sistema operacional. Aqui dá para reduzir só neste aplicativo."
-    >
-      <SettingsGroup>
-        <SettingsSegmented<MotionPreference>
-          label="Animações"
-          value={motion}
-          onChange={setMotion}
-          options={[
-            { value: 'system', label: 'Seguir o sistema', detail: 'Respeita "reduzir movimento" do SO.' },
-            { value: 'reduced', label: 'Sempre reduzidas', detail: 'Desliga transições e animações aqui.' },
-          ]}
-        />
-      </SettingsGroup>
-    </SettingsSection>
+    <>
+      <SettingsSection
+        title="Tema"
+        description="Escolha o esquema de cores que melhor combina com seu ambiente ou crie sua própria paleta."
+      >
+        <div className="theme-picker__grid" role="radiogroup" aria-label="Temas do aplicativo">
+          {THEME_OPTIONS.map((opt) => (
+            <button
+              type="button"
+              key={opt.id}
+              role="radio"
+              aria-checked={theme === opt.id}
+              aria-label={`Selecionar tema ${opt.name}`}
+              className={`theme-card ${theme === opt.id ? 'is-active' : ''}`}
+              onClick={() => selecionarTema(opt.id)}
+            >
+              <div className="theme-card__mockup">
+                <div
+                  className="theme-card__mockup-rail"
+                  style={{ backgroundColor: opt.id === 'personalizado' ? custom.bg : opt.railBg }}
+                >
+                  <span
+                    className="theme-card__mockup-dot"
+                    style={{ backgroundColor: opt.id === 'personalizado' ? custom.accent : opt.accentColor }}
+                  />
+                </div>
+                <div
+                  className="theme-card__mockup-sidebar"
+                  style={{
+                    backgroundColor: opt.id === 'personalizado'
+                      ? `color-mix(in srgb, ${custom.bg} 90%, white 10%)`
+                      : opt.sidebarBg,
+                  }}
+                >
+                  <div
+                    className="theme-card__mockup-line"
+                    style={{ backgroundColor: opt.id === 'claro' ? '#d0d4dc' : 'rgba(255,255,255,0.2)' }}
+                  />
+                  <div
+                    className="theme-card__mockup-line"
+                    style={{ backgroundColor: opt.id === 'claro' ? '#d0d4dc' : 'rgba(255,255,255,0.2)', width: '60%' }}
+                  />
+                </div>
+                <div
+                  className="theme-card__mockup-chat"
+                  style={{
+                    backgroundColor: opt.id === 'personalizado'
+                      ? `color-mix(in srgb, ${custom.bg} 80%, white 20%)`
+                      : opt.chatBg,
+                  }}
+                >
+                  <div
+                    className="theme-card__mockup-bubble"
+                    style={{ backgroundColor: opt.id === 'claro' ? '#e4e7ec' : 'rgba(255,255,255,0.1)' }}
+                  >
+                    <span
+                      className="theme-card__mockup-text"
+                      style={{ backgroundColor: opt.id === 'claro' ? '#747f8d' : 'rgba(255,255,255,0.4)' }}
+                    />
+                  </div>
+                  <div
+                    className="theme-card__mockup-pill"
+                    style={{ backgroundColor: opt.id === 'personalizado' ? custom.accent : opt.accentColor }}
+                  />
+                </div>
+              </div>
+              <div className="theme-card__info">
+                <div className="theme-card__header">
+                  <strong className="theme-card__name">{opt.name}</strong>
+                  {theme === opt.id && <span className="theme-card__badge-active">Ativo</span>}
+                </div>
+                <span className="theme-card__desc">{opt.desc}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {theme === 'personalizado' && (
+          <SettingsGroup title="Cores personalizadas">
+            <SettingsRow
+              label="Tom de fundo"
+              description="Cor base para o aplicativo e superfícies."
+              control={
+                <div className="profile-settings__banner-cor">
+                  <input
+                    type="color"
+                    value={custom.bg}
+                    onChange={(e) => atualizarCustom({ bg: e.target.value })}
+                    className="profile-settings__color-input"
+                    aria-label="Selecionar tom de fundo personalizado"
+                  />
+                  <input
+                    type="text"
+                    value={custom.bg}
+                    onChange={(e) => atualizarCustom({ bg: e.target.value })}
+                    maxLength={9}
+                    className="profile-settings__hex-input"
+                    aria-label="Código hexadecimal do tom de fundo"
+                  />
+                </div>
+              }
+            />
+            <SettingsRow
+              label="Destaque principal"
+              description="Cor de destaque para botões, indicadores e badges."
+              control={
+                <div className="profile-settings__banner-cor">
+                  <input
+                    type="color"
+                    value={custom.accent}
+                    onChange={(e) => atualizarCustom({ accent: e.target.value })}
+                    className="profile-settings__color-input"
+                    aria-label="Selecionar cor de destaque personalizada"
+                  />
+                  <input
+                    type="text"
+                    value={custom.accent}
+                    onChange={(e) => atualizarCustom({ accent: e.target.value })}
+                    maxLength={9}
+                    className="profile-settings__hex-input"
+                    aria-label="Código hexadecimal da cor de destaque"
+                  />
+                </div>
+              }
+            />
+          </SettingsGroup>
+        )}
+      </SettingsSection>
+
+      <SettingsSection
+        title="Movimento"
+        description="Por padrão o Stapp segue a preferência do sistema operacional. Aqui dá para reduzir só neste aplicativo."
+      >
+        <SettingsGroup>
+          <SettingsSegmented<MotionPreference>
+            label="Animações"
+            value={motion}
+            onChange={setMotion}
+            options={[
+              { value: 'system', label: 'Seguir o sistema', detail: 'Respeita "reduzir movimento" do SO.' },
+              { value: 'reduced', label: 'Sempre reduzidas', detail: 'Desliga transições e animações aqui.' },
+            ]}
+          />
+        </SettingsGroup>
+      </SettingsSection>
+    </>
   )
 }
 
