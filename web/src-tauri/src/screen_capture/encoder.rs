@@ -4,7 +4,9 @@
 //! QuickSync da Intel) que consomem diretamente a textura `ID3D11Texture2D`
 //! em formato NV12 produzida pelo `D3D11VideoScaler`.
 
+#[cfg(windows)]
 use std::sync::Once;
+#[cfg(windows)]
 use windows::{
     core::Interface,
     Win32::{
@@ -30,7 +32,6 @@ use windows::{
 
 pub const MAGIC_STAP: [u8; 4] = *b"STAP";
 pub const HEADER_SIZE: usize = 32;
-#[allow(dead_code)]
 pub const CODEC_JPEG: u8 = 0;
 pub const CODEC_H264: u8 = 1;
 pub const FLAG_KEYFRAME: u8 = 1 << 0;
@@ -89,6 +90,7 @@ impl PacketHeader {
         buf
     }
 
+    #[allow(dead_code)]
     pub fn parse(buf: &[u8]) -> Option<Self> {
         if buf.len() < HEADER_SIZE || &buf[0..4] != &MAGIC_STAP {
             return None;
@@ -107,6 +109,7 @@ impl PacketHeader {
         })
     }
 
+    #[allow(dead_code)]
     #[inline]
     pub fn is_keyframe(&self) -> bool {
         (self.flags & FLAG_KEYFRAME) != 0
@@ -184,9 +187,11 @@ pub struct EncodedPacket {
     pub data: Vec<u8>,
 }
 
+#[cfg(windows)]
 static MF_INIT: Once = Once::new();
 
 /// Garante que a Media Foundation seja inicializada uma unica vez no processo.
+#[cfg(windows)]
 pub fn ensure_mf_initialized() -> Result<(), String> {
     let mut init_res = Ok(());
     MF_INIT.call_once(|| {
@@ -199,6 +204,7 @@ pub fn ensure_mf_initialized() -> Result<(), String> {
 }
 
 /// Identifica a fabricante a partir do nome amigavel do encoder MFT de hardware.
+#[cfg(windows)]
 pub fn vendor_from_friendly_name(friendly_name: &str) -> &'static str {
     let lower = friendly_name.to_lowercase();
     if lower.contains("nvidia") || lower.contains("nvenc") {
@@ -215,6 +221,7 @@ pub fn vendor_from_friendly_name(friendly_name: &str) -> &'static str {
 }
 
 /// Descobre o primeiro encoder H.264 acelerado por hardware registrado no sistema.
+#[cfg(windows)]
 pub fn discover_hardware_h264_encoder() -> Result<Option<(IMFActivate, String)>, String> {
     ensure_mf_initialized()?;
 
@@ -280,12 +287,13 @@ pub fn discover_hardware_h264_encoder() -> Result<Option<(IMFActivate, String)>,
     Ok(result)
 }
 
+#[cfg(windows)]
 #[inline]
 fn pack_u32_pair(high: u32, low: u32) -> u64 {
     ((high as u64) << 32) | (low as u64)
 }
 
-#[allow(dead_code)]
+#[cfg(windows)]
 pub struct H264Encoder {
     mft: IMFTransform,
     event_gen: Option<IMFMediaEventGenerator>,
@@ -296,6 +304,7 @@ pub struct H264Encoder {
     width: u32,
     height: u32,
     fps: u32,
+    #[allow(dead_code)]
     bitrate: u32,
     frame_index: u64,
     cached_sps: Option<Vec<u8>>,
@@ -303,7 +312,7 @@ pub struct H264Encoder {
     force_keyframe_next: bool,
 }
 
-#[allow(dead_code)]
+#[cfg(windows)]
 impl H264Encoder {
     pub fn new(
         d3d_device: &ID3D11Device,
@@ -462,15 +471,18 @@ impl H264Encoder {
         self.height
     }
 
+    #[allow(dead_code)]
     pub fn fps(&self) -> u32 {
         self.fps
     }
 
+    #[allow(dead_code)]
     pub fn bitrate(&self) -> u32 {
         self.bitrate
     }
 
     /// Solicita que o proximo quadro codificado seja um IDR frame (keyframe).
+    #[allow(dead_code)]
     pub fn request_keyframe(&mut self) {
         self.force_keyframe_next = true;
     }
@@ -680,6 +692,7 @@ impl H264Encoder {
     }
 
     /// Forca a drenagem completa de qualquer quadro em fila no encoder.
+    #[allow(dead_code)]
     pub fn drain_all(&mut self) -> Result<Vec<EncodedPacket>, String> {
         let _ = unsafe {
             self.mft.ProcessMessage(
@@ -785,6 +798,7 @@ mod tests {
         assert_eq!(&stream[nalus[3].0..nalus[3].1], &p_nal);
     }
 
+    #[cfg(windows)]
     #[test]
     fn testa_inicializacao_do_encoder_h264_hardware() {
         use windows::Win32::Foundation::HMODULE;
@@ -826,6 +840,7 @@ mod tests {
         assert_eq!(encoder.height, 720);
     }
 
+    #[cfg(windows)]
     #[test]
     fn testa_codificacao_de_textura_d3d11_hardware() {
         use windows::Win32::Foundation::HMODULE;

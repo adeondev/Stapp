@@ -265,7 +265,7 @@ fn medir_laco_wgc(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
         };
 
         let cursor = Duration::ZERO;
-        let imagem = frame.image;
+        let imagem = session.read_to_rgba().expect("falha ao ler rgba");
         let destino_largura = frame.width;
         let destino_altura = frame.height;
         let redimensionar = frame.resize_duration;

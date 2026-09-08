@@ -3,7 +3,6 @@ mod metrics;
 pub(crate) mod wgc;
 #[cfg(windows)]
 pub(crate) mod scaler;
-#[cfg(windows)]
 pub(crate) mod encoder;
 
 use crate::screen_sources::{parse_source_id, SourceLocator};
@@ -345,7 +344,14 @@ fn capture_loop(
     let mut consecutive_failures = 0;
     let mut accumulator = MetricsAccumulator::default();
     let mut window_started = Instant::now();
+    let capture_started = Instant::now();
+    let mut sequence = 0u32;
     let mut last_frame_time = Instant::now().checked_sub(interval).unwrap_or_else(Instant::now);
+
+    #[cfg(windows)]
+    let mut h264_encoder: Option<encoder::H264Encoder> = None;
+    #[cfg(windows)]
+    let mut h264_disabled = std::env::var_os("STAPP_FORCE_JPEG_ENCODER").is_some();
 
     while !stop.load(Ordering::Relaxed) {
         if let Some(win_id) = window_id {
@@ -358,7 +364,7 @@ fn capture_loop(
             }
         }
 
-        let (image, target_width, target_height, capture_elapsed, resize_elapsed, idle_elapsed) = match &mut engine {
+        match &mut engine {
             #[cfg(windows)]
             CaptureEngine::Wgc(session) => {
                 let wait_timeout = Duration::from_millis(100);
@@ -366,8 +372,7 @@ fn capture_loop(
                 let frame_result = session.next_frame(wait_timeout, max_width, max_height, fps);
                 let idle_elapsed = wait_start.elapsed();
 
-                let mut timer = FrameTimer::start();
-                let (image, target_w, target_h, resize_elapsed) = match frame_result {
+                let wgc_frame = match frame_result {
                     Ok(Some(frame)) => {
                         let now = Instant::now();
                         if now.saturating_duration_since(last_frame_time) + Duration::from_millis(1) < interval {
@@ -376,7 +381,7 @@ fn capture_loop(
                         }
                         last_frame_time = now;
                         consecutive_failures = 0;
-                        (frame.image, frame.width, frame.height, frame.resize_duration)
+                        frame
                     }
                     Ok(None) => {
                         // Sem quadro novo nesta janela de espera (tela estatica)
@@ -405,8 +410,145 @@ fn capture_loop(
                         continue;
                     }
                 };
-                let capture_elapsed = timer.lap();
-                (image, target_w, target_h, capture_elapsed, resize_elapsed, idle_elapsed)
+
+                let target_w = wgc_frame.width;
+                let target_h = wgc_frame.height;
+                let capture_elapsed = wgc_frame.capture_duration;
+                let resize_elapsed = wgc_frame.resize_duration;
+
+                if !h264_disabled {
+                    if let Some(enc) = &h264_encoder {
+                        if enc.width() != target_w || enc.height() != target_h {
+                            log::info!(
+                                "Mudanca de resolucao detectada ({}x{}), reinicializando encoder H.264",
+                                target_w, target_h
+                            );
+                            h264_encoder = None;
+                        }
+                    }
+                    if h264_encoder.is_none() {
+                        match encoder::H264Encoder::new(
+                            session.d3d_device(),
+                            target_w,
+                            target_h,
+                            fps,
+                            4_000_000,
+                        ) {
+                            Ok(enc) => {
+                                log::info!(
+                                    "Encoder H.264 por hardware ativo: {} ({}), {}x{} @ {}fps",
+                                    enc.friendly_name(),
+                                    enc.vendor_name(),
+                                    target_w,
+                                    target_h,
+                                    fps
+                                );
+                                h264_encoder = Some(enc);
+                            }
+                            Err(err) => {
+                                log::warn!("Encoder H.264 indisponivel ({err}), usando fallback JPEG");
+                                h264_disabled = true;
+                            }
+                        }
+                    }
+                }
+
+                if let Some(enc) = &mut h264_encoder {
+                    let mut timer = FrameTimer::start();
+                    let packets = match enc.encode_texture(&wgc_frame.nv12_texture, false) {
+                        Ok(pkts) => pkts,
+                        Err(err) => {
+                            log::error!("falha na codificacao H.264: {err}");
+                            accumulator.record_failure();
+                            continue;
+                        }
+                    };
+                    let encode_elapsed = timer.lap();
+                    let timestamp_us = capture_started.elapsed().as_micros() as u64;
+
+                    let mut total_bytes = 0;
+                    let mut dispatch_elapsed = Duration::ZERO;
+                    for packet in packets {
+                        sequence = sequence.wrapping_add(1);
+                        let packed = encoder::pack_frame(
+                            encoder::CODEC_H264,
+                            packet.is_keyframe,
+                            capture_id,
+                            target_w,
+                            target_h,
+                            sequence,
+                            timestamp_us,
+                            &packet.data,
+                        );
+                        total_bytes += packed.len();
+                        let d_timer = Instant::now();
+                        if frame_channel.send(Response::new(packed)).is_err() {
+                            return;
+                        }
+                        dispatch_elapsed += d_timer.elapsed();
+                    }
+
+                    accumulator.record(FrameSample {
+                        capture: capture_elapsed,
+                        cursor: Duration::ZERO,
+                        resize: resize_elapsed,
+                        encode: encode_elapsed,
+                        dispatch: dispatch_elapsed,
+                        idle: idle_elapsed,
+                        bytes: total_bytes,
+                        width: target_w,
+                        height: target_h,
+                    });
+                } else {
+                    let image = match session.read_to_rgba() {
+                        Ok(img) => img,
+                        Err(err) => {
+                            log::warn!("falha no readback RGBA da textura WGC: {err}");
+                            accumulator.record_failure();
+                            continue;
+                        }
+                    };
+
+                    let mut timer = FrameTimer::start();
+                    let mut jpeg_bytes = Vec::with_capacity(32 * 1024);
+                    if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 72)
+                        .encode_image(&image)
+                        .is_err()
+                    {
+                        accumulator.record_failure();
+                        continue;
+                    }
+                    let encode_elapsed = timer.lap();
+                    sequence = sequence.wrapping_add(1);
+                    let timestamp_us = capture_started.elapsed().as_micros() as u64;
+                    let packet = encoder::pack_frame(
+                        encoder::CODEC_JPEG,
+                        true,
+                        capture_id,
+                        target_w,
+                        target_h,
+                        sequence,
+                        timestamp_us,
+                        &jpeg_bytes,
+                    );
+                    let bytes = packet.len();
+                    if frame_channel.send(Response::new(packet)).is_err() {
+                        break;
+                    }
+                    let dispatch_elapsed = timer.lap();
+
+                    accumulator.record(FrameSample {
+                        capture: capture_elapsed,
+                        cursor: Duration::ZERO,
+                        resize: resize_elapsed,
+                        encode: encode_elapsed,
+                        dispatch: dispatch_elapsed,
+                        idle: idle_elapsed,
+                        bytes,
+                        width: target_w,
+                        height: target_h,
+                    });
+                }
             }
             CaptureEngine::Gdi(source) => {
                 let mut timer = FrameTimer::start();
@@ -467,43 +609,47 @@ fn capture_loop(
                     Duration::ZERO
                 };
 
-                (image, target_w, target_h, capture_elapsed, resize_elapsed, idle_elapsed)
+                let mut timer = FrameTimer::start();
+                let mut jpeg_bytes = Vec::with_capacity(32 * 1024);
+                if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 72)
+                    .encode_image(&image)
+                    .is_err()
+                {
+                    accumulator.record_failure();
+                    continue;
+                }
+                let encode_elapsed = timer.lap();
+                sequence = sequence.wrapping_add(1);
+                let timestamp_us = capture_started.elapsed().as_micros() as u64;
+                let packet = encoder::pack_frame(
+                    encoder::CODEC_JPEG,
+                    true,
+                    capture_id,
+                    target_w,
+                    target_h,
+                    sequence,
+                    timestamp_us,
+                    &jpeg_bytes,
+                );
+                let bytes = packet.len();
+                if frame_channel.send(Response::new(packet)).is_err() {
+                    break;
+                }
+                let dispatch_elapsed = timer.lap();
+
+                accumulator.record(FrameSample {
+                    capture: capture_elapsed,
+                    cursor: Duration::ZERO,
+                    resize: resize_elapsed,
+                    encode: encode_elapsed,
+                    dispatch: dispatch_elapsed,
+                    idle: idle_elapsed,
+                    bytes,
+                    width: target_w,
+                    height: target_h,
+                });
             }
-        };
-
-        let mut timer = FrameTimer::start();
-        let cursor_elapsed = Duration::ZERO;
-
-        let mut packet = Vec::with_capacity(12 + (target_width * target_height) as usize);
-        packet.extend_from_slice(&target_width.to_le_bytes());
-        packet.extend_from_slice(&target_height.to_le_bytes());
-        packet.extend_from_slice(&capture_id.to_le_bytes());
-        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut packet, 72)
-            .encode_image(&image)
-            .is_err()
-        {
-            accumulator.record_failure();
-            continue;
         }
-        let encode_elapsed = timer.lap();
-        let bytes = packet.len();
-
-        if frame_channel.send(Response::new(packet)).is_err() {
-            break;
-        }
-        let dispatch_elapsed = timer.lap();
-
-        accumulator.record(FrameSample {
-            capture: capture_elapsed,
-            cursor: cursor_elapsed,
-            resize: resize_elapsed,
-            encode: encode_elapsed,
-            dispatch: dispatch_elapsed,
-            idle: idle_elapsed,
-            bytes,
-            width: target_width,
-            height: target_height,
-        });
 
         let window_elapsed = window_started.elapsed();
         if window_elapsed >= metrics::WINDOW {

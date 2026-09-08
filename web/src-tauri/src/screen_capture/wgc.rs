@@ -61,11 +61,10 @@ pub fn is_wgc_supported() -> bool {
 /// Quadro capturado por WGC e escalonado em GPU com conversao para NV12.
 #[derive(Clone)]
 pub struct ScaledWgcFrame {
-    pub image: RgbaImage,
     pub width: u32,
     pub height: u32,
+    pub capture_duration: Duration,
     pub resize_duration: Duration,
-    #[allow(dead_code)]
     pub nv12_texture: ID3D11Texture2D,
 }
 
@@ -253,6 +252,7 @@ impl WgcSession {
             self.current_size = content_size;
         }
 
+        let capture_timer = std::time::Instant::now();
         let surface = frame
             .Surface()
             .map_err(|e| format!("falha obtendo Surface do quadro: {e}"))?;
@@ -263,6 +263,7 @@ impl WgcSession {
 
         let source_texture = unsafe { access.GetInterface::<ID3D11Texture2D>() }
             .map_err(|e| format!("falha obtendo ID3D11Texture2D: {e}"))?;
+        let capture_duration = capture_timer.elapsed();
 
         let width = content_size.Width as u32;
         let height = content_size.Height as u32;
@@ -290,17 +291,29 @@ impl WgcSession {
             .scale_nv12(&source_texture, width, height, target_width, target_height, fps)?;
         let resize_duration = timer.elapsed();
         let nv12_texture = scaler.output_texture().clone();
-
-        let image = scaler.read_to_rgba()?;
         let _ = frame.Close();
 
         Ok(Some(ScaledWgcFrame {
-            image,
             width: target_width,
             height: target_height,
+            capture_duration,
             resize_duration,
             nv12_texture,
         }))
+    }
+
+    pub fn d3d_device(&self) -> &ID3D11Device {
+        &self.d3d_device
+    }
+
+    /// Faz o readback da textura escalonada para RGBA na CPU, usado exclusivamente como fallback
+    /// quando o encoder H.264 por hardware nao esta disponivel.
+    pub fn read_to_rgba(&mut self) -> Result<RgbaImage, String> {
+        if let Some(scaler) = &mut self.scaler {
+            scaler.read_to_rgba()
+        } else {
+            Err("escalonador D3D11 nao inicializado".to_string())
+        }
     }
 
     pub fn close(&mut self) {
