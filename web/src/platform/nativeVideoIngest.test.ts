@@ -564,4 +564,74 @@ describe('createNativeVideoIngest - integracao ponta a ponta', () => {
     expect(receivedSpy).toHaveBeenCalledWith(80, true)
     expect(ingest.stats.droppedFrames).toBe(1)
   })
+
+  it('teste de fumaca ponta a ponta: ingestao de stream continuo H.264 (keyframe + deltas) sem descarte e entrega ao track', async () => {
+    const ingest = createIngestMetrics()
+    const onFirstFrame = vi.fn()
+
+    const nativeIngest = createNativeVideoIngest({
+      ingest,
+      onFirstFrame,
+      maxQueueSize: 4,
+    })!
+
+    // 1. Envia Keyframe H.264 inicial com SPS (NAL 7)
+    const keyPacket: ScreenCapturePacket = {
+      codec: 1,
+      isKeyframe: true,
+      timestampUs: 1000n,
+      sequence: 1,
+      width: 1920,
+      height: 1080,
+      captureId: 42,
+      payload: new Uint8Array([0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0xe0, 0x1f, 0x05, 0xaa]),
+    }
+    expect(nativeIngest.feed(keyPacket)).toBe(true)
+    expect(mockDecoderInstance.configure).toHaveBeenCalledWith({
+      codec: 'avc1.42e01f',
+      optimizeForLatency: true,
+    })
+
+    // Simula saida do frame 1
+    const frame1Close = vi.fn()
+    mockDecoderInstance.outputCallback({ timestamp: 0, close: frame1Close } as unknown as VideoFrame)
+
+    await vi.waitFor(() => {
+      expect(onFirstFrame).toHaveBeenCalledOnce()
+      expect(mockWriterInstance.write).toHaveBeenCalledTimes(1)
+      expect(frame1Close).toHaveBeenCalledOnce()
+    })
+
+    // 2. Envia sequencia de 4 Delta frames
+    for (let seq = 2; seq <= 5; seq++) {
+      const deltaPacket: ScreenCapturePacket = {
+        codec: 1,
+        isKeyframe: false,
+        timestampUs: BigInt(seq * 16_666),
+        sequence: seq,
+        width: 1920,
+        height: 1080,
+        captureId: 42,
+        payload: new Uint8Array([0x00, 0x00, 0x01, 0x41, 0x9a, seq]),
+      }
+      expect(nativeIngest.feed(deltaPacket)).toBe(true)
+
+      const frameClose = vi.fn()
+      mockDecoderInstance.outputCallback({ timestamp: seq - 1, close: frameClose } as unknown as VideoFrame)
+      await vi.waitFor(() => {
+        expect(mockWriterInstance.write).toHaveBeenCalledTimes(seq)
+        expect(frameClose).toHaveBeenCalledOnce()
+      })
+    }
+
+    // 3. Verifica contadores e estatisticas de ponta a ponta
+    expect(mockWriterInstance.write).toHaveBeenCalledTimes(5)
+    expect(ingest.stats.droppedFrames).toBe(0)
+    expect(nativeIngest.stream.getVideoTracks()).toHaveLength(1)
+
+    // 4. Encerramento limpo
+    nativeIngest.stop()
+    expect(mockDecoderInstance.close).toHaveBeenCalledOnce()
+    expect(mockGeneratorInstance.stop).toHaveBeenCalledOnce()
+  })
 })

@@ -655,3 +655,117 @@ fn testa_calculo_qualidade_jpeg_adaptativo() {
     assert_eq!(compute_jpeg_quality(8_000_000), 85);
 }
 
+#[cfg(windows)]
+#[test]
+fn teste_de_fumaca_pipeline_nativo_ponta_a_ponta() {
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+    use windows::Win32::Graphics::Direct3D11::{
+        D3D11CreateDevice, D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE,
+        D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
+        D3D11_USAGE_DEFAULT,
+    };
+    use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_SAMPLE_DESC};
+
+    let mut d3d_device = None;
+    let mut d3d_context = None;
+    let hr = unsafe {
+        D3D11CreateDevice(
+            None,
+            D3D_DRIVER_TYPE_HARDWARE,
+            HMODULE::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut d3d_device),
+            None,
+            Some(&mut d3d_context),
+        )
+    };
+    if hr.is_err() {
+        return;
+    }
+    let device = d3d_device.unwrap();
+    let context = d3d_context.unwrap();
+
+    // 1. Escalonador D3D11 VideoProcessor: 1920x1080 -> 1280x720 em NV12
+    let mut scaler = match scaler::D3D11VideoScaler::new(&device, &context, 1920, 1080, 1280, 720, 60) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let in_desc = D3D11_TEXTURE2D_DESC {
+        Width: 1920,
+        Height: 1080,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+        CPUAccessFlags: 0,
+        MiscFlags: 0,
+    };
+    let mut input_texture = None;
+    let tex_hr = unsafe { device.CreateTexture2D(&in_desc, None, Some(&mut input_texture)) };
+    assert!(tex_hr.is_ok(), "falha criando textura BGRA de entrada");
+    let input_texture = input_texture.unwrap();
+
+    let scaled_nv12 = scaler
+        .scale_nv12(&input_texture, 1920, 1080, 1280, 720, 60)
+        .expect("falha ao escalonar textura para NV12 na GPU");
+
+    // 2. Codificacao H.264 por hardware (se disponivel no host)
+    if let Ok(Some((_, _friendly_name))) = encoder::discover_hardware_h264_encoder() {
+        let mut encoder = match encoder::H264Encoder::new(&device, 1280, 720, 60, 3_500_000) {
+            Ok(enc) => enc,
+            Err(_) => return,
+        };
+
+        let packets = encoder
+            .encode_texture(scaled_nv12, true)
+            .expect("falha codificando frame de video");
+        let flushed = encoder.drain_all().expect("falha drenando encoder");
+        let all_packets: Vec<_> = packets.into_iter().chain(flushed.into_iter()).collect();
+
+        assert!(!all_packets.is_empty(), "encoder deve produzir ao menos 1 pacote");
+        let keyframe = all_packets.iter().find(|p| p.is_keyframe).expect("deve conter keyframe");
+
+        // 3. Empacotamento binario STAP de 32 bytes
+        let stap_packet = encoder::pack_frame(
+            encoder::CODEC_H264,
+            keyframe.is_keyframe,
+            99,
+            1280,
+            720,
+            1,
+            500_000,
+            &keyframe.data,
+        );
+        let stap_header = encoder::PacketHeader::parse(&stap_packet).expect("cabecalho STAP valido");
+        assert_eq!(stap_header.magic, encoder::MAGIC_STAP);
+        assert_eq!(stap_header.codec, encoder::CODEC_H264);
+        assert!(stap_header.is_keyframe());
+        assert_eq!(stap_header.capture_id, 99);
+        assert_eq!(stap_header.width, 1280);
+        assert_eq!(stap_header.height, 720);
+        assert_eq!(stap_header.sequence, 1);
+        assert_eq!(stap_header.timestamp_us, 500_000);
+        assert_eq!(&stap_packet[encoder::HEADER_SIZE..], &keyframe.data);
+
+        // 4. Empacotamento binario SAUD de 32 bytes para audio da tela
+        let pcm_floats = [0.125f32, -0.125f32, 0.5f32, -0.5f32];
+        let mut pcm_bytes = Vec::new();
+        for s in &pcm_floats {
+            pcm_bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        let saud_packet = encoder::pack_audio_frame(99, 48_000, 2, 1, 500_000, &pcm_bytes);
+        let saud_header = encoder::AudioPacketHeader::parse(&saud_packet).expect("cabecalho SAUD valido");
+        assert_eq!(saud_header.magic, encoder::MAGIC_SAUD);
+        assert_eq!(saud_header.sample_rate, 48_000);
+        assert_eq!(saud_header.channels, 2);
+        assert_eq!(saud_header.capture_id, 99);
+        assert_eq!(&saud_packet[encoder::AUDIO_HEADER_SIZE..], &pcm_bytes);
+    }
+}
+
