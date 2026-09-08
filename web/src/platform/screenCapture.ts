@@ -1,4 +1,18 @@
 import screenAudioWorkletUrl from './screen-audio-worklet.ts?worker&url'
+import {
+  createNativeVideoIngest,
+  DEFAULT_DECODE_QUEUE_CAPACITY,
+  type NativeVideoIngest,
+} from './nativeVideoIngest'
+import {
+  createCanvasFallbackIngest,
+  type CanvasFallbackIngest,
+  createCaptureCanvas,
+  type CaptureCanvasRenderer,
+} from './canvasFallback'
+
+export { createCaptureCanvas, type CaptureCanvasRenderer }
+export { createCanvasFallbackIngest, type CanvasFallbackIngest }
 
 export type ScreenSourceKind = 'screen' | 'window'
 
@@ -11,6 +25,7 @@ export interface ScreenSource {
 }
 
 export interface NativeScreenCapture {
+  captureId?: number
   stream: MediaStream
   track: MediaStreamTrack
   audioTrack?: MediaStreamTrack
@@ -18,9 +33,247 @@ export interface NativeScreenCapture {
   audioError?: string
   audioValidation?: AudioExclusionValidation
   audioPlaybackStats?: ScreenAudioPlaybackStats
+  videoStats?: ScreenVideoStats
   ended: Promise<string>
   stop(): Promise<void>
+  requestKeyframe?(): Promise<void>
 }
+
+/**
+ * Retrato do laco nativo. Os nomes sao `snake_case` porque vem direto do serde
+ * de `screen_capture/metrics.rs` — nao "arrume" isso.
+ */
+export interface ScreenVideoNativeStats {
+  fps: number
+  target_fps: number
+  frames: number
+  failures: number
+  capture_ms: number
+  cursor_ms: number
+  resize_ms: number
+  encode_ms: number
+  dispatch_ms: number
+  frame_ms: number
+  idle_ms: number
+  bytes_per_second: number
+  width: number
+  height: number
+  encoder_name?: string | null
+}
+
+/**
+ * O que acontece com o quadro depois que ele cruza o IPC.
+ *
+ * `droppedFrames` e acumulado desde o inicio da captura, e nao por janela: e o
+ * numero que responde "quantos quadros o pipeline perdeu nesta transmissao".
+ * Ele conta o descarte silencioso do slot unico `latestFrame` — quando a
+ * decodificacao nao acompanha a chegada, o quadro anterior morre sem nunca ter
+ * sido desenhado, e ate agora isso sumia sem deixar rastro.
+ */
+export interface ScreenVideoIngestStats {
+  receivedFps: number
+  drawnFps: number
+  droppedFps: number
+  droppedFrames: number
+  decodeMs: number
+  drawMs: number
+  bytesPerSecond: number
+}
+
+export interface ScreenVideoStats {
+  native: ScreenVideoNativeStats | null
+  ingest: ScreenVideoIngestStats
+}
+
+export interface IngestMetrics {
+  readonly stats: ScreenVideoIngestStats
+  received(bytes: number, replacedUndrawn: boolean): void
+  drawn(decodeMs: number, drawMs: number): void
+  /** Fecha a janela quando ela ja completou. `true` quando publicou. */
+  flush(): boolean
+}
+
+/**
+ * Acumulador da ingestao no WebView, espelho do `MetricsAccumulator` do Rust.
+ *
+ * `now` e `windowMs` sao injetaveis para o teste nao depender de relogio real —
+ * a conta que precisa de cobertura e a media por janela, nao o `performance.now`.
+ */
+export function createIngestMetrics(
+  now: () => number = () => performance.now(),
+  windowMs = 1_000,
+): IngestMetrics {
+  const stats: ScreenVideoIngestStats = {
+    receivedFps: 0, drawnFps: 0, droppedFps: 0, droppedFrames: 0,
+    decodeMs: 0, drawMs: 0, bytesPerSecond: 0,
+  }
+  let windowStart = now()
+  let received = 0
+  let drawn = 0
+  let dropped = 0
+  let bytes = 0
+  let decodeTotal = 0
+  let drawTotal = 0
+
+  const flush = () => {
+    const elapsed = now() - windowStart
+    if (elapsed < windowMs) return false
+    const seconds = elapsed / 1_000
+    stats.receivedFps = round2(received / seconds)
+    stats.drawnFps = round2(drawn / seconds)
+    stats.droppedFps = round2(dropped / seconds)
+    stats.decodeMs = drawn > 0 ? round2(decodeTotal / drawn) : 0
+    stats.drawMs = drawn > 0 ? round2(drawTotal / drawn) : 0
+    stats.bytesPerSecond = round2(bytes / seconds)
+    windowStart = now()
+    received = 0
+    drawn = 0
+    dropped = 0
+    bytes = 0
+    decodeTotal = 0
+    drawTotal = 0
+    return true
+  }
+
+  return {
+    stats,
+    received(byteLength: number, replacedUndrawn: boolean) {
+      received += 1
+      bytes += byteLength
+      if (replacedUndrawn) {
+        dropped += 1
+        stats.droppedFrames += 1
+      }
+      flush()
+    },
+    drawn(decodeMs: number, drawMs: number) {
+      drawn += 1
+      decodeTotal += decodeMs
+      drawTotal += drawMs
+      flush()
+    },
+    flush,
+  }
+}
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100
+}
+
+export interface ScreenCapturePacket {
+  codec: number // 0 = JPEG, 1 = H.264
+  isKeyframe: boolean
+  captureId: number
+  width: number
+  height: number
+  sequence: number
+  timestampUs: bigint
+  payload: Uint8Array
+}
+
+/**
+ * Interpreta pacotes binarios recebidos pelo canal de quadros da captura nativa.
+ * Suporta tanto o cabecalho moderno 'STAP' (32 bytes) com codec H.264/JPEG quanto
+ * o cabecalho legado de 12 bytes (width, height, capture_id) para retrocompatibilidade.
+ */
+export function parseScreenCapturePacket(rawBytes: Uint8Array): ScreenCapturePacket | null {
+  if (rawBytes.byteLength < 12) return null
+
+  // Verifica magic "STAP" (0x53, 0x54, 0x41, 0x50) e versao 1
+  if (
+    rawBytes.byteLength >= 32 &&
+    rawBytes[0] === 0x53 &&
+    rawBytes[1] === 0x54 &&
+    rawBytes[2] === 0x41 &&
+    rawBytes[3] === 0x50 &&
+    rawBytes[4] === 1
+  ) {
+    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
+    const codec = rawBytes[5]
+    const flags = rawBytes[6]
+    const isKeyframe = (flags & 1) !== 0
+    const captureId = view.getUint32(8, true)
+    const width = view.getUint32(12, true)
+    const height = view.getUint32(16, true)
+    const sequence = view.getUint32(20, true)
+    const timestampUs = view.getBigUint64(24, true)
+    const payload = rawBytes.subarray(32)
+    return {
+      codec,
+      isKeyframe,
+      captureId,
+      width,
+      height,
+      sequence,
+      timestampUs,
+      payload,
+    }
+  }
+
+  // Fallback para cabecalho legado de 12 bytes (width, height, capture_id) com JPEG
+  const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
+  const width = view.getUint32(0, true)
+  const height = view.getUint32(4, true)
+  const captureId = view.getUint32(8, true)
+  const payload = rawBytes.subarray(12)
+  return {
+    codec: 0,
+    isKeyframe: true,
+    captureId,
+    width,
+    height,
+    sequence: 0,
+    timestampUs: 0n,
+    payload,
+  }
+}
+
+export interface ScreenAudioPacket {
+  captureId: number
+  sampleRate: number
+  channels: number
+  sequence: number
+  timestampUs: bigint
+  pcm: Uint8Array
+}
+
+/**
+ * Interpreta pacotes binarios de audio recebidos pelo canal dedicado de audio.
+ * Valida o cabecalho padrao 'SAUD' (32 bytes) e extrai os parametros e payload PCM.
+ */
+export function parseScreenAudioPacket(rawBytes: Uint8Array): ScreenAudioPacket | null {
+  if (rawBytes.byteLength < 32) return null
+
+  // Verifica magic "SAUD" (0x53, 0x41, 0x55, 0x44) e versao 1
+  if (
+    rawBytes[0] === 0x53 &&
+    rawBytes[1] === 0x41 &&
+    rawBytes[2] === 0x55 &&
+    rawBytes[3] === 0x44 &&
+    rawBytes[4] === 1
+  ) {
+    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
+    const channels = rawBytes[5]
+    const captureId = view.getUint32(8, true)
+    const sampleRate = view.getUint32(12, true)
+    const sequence = view.getUint32(16, true)
+    const timestampUs = view.getBigUint64(20, true)
+    const pcm = rawBytes.subarray(32)
+    return {
+      captureId,
+      sampleRate,
+      channels,
+      sequence,
+      timestampUs,
+      pcm,
+    }
+  }
+
+  return null
+}
+
+export { extractH264CodecString } from './nativeVideoIngest'
+
 
 export interface ScreenAudioPlaybackStats {
   bufferedFrames: number
@@ -83,6 +336,7 @@ type CaptureEvent =
       pcm: Uint8Array | ArrayBuffer | number[]
     }
   | { event: 'audio_unavailable'; capture_id: number; reason: string }
+  | { event: 'video_stats'; capture_id: number; stats: ScreenVideoNativeStats }
   | { event: 'ended'; capture_id: number; reason: string }
 
 export function isTauriRuntime() {
@@ -270,52 +524,10 @@ async function validateBrowserAudioExclusion(
   }
 }
 
-interface CaptureCanvasRenderer {
-  context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
-  width: number
-  height: number
-  resize(width: number, height: number): void
-  captureStream(fps: number): MediaStream
-}
-
-function createCaptureCanvas(initialWidth: number, initialHeight: number): CaptureCanvasRenderer {
-  const supportsOffscreenCapture = typeof OffscreenCanvas !== 'undefined'
-    && typeof (OffscreenCanvas.prototype as { captureStream?: unknown }).captureStream === 'function'
-
-  if (supportsOffscreenCapture) {
-    const offscreen = new OffscreenCanvas(initialWidth, initialHeight)
-    const context = (offscreen.getContext('2d', { alpha: false, desynchronized: true })
-      ?? offscreen.getContext('2d', { alpha: false })) as OffscreenCanvasRenderingContext2D | null
-    if (context) {
-      return {
-        context,
-        get width() { return offscreen.width },
-        get height() { return offscreen.height },
-        resize(width: number, height: number) {
-          offscreen.width = width
-          offscreen.height = height
-        },
-        captureStream: (fps: number) => (offscreen as unknown as HTMLCanvasElement).captureStream(fps),
-      }
-    }
-  }
-
-  const htmlCanvas = document.createElement('canvas')
-  htmlCanvas.width = initialWidth
-  htmlCanvas.height = initialHeight
-  const context = (htmlCanvas.getContext('2d', { alpha: false, desynchronized: true })
-    ?? htmlCanvas.getContext('2d', { alpha: false })) as CanvasRenderingContext2D | null
-  if (!context) throw new Error('o renderizador de captura nao esta disponivel')
-  return {
-    context,
-    get width() { return htmlCanvas.width },
-    get height() { return htmlCanvas.height },
-    resize(width: number, height: number) {
-      htmlCanvas.width = width
-      htmlCanvas.height = height
-    },
-    captureStream: (fps: number) => htmlCanvas.captureStream(fps),
-  }
+export async function requestScreenCaptureKeyframe(captureId: number): Promise<void> {
+  if (!isTauriRuntime() || captureId <= 0) return
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('request_screen_capture_keyframe', { captureId })
 }
 
 export async function startNativeScreenCapture(options: {
@@ -323,13 +535,11 @@ export async function startNativeScreenCapture(options: {
   maxWidth: number
   maxHeight: number
   fps: number
+  bitrate?: number
   includeAudio: boolean
   contentHint?: 'detail' | 'motion'
 }): Promise<NativeScreenCapture> {
   if (!isTauriRuntime()) throw new Error('captura nativa disponivel somente no aplicativo')
-
-  const renderer = createCaptureCanvas(options.maxWidth, options.maxHeight)
-  const { context } = renderer
 
   const { Channel, invoke } = await import('@tauri-apps/api/core')
   const fullScreenAudio = options.includeAudio && options.sourceId.startsWith('screen:')
@@ -339,10 +549,11 @@ export async function startNativeScreenCapture(options: {
   const includeAudio = options.includeAudio && (!fullScreenAudio || audioValidation?.safe === true)
   const channel = new Channel<CaptureEvent>()
   const frameChannel = new Channel<ArrayBuffer | Uint8Array>()
+  const audioChannel = new Channel<ArrayBuffer | Uint8Array>()
   let captureId = 0
   let stopped = false
-  let latestFrame: { width: number; height: number; bytes: Uint8Array } | null = null
-  let decoding = false
+  const ingest = createIngestMetrics()
+  const videoStats: ScreenVideoStats = { native: null, ingest: ingest.stats }
   let firstFrameDone = false
   let resolveFirstFrame!: () => void
   let rejectFirstFrame!: (error: Error) => void
@@ -380,52 +591,65 @@ export async function startNativeScreenCapture(options: {
     resolveAudioReady(available)
   }
 
-  const drawLatest = async () => {
-    if (decoding) return
-    decoding = true
-    try {
-      while (latestFrame && !stopped) {
-        const frame = latestFrame
-        latestFrame = null
-        const blob = new Blob([frame.bytes as BlobPart], { type: 'image/jpeg' })
-        const bitmap = await createImageBitmap(
-          blob,
-          { imageOrientation: 'none', premultiplyAlpha: 'none' },
-        )
-        if (renderer.width !== frame.width || renderer.height !== frame.height) {
-          renderer.resize(frame.width, frame.height)
-        }
-        context.drawImage(bitmap, 0, 0, frame.width, frame.height)
-        bitmap.close()
+  const ingestPipeline: NativeVideoIngest | CanvasFallbackIngest =
+    createNativeVideoIngest({
+      ingest,
+      onFirstFrame() {
         if (!firstFrameDone) {
           firstFrameDone = true
           resolveFirstFrame()
         }
-      }
-    } finally {
-      decoding = false
-    }
-  }
+      },
+      async onRequestKeyframe() {
+        if (captureId > 0) {
+          await requestScreenCaptureKeyframe(captureId)
+        }
+      },
+      onError(err: Error) {
+        console.error('[screen-capture] erro no nativeIngest:', err)
+      },
+      maxQueueSize: DEFAULT_DECODE_QUEUE_CAPACITY,
+    }) ??
+    createCanvasFallbackIngest({
+      maxWidth: options.maxWidth,
+      maxHeight: options.maxHeight,
+      fps: options.fps,
+      ingest,
+      onFirstFrame() {
+        if (!firstFrameDone) {
+          firstFrameDone = true
+          resolveFirstFrame()
+        }
+      },
+    })
 
   frameChannel.onmessage = (message) => {
     if (stopped) return
     const rawBytes = message instanceof Uint8Array
       ? message
       : new Uint8Array(message instanceof ArrayBuffer ? message : (message as ArrayBufferView).buffer)
-    if (rawBytes.byteLength < 12) return
 
-    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
-    const width = view.getUint32(0, true)
-    const height = view.getUint32(4, true)
-    const packetCaptureId = view.getUint32(8, true)
-    if (captureId > 0 && packetCaptureId !== captureId) return
+    const packet = parseScreenCapturePacket(rawBytes)
+    if (!packet) return
+    if (captureId > 0 && packet.captureId !== captureId) return
 
-    latestFrame = {
-      width,
-      height,
-      bytes: rawBytes.subarray(12),
-    }
-    void drawLatest()
+    ingestPipeline.feed(packet)
+  }
+
+  audioChannel.onmessage = (message) => {
+    if (stopped) return
+    if (!audioConfirmed || !audioPipeline) return
+
+    const rawBytes = message instanceof Uint8Array
+      ? message
+      : new Uint8Array(message instanceof ArrayBuffer ? message : (message as ArrayBufferView).buffer)
+
+    const packet = parseScreenAudioPacket(rawBytes)
+    const pcmBytes = packet ? packet.pcm : rawBytes
+    if (packet && captureId > 0 && packet.captureId !== captureId) return
+
+    const buffer = pcmBytes.buffer.slice(pcmBytes.byteOffset, pcmBytes.byteOffset + pcmBytes.byteLength) as ArrayBuffer
+    audioPipeline.node.port.postMessage({ t: 'pcm', buffer }, [buffer])
   }
 
   channel.onmessage = (event) => {
@@ -438,6 +662,10 @@ export async function startNativeScreenCapture(options: {
     if (event.event === 'audio_unavailable') {
       audioError = event.reason
       finishAudioReady(false)
+      return
+    }
+    if (event.event === 'video_stats') {
+      videoStats.native = event.stats
       return
     }
     if (event.event === 'audio_format') {
@@ -470,9 +698,11 @@ export async function startNativeScreenCapture(options: {
       maxWidth: options.maxWidth,
       maxHeight: options.maxHeight,
       fps: options.fps,
+      bitrate: options.bitrate,
       includeAudio: includeAudio && Boolean(audioPipeline),
       channel,
       frameChannel,
+      audioChannel,
     })
   } catch (error) {
     await audioPipeline?.close()
@@ -492,8 +722,7 @@ export async function startNativeScreenCapture(options: {
     window.clearTimeout(timeout)
   }
 
-  const stream = renderer.captureStream(Math.min(options.fps, 60))
-  const track = stream.getVideoTracks()[0]
+  const { stream, track } = ingestPipeline
   if (!track) {
     await invoke('stop_screen_capture', { captureId }).catch(() => {})
     await audioPipeline?.close()
@@ -517,6 +746,7 @@ export async function startNativeScreenCapture(options: {
   if (audioTrack) stream.addTrack(audioTrack)
 
   return {
+    captureId,
     stream,
     track,
     audioTrack,
@@ -524,10 +754,17 @@ export async function startNativeScreenCapture(options: {
     audioError,
     audioValidation,
     audioPlaybackStats: audioPipeline?.stats,
+    videoStats,
     ended,
+    async requestKeyframe() {
+      await requestScreenCaptureKeyframe(captureId)
+    },
     async stop() {
       if (stopped) return
       stopped = true
+      frameChannel.onmessage = () => {}
+      audioChannel.onmessage = () => {}
+      ingestPipeline.stop()
       await invoke('stop_screen_capture', { captureId }).catch(() => {})
       for (const mediaTrack of stream.getTracks()) mediaTrack.stop()
       await audioPipeline?.close()

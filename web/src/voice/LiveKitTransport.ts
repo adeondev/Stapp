@@ -56,12 +56,67 @@ interface InboundAudioBaseline {
   jitterBufferEmittedCount: number
 }
 
-const SCREEN_PRESETS = {
+export const SCREEN_PRESETS = {
   economy: { width: 1280, height: 720, frameRate: 15, maxBitrate: 1_200_000 },
   balanced: { width: 1920, height: 1080, frameRate: 30, maxBitrate: 3_500_000 },
-  fluid: { width: 1280, height: 720, frameRate: 60, maxBitrate: 4_500_000 },
+  fluid: { width: 1280, height: 720, frameRate: 60, maxBitrate: 3_000_000 },
+  '1080p60': { width: 1920, height: 1080, frameRate: 60, maxBitrate: 6_000_000 },
   original: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 8_000_000 },
 } as const
+
+export interface ScreenSourceResolution {
+  width?: number
+  height?: number
+}
+
+export interface ResolvedScreenPreset {
+  width: number
+  height: number
+  frameRate: number
+  maxBitrate: number
+  contentHint: 'detail' | 'motion'
+  degradationPreference: RTCDegradationPreference
+}
+
+export function resolveScreenPreset(
+  preset: ScreenPreset,
+  source?: ScreenSourceResolution | null,
+): ResolvedScreenPreset {
+  const base = SCREEN_PRESETS[preset]
+  const isMotion = preset === 'fluid' || preset === '1080p60'
+  const contentHint: 'detail' | 'motion' = isMotion ? 'motion' : 'detail'
+  const degradationPreference: RTCDegradationPreference = isMotion
+    ? 'maintain-framerate'
+    : 'maintain-resolution'
+
+  if (preset === 'original' && source && source.width && source.height && source.width > 0 && source.height > 0) {
+    const srcW = source.width
+    const srcH = source.height
+    // No preset "original", respeita a resolucao real da fonte em vez de forcar 4K (3840x2160).
+    // O bitrate e adaptado a resolucao real para nao alocar 8 Mbps cegamente em telas 1080p/720p.
+    const pixels = srcW * srcH
+    const pps = pixels * 60
+    const calculatedBitrate = Math.round(pps * 0.035)
+    const maxBitrate = Math.min(base.maxBitrate, Math.max(1_500_000, calculatedBitrate))
+    return {
+      width: srcW,
+      height: srcH,
+      frameRate: base.frameRate,
+      maxBitrate,
+      contentHint,
+      degradationPreference,
+    }
+  }
+
+  return {
+    width: base.width,
+    height: base.height,
+    frameRate: base.frameRate,
+    maxBitrate: base.maxBitrate,
+    contentHint,
+    degradationPreference,
+  }
+}
 
 async function applySenderDegradationPreference(
   publication: TrackPublication | undefined,
@@ -236,11 +291,22 @@ export class LiveKitTransport implements VoiceTransport {
         await this.stopScreenShare(room)
       }
 
-      const quality = SCREEN_PRESETS[preset]
-      const contentHint = preset === 'fluid' ? 'motion' : 'detail'
-      const degradationPreference: RTCDegradationPreference = preset === 'fluid'
-        ? 'maintain-framerate'
-        : 'maintain-resolution'
+      let sourceResolution: ScreenSourceResolution | undefined =
+        options.sourceWidth && options.sourceHeight
+          ? { width: options.sourceWidth, height: options.sourceHeight }
+          : undefined
+
+      if (!sourceResolution && sourceId && isTauriRuntime()) {
+        try {
+          const sources = await listScreenSources()
+          const found = sources.find((s) => s.id === sourceId)
+          if (found && found.width > 0 && found.height > 0) {
+            sourceResolution = { width: found.width, height: found.height }
+          }
+        } catch {}
+      }
+
+      let quality = resolveScreenPreset(preset, sourceResolution)
 
       if (isTauriRuntime()) {
         if (!sourceId) {
@@ -252,8 +318,9 @@ export class LiveKitTransport implements VoiceTransport {
           maxWidth: quality.width,
           maxHeight: quality.height,
           fps: quality.frameRate,
+          bitrate: quality.maxBitrate,
           includeAudio: includeAudio && this.config.screen_audio,
-          contentHint,
+          contentHint: quality.contentHint,
         })
         this.nativeScreenCapture = capture
         this.screenAudioDiagnostic = capture.audioValidation ?? null
@@ -265,7 +332,7 @@ export class LiveKitTransport implements VoiceTransport {
             source: sdk.Track.Source.ScreenShare,
             name: 'stapp-screen',
             stream: streamName,
-            videoCodec: 'vp9',
+            videoCodec: 'h264',
             backupCodec: { codec: 'vp8' },
             simulcast: false,
             screenShareEncoding: {
@@ -278,7 +345,7 @@ export class LiveKitTransport implements VoiceTransport {
           await capture.stop()
           throw error
         }
-        await applySenderDegradationPreference(screenPublication, degradationPreference)
+        await applySenderDegradationPreference(screenPublication, quality.degradationPreference)
         let hasAudio = false
         if (capture.audioTrack) {
           try {
@@ -318,11 +385,22 @@ export class LiveKitTransport implements VoiceTransport {
         maxHeight: quality.height,
         fps: quality.frameRate,
         includeAudio: includeAudio && this.config.screen_audio,
-        contentHint,
+        contentHint: quality.contentHint,
       })
       this.browserScreenCapture = capture
       this.browserScreenAudioDiagnostic = capture.audioValidation ?? null
       this.screenAudioDiagnostic = null
+
+      if (preset === 'original') {
+        const settings = capture.track.getSettings()
+        if (settings.width && settings.height) {
+          quality = resolveScreenPreset('original', {
+            width: settings.width,
+            height: settings.height,
+          })
+        }
+      }
+
       const streamName = `stapp-screen-${capture.stream.id || capture.track.id || 'web'}`
       let screenPublication: TrackPublication | undefined
       try {
@@ -330,7 +408,7 @@ export class LiveKitTransport implements VoiceTransport {
           source: sdk.Track.Source.ScreenShare,
           name: 'stapp-screen',
           stream: streamName,
-          videoCodec: 'vp9',
+          videoCodec: 'h264',
           backupCodec: { codec: 'vp8' },
           simulcast: false,
           screenShareEncoding: {
@@ -343,7 +421,7 @@ export class LiveKitTransport implements VoiceTransport {
         await capture.stop()
         throw error
       }
-      await applySenderDegradationPreference(screenPublication, degradationPreference)
+      await applySenderDegradationPreference(screenPublication, quality.degradationPreference)
       let hasAudio = false
       if (capture.audioTrack) {
         try {
@@ -634,6 +712,11 @@ export class LiveKitTransport implements VoiceTransport {
   async diagnosticReport(): Promise<DiagnosticReport> {
     await this.collectInboundAudioDiagnostics()
     const browserAudio = this.browserScreenAudioDiagnostic
+    // O retrato nativo chega uma vez por segundo pelo canal de eventos; aqui so
+    // se le o ultimo que chegou. Nada de pedir medicao sob demanda: o laco de
+    // captura nao pode parar para responder a tela de configuracoes.
+    const nativeVideo = this.nativeScreenCapture?.videoStats?.native ?? null
+    const ingestVideo = this.nativeScreenCapture?.videoStats?.ingest ?? null
     const report: DiagnosticReport = {
       generatedAt: new Date().toISOString(),
       backend: 'livekit',
@@ -652,6 +735,26 @@ export class LiveKitTransport implements VoiceTransport {
       screenAudioOwnAudioApplied: browserAudio?.applied,
       screenAudioProbeControlLevel: browserAudio?.controlLevel,
       screenAudioProbeCaptureLevel: browserAudio?.captureLevel,
+      screenCaptureFps: nativeVideo?.fps,
+      screenCaptureTargetFps: nativeVideo?.target_fps,
+      screenCaptureResolution: nativeVideo && nativeVideo.width > 0
+        ? `${nativeVideo.width}x${nativeVideo.height}`
+        : undefined,
+      screenCaptureMs: nativeVideo?.capture_ms,
+      screenCursorMs: nativeVideo?.cursor_ms,
+      screenResizeMs: nativeVideo?.resize_ms,
+      screenEncodeMs: nativeVideo?.encode_ms,
+      screenDispatchMs: nativeVideo?.dispatch_ms,
+      screenFrameMs: nativeVideo?.frame_ms,
+      screenIdleMs: nativeVideo?.idle_ms,
+      screenCaptureFailures: nativeVideo?.failures,
+      screenCaptureKbps: nativeVideo ? round(nativeVideo.bytes_per_second * 8 / 1000) : undefined,
+      screenIngestReceivedFps: ingestVideo?.receivedFps,
+      screenIngestDrawnFps: ingestVideo?.drawnFps,
+      screenIngestDroppedFps: ingestVideo?.droppedFps,
+      screenIngestDroppedFrames: ingestVideo?.droppedFrames,
+      screenIngestDecodeMs: ingestVideo?.decodeMs,
+      screenIngestDrawMs: ingestVideo?.drawMs,
       screenAudioBufferedMs: this.nativeScreenCapture?.audioPlaybackStats
         ? round(this.nativeScreenCapture.audioPlaybackStats.bufferedFrames / 48)
         : undefined,

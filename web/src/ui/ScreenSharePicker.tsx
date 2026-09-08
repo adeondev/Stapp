@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTauriRuntime, thumbnailDataUrl, type ScreenSource } from '../platform/screenCapture'
 import type { ScreenShareResult, VoiceTransport } from '../voice/VoiceTransport'
 import type { ScreenPreset } from '../voice/preferences'
@@ -10,14 +10,21 @@ interface Props {
   transport: VoiceTransport
   initialPreset: ScreenPreset
   onClose(): void
-  onShare(sourceId: string | undefined, preset: ScreenPreset, includeAudio: boolean): Promise<ScreenShareResult>
+  onShare(
+    sourceId: string | undefined,
+    preset: ScreenPreset,
+    includeAudio: boolean,
+    sourceWidth?: number,
+    sourceHeight?: number,
+  ): Promise<ScreenShareResult>
 }
 
 const PRESETS: Array<{ id: ScreenPreset; title: string; detail: string }> = [
   { id: 'economy', title: 'Econômico', detail: '720p · 15 FPS' },
   { id: 'balanced', title: 'Equilibrado', detail: '1080p · 30 FPS' },
-  { id: 'fluid', title: 'Fluido', detail: '720p · até 30 FPS no app' },
-  { id: 'original', title: 'Original', detail: 'Resolução original · até 30 FPS no app' },
+  { id: 'fluid', title: 'Fluido', detail: '720p · até 60 FPS' },
+  { id: '1080p60', title: '1080p60', detail: '1080p · até 60 FPS' },
+  { id: 'original', title: 'Original', detail: 'Resolução original · até 60 FPS' },
 ]
 
 export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }: Props) {
@@ -33,6 +40,9 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
   const [sharing, setSharing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const thumbnailsRef = useRef<Record<string, string | null>>({})
+  thumbnailsRef.current = thumbnails
+
   const refreshSources = useCallback(async (showLoading = false) => {
     if (!native) return
     if (showLoading) setLoading(true)
@@ -44,18 +54,51 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
       if (!available.some((source) => source.kind === 'screen')) {
         setTab((current) => current === 'screen' ? 'window' : current)
       }
-      setLoading(false)
-      await Promise.all(available.map(async (source) => {
-        const thumbnail = await transport.captureScreenSourceThumbnail(source.id)
-        setThumbnails((current) => ({ ...current, [source.id]: thumbnail }))
-      }))
     } catch (reason: unknown) {
-      setLoading(false)
       setError(reason instanceof Error ? reason.message : 'Não consegui listar as telas e janelas.')
     } finally {
+      setLoading(false)
       setRefreshing(false)
     }
   }, [native, transport])
+
+  const visible = useMemo(() => sources.filter((source) => source.kind === tab), [sources, tab])
+
+  const handleManualRefresh = useCallback(async () => {
+    await refreshSources(false)
+    await Promise.all(visible.map(async (source) => {
+      try {
+        const thumbnail = await transport.captureScreenSourceThumbnail(source.id)
+        setThumbnails((prev) => ({ ...prev, [source.id]: thumbnail }))
+      } catch {
+        setThumbnails((prev) => ({ ...prev, [source.id]: null }))
+      }
+    }))
+  }, [refreshSources, transport, visible])
+
+  useEffect(() => {
+    if (!native) return
+    const missing = visible.filter((s) => thumbnailsRef.current[s.id] === undefined)
+    if (missing.length === 0) return
+
+    let cancelled = false
+    void Promise.all(missing.map(async (source) => {
+      try {
+        const thumbnail = await transport.captureScreenSourceThumbnail(source.id)
+        if (!cancelled) {
+          setThumbnails((prev) => ({ ...prev, [source.id]: thumbnail }))
+        }
+      } catch {
+        if (!cancelled) {
+          setThumbnails((prev) => ({ ...prev, [source.id]: null }))
+        }
+      }
+    }))
+
+    return () => {
+      cancelled = true
+    }
+  }, [native, visible, transport])
 
   useEffect(() => {
     if (!native) return
@@ -70,14 +113,20 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
     }
   }, [native, refreshSources])
 
-  const visible = useMemo(() => sources.filter((source) => source.kind === tab), [sources, tab])
   const tituloId = useModalTitleId()
 
   const share = async () => {
     if (native && !selected) return
     setSharing(true)
     setError(null)
-    const resultado = await onShare(selected ?? undefined, preset, includeAudio)
+    const selectedSource = sources.find((s) => s.id === selected)
+    const resultado = await onShare(
+      selected ?? undefined,
+      preset,
+      includeAudio,
+      selectedSource?.width,
+      selectedSource?.height,
+    )
     setSharing(false)
     if (resultado === true) {
       onClose()
@@ -107,7 +156,7 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
                 title="Atualizar telas e janelas"
                 aria-label="Atualizar telas e janelas"
                 disabled={refreshing}
-                onClick={() => void refreshSources(false)}
+                onClick={() => void handleManualRefresh()}
               >
                 {refreshing ? 'Atualizando…' : 'Atualizar'}
               </button>

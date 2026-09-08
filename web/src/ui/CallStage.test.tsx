@@ -132,6 +132,7 @@ describe('palco da chamada', () => {
 
     expect(media.setScreenShareEnabled).toHaveBeenCalledWith(true, {
       preset: 'balanced', sourceId: 'screen:7:0', includeAudio: true,
+      sourceWidth: 1920, sourceHeight: 1080,
     })
   })
 

@@ -126,6 +126,7 @@ pub fn run() {
             screen_sources::capture_screen_source_thumbnail,
             screen_capture::start_screen_capture,
             screen_capture::stop_screen_capture,
+            screen_capture::request_screen_capture_keyframe,
             screen_capture::validate_screen_audio_exclusion,
             updater::check_update_with_endpoint,
         ])

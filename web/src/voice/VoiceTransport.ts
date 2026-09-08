@@ -86,6 +86,28 @@ export interface DiagnosticReport {
   screenAudioOwnAudioApplied?: boolean
   screenAudioProbeControlLevel?: number
   screenAudioProbeCaptureLevel?: number
+  /* Pipeline de video da tela. `screenCapture*` e o laco nativo (Rust);
+     `screenIngest*` e o que acontece depois do IPC, dentro do WebView. Os dois
+     lados existem porque o gargalo pode estar em qualquer um dos dois, e ate
+     agora nenhum dos dois aparecia. */
+  screenCaptureFps?: number
+  screenCaptureTargetFps?: number
+  screenCaptureResolution?: string
+  screenCaptureMs?: number
+  screenCursorMs?: number
+  screenResizeMs?: number
+  screenEncodeMs?: number
+  screenDispatchMs?: number
+  screenFrameMs?: number
+  screenIdleMs?: number
+  screenCaptureFailures?: number
+  screenCaptureKbps?: number
+  screenIngestReceivedFps?: number
+  screenIngestDrawnFps?: number
+  screenIngestDroppedFps?: number
+  screenIngestDroppedFrames?: number
+  screenIngestDecodeMs?: number
+  screenIngestDrawMs?: number
   screenAudioBufferedMs?: number
   screenAudioPlaybackRate?: number
   screenAudioUnderruns?: number
@@ -113,6 +135,8 @@ export interface ScreenShareOptions {
   preset?: ScreenPreset
   sourceId?: string
   includeAudio?: boolean
+  sourceWidth?: number
+  sourceHeight?: number
 }
 
 export interface VoiceTransport {
