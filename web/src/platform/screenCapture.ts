@@ -1,5 +1,17 @@
 import screenAudioWorkletUrl from './screen-audio-worklet.ts?worker&url'
-import { createNativeVideoIngest } from './nativeVideoIngest'
+import {
+  createNativeVideoIngest,
+  type NativeVideoIngest,
+} from './nativeVideoIngest'
+import {
+  createCanvasFallbackIngest,
+  type CanvasFallbackIngest,
+  createCaptureCanvas,
+  type CaptureCanvasRenderer,
+} from './canvasFallback'
+
+export { createCaptureCanvas, type CaptureCanvasRenderer }
+export { createCanvasFallbackIngest, type CanvasFallbackIngest }
 
 export type ScreenSourceKind = 'screen' | 'window'
 
@@ -467,54 +479,6 @@ async function validateBrowserAudioExclusion(
   }
 }
 
-interface CaptureCanvasRenderer {
-  context: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
-  width: number
-  height: number
-  resize(width: number, height: number): void
-  captureStream(fps: number): MediaStream
-}
-
-function createCaptureCanvas(initialWidth: number, initialHeight: number): CaptureCanvasRenderer {
-  const supportsOffscreenCapture = typeof OffscreenCanvas !== 'undefined'
-    && typeof (OffscreenCanvas.prototype as { captureStream?: unknown }).captureStream === 'function'
-
-  if (supportsOffscreenCapture) {
-    const offscreen = new OffscreenCanvas(initialWidth, initialHeight)
-    const context = (offscreen.getContext('2d', { alpha: false, desynchronized: true })
-      ?? offscreen.getContext('2d', { alpha: false })) as OffscreenCanvasRenderingContext2D | null
-    if (context) {
-      return {
-        context,
-        get width() { return offscreen.width },
-        get height() { return offscreen.height },
-        resize(width: number, height: number) {
-          offscreen.width = width
-          offscreen.height = height
-        },
-        captureStream: (fps: number) => (offscreen as unknown as HTMLCanvasElement).captureStream(fps),
-      }
-    }
-  }
-
-  const htmlCanvas = document.createElement('canvas')
-  htmlCanvas.width = initialWidth
-  htmlCanvas.height = initialHeight
-  const context = (htmlCanvas.getContext('2d', { alpha: false, desynchronized: true })
-    ?? htmlCanvas.getContext('2d', { alpha: false })) as CanvasRenderingContext2D | null
-  if (!context) throw new Error('o renderizador de captura nao esta disponivel')
-  return {
-    context,
-    get width() { return htmlCanvas.width },
-    get height() { return htmlCanvas.height },
-    resize(width: number, height: number) {
-      htmlCanvas.width = width
-      htmlCanvas.height = height
-    },
-    captureStream: (fps: number) => htmlCanvas.captureStream(fps),
-  }
-}
-
 export async function requestScreenCaptureKeyframe(captureId: number): Promise<void> {
   if (!isTauriRuntime() || captureId <= 0) return
   const { invoke } = await import('@tauri-apps/api/core')
@@ -542,8 +506,6 @@ export async function startNativeScreenCapture(options: {
   const frameChannel = new Channel<ArrayBuffer | Uint8Array>()
   let captureId = 0
   let stopped = false
-  let latestFrame: { width: number; height: number; bytes: Uint8Array } | null = null
-  let decoding = false
   const ingest = createIngestMetrics()
   const videoStats: ScreenVideoStats = { native: null, ingest: ingest.stats }
   let firstFrameDone = false
@@ -583,60 +545,36 @@ export async function startNativeScreenCapture(options: {
     resolveAudioReady(available)
   }
 
-  let renderer: CaptureCanvasRenderer | null = null
-  const getOrCreateRenderer = () => {
-    renderer ??= createCaptureCanvas(options.maxWidth, options.maxHeight)
-    return renderer
-  }
-
-  const nativeIngest = createNativeVideoIngest({
-    ingest,
-    onFirstFrame() {
-      if (!firstFrameDone) {
-        firstFrameDone = true
-        resolveFirstFrame()
-      }
-    },
-    async onRequestKeyframe() {
-      if (captureId > 0) {
-        await requestScreenCaptureKeyframe(captureId)
-      }
-    },
-    onError(err: Error) {
-      console.error('[screen-capture] erro no nativeIngest:', err)
-    },
-  })
-
-  const drawLatest = async () => {
-    if (decoding) return
-    decoding = true
-    try {
-      while (latestFrame && !stopped) {
-        const frame = latestFrame
-        latestFrame = null
-        const rend = getOrCreateRenderer()
-        const decodeStarted = performance.now()
-        const blob = new Blob([frame.bytes as BlobPart], { type: 'image/jpeg' })
-        const bitmap = await createImageBitmap(
-          blob,
-          { imageOrientation: 'none', premultiplyAlpha: 'none' },
-        )
-        const decodedAt = performance.now()
-        if (rend.width !== frame.width || rend.height !== frame.height) {
-          rend.resize(frame.width, frame.height)
-        }
-        rend.context.drawImage(bitmap, 0, 0, frame.width, frame.height)
-        bitmap.close()
-        ingest.drawn(decodedAt - decodeStarted, performance.now() - decodedAt)
+  const ingestPipeline: NativeVideoIngest | CanvasFallbackIngest =
+    createNativeVideoIngest({
+      ingest,
+      onFirstFrame() {
         if (!firstFrameDone) {
           firstFrameDone = true
           resolveFirstFrame()
         }
-      }
-    } finally {
-      decoding = false
-    }
-  }
+      },
+      async onRequestKeyframe() {
+        if (captureId > 0) {
+          await requestScreenCaptureKeyframe(captureId)
+        }
+      },
+      onError(err: Error) {
+        console.error('[screen-capture] erro no nativeIngest:', err)
+      },
+    }) ??
+    createCanvasFallbackIngest({
+      maxWidth: options.maxWidth,
+      maxHeight: options.maxHeight,
+      fps: options.fps,
+      ingest,
+      onFirstFrame() {
+        if (!firstFrameDone) {
+          firstFrameDone = true
+          resolveFirstFrame()
+        }
+      },
+    })
 
   frameChannel.onmessage = (message) => {
     if (stopped) return
@@ -648,21 +586,7 @@ export async function startNativeScreenCapture(options: {
     if (!packet) return
     if (captureId > 0 && packet.captureId !== captureId) return
 
-    if (nativeIngest) {
-      if (nativeIngest.feed(packet)) {
-        return
-      }
-    }
-
-    // Antes de sobrescrever: se ainda havia quadro no slot, ele morreu sem
-    // nunca ter sido desenhado. E esse o descarte que sumia sem rastro.
-    ingest.received(rawBytes.byteLength, latestFrame !== null)
-    latestFrame = {
-      width: packet.width,
-      height: packet.height,
-      bytes: packet.payload,
-    }
-    void drawLatest()
+    ingestPipeline.feed(packet)
   }
 
   channel.onmessage = (event) => {
@@ -734,8 +658,7 @@ export async function startNativeScreenCapture(options: {
     window.clearTimeout(timeout)
   }
 
-  const stream = nativeIngest?.stream ?? getOrCreateRenderer().captureStream(Math.min(options.fps, 60))
-  const track = nativeIngest?.track ?? stream.getVideoTracks()[0]
+  const { stream, track } = ingestPipeline
   if (!track) {
     await invoke('stop_screen_capture', { captureId }).catch(() => {})
     await audioPipeline?.close()
@@ -775,9 +698,7 @@ export async function startNativeScreenCapture(options: {
     async stop() {
       if (stopped) return
       stopped = true
-      if (nativeIngest) {
-        nativeIngest.stop()
-      }
+      ingestPipeline.stop()
       await invoke('stop_screen_capture', { captureId }).catch(() => {})
       for (const mediaTrack of stream.getTracks()) mediaTrack.stop()
       await audioPipeline?.close()
