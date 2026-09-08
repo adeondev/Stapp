@@ -201,6 +201,21 @@ pub fn compute_default_bitrate(width: u32, height: u32, fps: u32) -> u32 {
     b.clamp(1_000_000, 12_000_000)
 }
 
+/// Mapeia o bitrate alvo (bps) para um nivel coerente de qualidade JPEG (1-100)
+/// no caminho de fallback por software, evitando compressao excessiva em presets de alta taxa
+/// e desperdicio de banda em presets economicos.
+pub fn compute_jpeg_quality(bitrate: u32) -> u8 {
+    if bitrate <= 1_500_000 {
+        60
+    } else if bitrate <= 3_500_000 {
+        72
+    } else if bitrate <= 6_000_000 {
+        80
+    } else {
+        85
+    }
+}
+
 #[tauri::command]
 pub fn request_screen_capture_keyframe(capture_id: u32) -> Result<(), String> {
     let captures_guard = captures()
@@ -379,6 +394,7 @@ fn capture_loop(
     let target_bitrate = bitrate
         .map(|b| b.clamp(500_000, 25_000_000))
         .unwrap_or_else(|| compute_default_bitrate(max_width, max_height, fps));
+    let jpeg_quality = compute_jpeg_quality(target_bitrate);
 
     #[cfg(windows)]
     let mut h264_encoder: Option<encoder::H264Encoder> = None;
@@ -465,12 +481,15 @@ fn capture_loop(
                         }
                     }
                     if h264_encoder.is_none() {
+                        let active_bitrate = bitrate
+                            .map(|b| b.clamp(500_000, 25_000_000))
+                            .unwrap_or_else(|| compute_default_bitrate(target_w, target_h, fps));
                         match encoder::H264Encoder::new(
                             session.d3d_device(),
                             target_w,
                             target_h,
                             fps,
-                            target_bitrate,
+                            active_bitrate,
                         ) {
                             Ok(enc) => {
                                 log::info!(
@@ -480,7 +499,7 @@ fn capture_loop(
                                     target_w,
                                     target_h,
                                     fps,
-                                    target_bitrate
+                                    active_bitrate
                                 );
                                 h264_encoder = Some(enc);
                             }
@@ -556,7 +575,7 @@ fn capture_loop(
 
                     let mut timer = FrameTimer::start();
                     let mut jpeg_bytes = Vec::with_capacity(32 * 1024);
-                    if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 72)
+                    if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, jpeg_quality)
                         .encode_image(&image)
                         .is_err()
                     {
@@ -656,7 +675,7 @@ fn capture_loop(
 
                 let mut timer = FrameTimer::start();
                 let mut jpeg_bytes = Vec::with_capacity(32 * 1024);
-                if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 72)
+                if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, jpeg_quality)
                     .encode_image(&image)
                     .is_err()
                 {

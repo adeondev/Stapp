@@ -642,3 +642,16 @@ fn deteccao_de_desalinhamento_e_renegociacao_de_encoder() {
     assert!(!needs_renegotiation_same, "mesma resolucao mantem encoder");
 }
 
+#[test]
+fn testa_calculo_qualidade_jpeg_adaptativo() {
+    use super::compute_jpeg_quality;
+    assert_eq!(compute_jpeg_quality(1_000_000), 60);
+    assert_eq!(compute_jpeg_quality(1_500_000), 60);
+    assert_eq!(compute_jpeg_quality(1_500_001), 72);
+    assert_eq!(compute_jpeg_quality(3_500_000), 72);
+    assert_eq!(compute_jpeg_quality(3_500_001), 80);
+    assert_eq!(compute_jpeg_quality(6_000_000), 80);
+    assert_eq!(compute_jpeg_quality(6_000_001), 85);
+    assert_eq!(compute_jpeg_quality(8_000_000), 85);
+}
+
