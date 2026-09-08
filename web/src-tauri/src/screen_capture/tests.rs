@@ -1,4 +1,5 @@
 use super::*;
+use crate::screen_sources::scale_to_fit;
 
 #[test]
 fn tela_exclui_a_arvore_do_stapp() {

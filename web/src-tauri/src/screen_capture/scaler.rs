@@ -81,6 +81,9 @@ impl D3D11VideoScaler {
             .cast()
             .map_err(|e| format!("contexto D3D11 nao suporta ID3D11VideoContext: {e}"))?;
 
+        let output_width = (output_width & !1).max(2);
+        let output_height = (output_height & !1).max(2);
+
         let (processor, enumerator, output_texture, output_view) = Self::create_resources(
             d3d_device,
             &video_device,
@@ -125,6 +128,9 @@ impl D3D11VideoScaler {
         ),
         String,
     > {
+        let output_width = (output_width & !1).max(2);
+        let output_height = (output_height & !1).max(2);
+
         let content_desc = D3D11_VIDEO_PROCESSOR_CONTENT_DESC {
             InputFrameFormat: D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE,
             InputFrameRate: DXGI_RATIONAL {
@@ -212,6 +218,9 @@ impl D3D11VideoScaler {
         dst_height: u32,
         fps: u32,
     ) -> Result<&ID3D11Texture2D, String> {
+        let dst_width = (dst_width & !1).max(2);
+        let dst_height = (dst_height & !1).max(2);
+
         if self.input_width != src_width
             || self.input_height != src_height
             || self.output_width != dst_width

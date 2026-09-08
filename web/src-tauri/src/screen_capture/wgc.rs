@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use crate::screen_sources::{SourceLocator, scale_to_fit};
+use crate::screen_sources::SourceLocator;
 use image::RgbaImage;
 use windows::{
     Foundation::TypedEventHandler,
@@ -65,6 +65,7 @@ pub struct ScaledWgcFrame {
     pub width: u32,
     pub height: u32,
     pub resize_duration: Duration,
+    #[allow(dead_code)]
     pub nv12_texture: ID3D11Texture2D,
 }
 
@@ -266,7 +267,8 @@ impl WgcSession {
         let width = content_size.Width as u32;
         let height = content_size.Height as u32;
 
-        let (target_width, target_height) = scale_to_fit(width, height, max_width, max_height);
+        let (target_width, target_height) =
+            super::scaler::calculate_aligned_destination(width, height, max_width, max_height);
 
         if self.scaler.is_none() {
             let scaler = super::scaler::D3D11VideoScaler::new(
@@ -284,10 +286,10 @@ impl WgcSession {
         let scaler = self.scaler.as_mut().unwrap();
 
         let timer = std::time::Instant::now();
-        let nv12_texture = scaler
-            .scale_nv12(&source_texture, width, height, target_width, target_height, fps)?
-            .clone();
+        let _ = scaler
+            .scale_nv12(&source_texture, width, height, target_width, target_height, fps)?;
         let resize_duration = timer.elapsed();
+        let nv12_texture = scaler.output_texture().clone();
 
         let image = scaler.read_to_rgba()?;
         let _ = frame.Close();

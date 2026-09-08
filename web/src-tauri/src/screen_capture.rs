@@ -4,7 +4,9 @@ pub(crate) mod wgc;
 #[cfg(windows)]
 pub(crate) mod scaler;
 
-use crate::screen_sources::{parse_source_id, scale_to_fit, SourceLocator};
+use crate::screen_sources::{parse_source_id, SourceLocator};
+#[cfg(not(windows))]
+use crate::screen_sources::scale_to_fit;
 use metrics::{CaptureStats, FrameSample, FrameTimer, MetricsAccumulator};
 use serde::Serialize;
 use std::{
@@ -441,6 +443,10 @@ fn capture_loop(
                 };
 
                 let (width, height) = image.dimensions();
+                #[cfg(windows)]
+                let (target_w, target_h) =
+                    scaler::calculate_aligned_destination(width, height, max_width, max_height);
+                #[cfg(not(windows))]
                 let (target_w, target_h) = scale_to_fit(width, height, max_width, max_height);
                 let mut resize_timer = FrameTimer::start();
                 let image = if (width, height) == (target_w, target_h) {
