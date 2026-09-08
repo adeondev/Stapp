@@ -1,5 +1,5 @@
 import screenAudioWorkletUrl from './screen-audio-worklet.ts?worker&url'
-import { createNativeVideoDecoder } from './nativeVideoIngest'
+import { createNativeVideoIngest } from './nativeVideoIngest'
 
 export type ScreenSourceKind = 'screen' | 'window'
 
@@ -532,9 +532,6 @@ export async function startNativeScreenCapture(options: {
 }): Promise<NativeScreenCapture> {
   if (!isTauriRuntime()) throw new Error('captura nativa disponivel somente no aplicativo')
 
-  const renderer = createCaptureCanvas(options.maxWidth, options.maxHeight)
-  const { context } = renderer
-
   const { Channel, invoke } = await import('@tauri-apps/api/core')
   const fullScreenAudio = options.includeAudio && options.sourceId.startsWith('screen:')
   const audioValidation = fullScreenAudio
@@ -586,27 +583,22 @@ export async function startNativeScreenCapture(options: {
     resolveAudioReady(available)
   }
 
-  const nativeDecoder = createNativeVideoDecoder({
-    onFrame(frame: VideoFrame, decodeMs: number) {
-      if (stopped) {
-        frame.close()
-        return
-      }
-      const drawStart = performance.now()
-      if (renderer.width !== frame.displayWidth || renderer.height !== frame.displayHeight) {
-        renderer.resize(frame.displayWidth, frame.displayHeight)
-      }
-      context.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight)
-      frame.close()
-      ingest.drawn(decodeMs, performance.now() - drawStart)
+  let renderer: CaptureCanvasRenderer | null = null
+  const getOrCreateRenderer = () => {
+    renderer ??= createCaptureCanvas(options.maxWidth, options.maxHeight)
+    return renderer
+  }
 
+  const nativeIngest = createNativeVideoIngest({
+    ingest,
+    onFirstFrame() {
       if (!firstFrameDone) {
         firstFrameDone = true
         resolveFirstFrame()
       }
     },
     onError(err: Error) {
-      console.error('[screen-capture] erro no VideoDecoder:', err)
+      console.error('[screen-capture] erro no nativeIngest:', err)
     },
   })
 
@@ -617,6 +609,7 @@ export async function startNativeScreenCapture(options: {
       while (latestFrame && !stopped) {
         const frame = latestFrame
         latestFrame = null
+        const rend = getOrCreateRenderer()
         const decodeStarted = performance.now()
         const blob = new Blob([frame.bytes as BlobPart], { type: 'image/jpeg' })
         const bitmap = await createImageBitmap(
@@ -624,10 +617,10 @@ export async function startNativeScreenCapture(options: {
           { imageOrientation: 'none', premultiplyAlpha: 'none' },
         )
         const decodedAt = performance.now()
-        if (renderer.width !== frame.width || renderer.height !== frame.height) {
-          renderer.resize(frame.width, frame.height)
+        if (rend.width !== frame.width || rend.height !== frame.height) {
+          rend.resize(frame.width, frame.height)
         }
-        context.drawImage(bitmap, 0, 0, frame.width, frame.height)
+        rend.context.drawImage(bitmap, 0, 0, frame.width, frame.height)
         bitmap.close()
         ingest.drawn(decodedAt - decodeStarted, performance.now() - decodedAt)
         if (!firstFrameDone) {
@@ -650,9 +643,9 @@ export async function startNativeScreenCapture(options: {
     if (!packet) return
     if (captureId > 0 && packet.captureId !== captureId) return
 
-    if (packet.codec === 1 && nativeDecoder) {
-      ingest.received(rawBytes.byteLength, false)
-      if (nativeDecoder.feed(packet)) {
+    if (nativeIngest) {
+      if (nativeIngest.feed(packet)) {
+        ingest.received(rawBytes.byteLength, false)
         return
       }
     }
@@ -737,8 +730,8 @@ export async function startNativeScreenCapture(options: {
     window.clearTimeout(timeout)
   }
 
-  const stream = renderer.captureStream(Math.min(options.fps, 60))
-  const track = stream.getVideoTracks()[0]
+  const stream = nativeIngest?.stream ?? getOrCreateRenderer().captureStream(Math.min(options.fps, 60))
+  const track = nativeIngest?.track ?? stream.getVideoTracks()[0]
   if (!track) {
     await invoke('stop_screen_capture', { captureId }).catch(() => {})
     await audioPipeline?.close()
@@ -778,8 +771,8 @@ export async function startNativeScreenCapture(options: {
     async stop() {
       if (stopped) return
       stopped = true
-      if (nativeDecoder) {
-        nativeDecoder.close()
+      if (nativeIngest) {
+        nativeIngest.stop()
       }
       await invoke('stop_screen_capture', { captureId }).catch(() => {})
       for (const mediaTrack of stream.getTracks()) mediaTrack.stop()

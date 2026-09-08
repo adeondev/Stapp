@@ -1,7 +1,33 @@
-import type { ScreenCapturePacket } from './screenCapture'
+import type { IngestMetrics, ScreenCapturePacket } from './screenCapture'
+
+declare global {
+  interface MediaStreamTrackGeneratorInit {
+    kind: 'video' | 'audio'
+  }
+
+  interface MediaStreamTrackGenerator extends MediaStreamTrack {
+    readonly writable: WritableStream<VideoFrame>
+  }
+
+  const MediaStreamTrackGenerator: {
+    prototype: MediaStreamTrackGenerator
+    new (init: MediaStreamTrackGeneratorInit): MediaStreamTrackGenerator
+  } | undefined
+}
 
 export function isWebCodecsSupported(): boolean {
   return typeof VideoDecoder !== 'undefined' && typeof EncodedVideoChunk !== 'undefined'
+}
+
+export function isInsertableStreamsSupported(): boolean {
+  return (
+    typeof MediaStreamTrackGenerator !== 'undefined' ||
+    typeof (window as unknown as { VideoTrackGenerator?: unknown }).VideoTrackGenerator !== 'undefined'
+  )
+}
+
+export function isWebCodecsIngestSupported(): boolean {
+  return isWebCodecsSupported() && isInsertableStreamsSupported()
 }
 
 /**
@@ -138,3 +164,176 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
     },
   }
 }
+
+export interface VideoTrackWriter {
+  readonly track: MediaStreamTrack
+  write(frame: VideoFrame): Promise<void>
+  close(): void
+}
+
+export function createVideoTrackWriter(): VideoTrackWriter | null {
+  if (typeof MediaStreamTrackGenerator !== 'undefined') {
+    try {
+      const generator = new MediaStreamTrackGenerator({ kind: 'video' })
+      const writer = generator.writable.getWriter()
+      return {
+        track: generator,
+        async write(frame: VideoFrame) {
+          await writer.write(frame)
+        },
+        close() {
+          try {
+            writer.releaseLock()
+          } catch {}
+          try {
+            generator.stop()
+          } catch {}
+        },
+      }
+    } catch (e) {
+      console.warn('[native-video-ingest] falha ao instanciar MediaStreamTrackGenerator:', e)
+    }
+  }
+
+  const win = window as unknown as {
+    VideoTrackGenerator?: new () => {
+      track: MediaStreamTrack
+      writable: WritableStream<VideoFrame>
+    }
+  }
+  if (typeof win.VideoTrackGenerator !== 'undefined') {
+    try {
+      const generator = new win.VideoTrackGenerator()
+      const writer = generator.writable.getWriter()
+      return {
+        track: generator.track,
+        async write(frame: VideoFrame) {
+          await writer.write(frame)
+        },
+        close() {
+          try {
+            writer.releaseLock()
+          } catch {}
+          try {
+            generator.track.stop()
+          } catch {}
+        },
+      }
+    } catch (e) {
+      console.warn('[native-video-ingest] falha ao instanciar VideoTrackGenerator:', e)
+    }
+  }
+
+  return null
+}
+
+export interface NativeVideoIngestOptions {
+  ingest: IngestMetrics
+  onFirstFrame: () => void
+  onError?: (error: Error) => void
+}
+
+export interface NativeVideoIngest {
+  readonly track: MediaStreamTrack
+  readonly stream: MediaStream
+  feed(packet: ScreenCapturePacket): boolean
+  stop(): void
+}
+
+export function createNativeVideoIngest(options: NativeVideoIngestOptions): NativeVideoIngest | null {
+  const trackWriter = createVideoTrackWriter()
+  if (!trackWriter) return null
+
+  let firstFrameDone = false
+  let stopped = false
+  let decodingJpeg = false
+  let latestJpegBytes: Uint8Array | null = null
+
+  const decoder = createNativeVideoDecoder({
+    onFrame(frame, decodeMs) {
+      if (stopped) {
+        frame.close()
+        return
+      }
+      const deliverStart = performance.now()
+      trackWriter.write(frame)
+        .then(() => {
+          frame.close()
+          options.ingest.drawn(decodeMs, performance.now() - deliverStart)
+          if (!firstFrameDone) {
+            firstFrameDone = true
+            options.onFirstFrame()
+          }
+        })
+        .catch((err) => {
+          frame.close()
+          console.error('[native-video-ingest] erro ao entregar VideoFrame ao track:', err)
+        })
+    },
+    onError: options.onError,
+  })
+
+  if (!decoder) {
+    trackWriter.close()
+    return null
+  }
+
+  const stream = new MediaStream([trackWriter.track])
+
+  const drawLatestJpeg = async () => {
+    if (decodingJpeg) return
+    decodingJpeg = true
+    try {
+      while (latestJpegBytes && !stopped) {
+        const bytes = latestJpegBytes
+        latestJpegBytes = null
+        const decodeStart = performance.now()
+        const blob = new Blob([bytes as BlobPart], { type: 'image/jpeg' })
+        const bitmap = await createImageBitmap(blob, {
+          imageOrientation: 'none',
+          premultiplyAlpha: 'none',
+        })
+        const decodeMs = performance.now() - decodeStart
+        const frame = new VideoFrame(bitmap, { timestamp: performance.now() * 1000 })
+        bitmap.close()
+
+        const deliverStart = performance.now()
+        await trackWriter.write(frame)
+        frame.close()
+        options.ingest.drawn(decodeMs, performance.now() - deliverStart)
+        if (!firstFrameDone) {
+          firstFrameDone = true
+          options.onFirstFrame()
+        }
+      }
+    } catch (err) {
+      console.error('[native-video-ingest] erro no fallback JPEG do trackWriter:', err)
+    } finally {
+      decodingJpeg = false
+    }
+  }
+
+  return {
+    track: trackWriter.track,
+    stream,
+    feed(packet: ScreenCapturePacket): boolean {
+      if (stopped) return false
+      if (packet.codec === 1) {
+        return decoder.feed(packet)
+      }
+      if (packet.codec === 0) {
+        latestJpegBytes = packet.payload
+        void drawLatestJpeg()
+        return true
+      }
+      return false
+    },
+    stop() {
+      if (stopped) return
+      stopped = true
+      decoder.close()
+      trackWriter.close()
+    },
+  }
+}
+
