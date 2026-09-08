@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isTauriRuntime, thumbnailDataUrl, type ScreenSource } from '../platform/screenCapture'
 import type { ScreenShareResult, VoiceTransport } from '../voice/VoiceTransport'
 import type { ScreenPreset } from '../voice/preferences'
@@ -40,6 +40,9 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
   const [sharing, setSharing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  const thumbnailsRef = useRef<Record<string, string | null>>({})
+  thumbnailsRef.current = thumbnails
+
   const refreshSources = useCallback(async (showLoading = false) => {
     if (!native) return
     if (showLoading) setLoading(true)
@@ -51,18 +54,51 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
       if (!available.some((source) => source.kind === 'screen')) {
         setTab((current) => current === 'screen' ? 'window' : current)
       }
-      setLoading(false)
-      await Promise.all(available.map(async (source) => {
-        const thumbnail = await transport.captureScreenSourceThumbnail(source.id)
-        setThumbnails((current) => ({ ...current, [source.id]: thumbnail }))
-      }))
     } catch (reason: unknown) {
-      setLoading(false)
       setError(reason instanceof Error ? reason.message : 'Não consegui listar as telas e janelas.')
     } finally {
+      setLoading(false)
       setRefreshing(false)
     }
   }, [native, transport])
+
+  const visible = useMemo(() => sources.filter((source) => source.kind === tab), [sources, tab])
+
+  const handleManualRefresh = useCallback(async () => {
+    await refreshSources(false)
+    await Promise.all(visible.map(async (source) => {
+      try {
+        const thumbnail = await transport.captureScreenSourceThumbnail(source.id)
+        setThumbnails((prev) => ({ ...prev, [source.id]: thumbnail }))
+      } catch {
+        setThumbnails((prev) => ({ ...prev, [source.id]: null }))
+      }
+    }))
+  }, [refreshSources, transport, visible])
+
+  useEffect(() => {
+    if (!native) return
+    const missing = visible.filter((s) => thumbnailsRef.current[s.id] === undefined)
+    if (missing.length === 0) return
+
+    let cancelled = false
+    void Promise.all(missing.map(async (source) => {
+      try {
+        const thumbnail = await transport.captureScreenSourceThumbnail(source.id)
+        if (!cancelled) {
+          setThumbnails((prev) => ({ ...prev, [source.id]: thumbnail }))
+        }
+      } catch {
+        if (!cancelled) {
+          setThumbnails((prev) => ({ ...prev, [source.id]: null }))
+        }
+      }
+    }))
+
+    return () => {
+      cancelled = true
+    }
+  }, [native, visible, transport])
 
   useEffect(() => {
     if (!native) return
@@ -77,7 +113,6 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
     }
   }, [native, refreshSources])
 
-  const visible = useMemo(() => sources.filter((source) => source.kind === tab), [sources, tab])
   const tituloId = useModalTitleId()
 
   const share = async () => {
@@ -121,7 +156,7 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
                 title="Atualizar telas e janelas"
                 aria-label="Atualizar telas e janelas"
                 disabled={refreshing}
-                onClick={() => void refreshSources(false)}
+                onClick={() => void handleManualRefresh()}
               >
                 {refreshing ? 'Atualizando…' : 'Atualizar'}
               </button>

@@ -1,9 +1,20 @@
 use base64::Engine;
 use image::{ImageBuffer, ImageEncoder, Rgba};
 use serde::Serialize;
+use std::collections::HashMap;
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 const THUMBNAIL_WIDTH: u32 = 320;
 const THUMBNAIL_HEIGHT: u32 = 180;
+const THUMBNAIL_CACHE_TTL: Duration = Duration::from_secs(4);
+
+struct CachedThumbnail {
+    data: Option<String>,
+    created_at: Instant,
+}
+
+static THUMBNAIL_CACHE: Mutex<Option<HashMap<String, CachedThumbnail>>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SourceLocator {
@@ -61,6 +72,15 @@ pub fn list_screen_sources() -> Vec<ScreenSource> {
 
 #[tauri::command]
 pub fn capture_screen_source_thumbnail(source_id: String) -> Result<Option<String>, String> {
+    if let Ok(mut guard) = THUMBNAIL_CACHE.lock() {
+        let cache = guard.get_or_insert_with(HashMap::new);
+        if let Some(entry) = cache.get(&source_id) {
+            if entry.created_at.elapsed() < THUMBNAIL_CACHE_TTL {
+                return Ok(entry.data.clone());
+            }
+        }
+    }
+
     let image = match parse_source_id(&source_id)? {
         SourceLocator::Screen(id) => xcap::Monitor::all()
             .map_err(|error| error.to_string())?
@@ -74,7 +94,28 @@ pub fn capture_screen_source_thumbnail(source_id: String) -> Result<Option<Strin
             .and_then(|window| window.capture_image().ok()),
     };
 
-    Ok(image.and_then(encode_thumbnail))
+    let result = image.and_then(encode_thumbnail);
+    if let Ok(mut guard) = THUMBNAIL_CACHE.lock() {
+        let cache = guard.get_or_insert_with(HashMap::new);
+        cache.insert(
+            source_id,
+            CachedThumbnail {
+                data: result.clone(),
+                created_at: Instant::now(),
+            },
+        );
+    }
+
+    Ok(result)
+}
+
+#[allow(dead_code)]
+pub fn clear_thumbnail_cache() {
+    if let Ok(mut guard) = THUMBNAIL_CACHE.lock() {
+        if let Some(ref mut cache) = *guard {
+            cache.clear();
+        }
+    }
 }
 
 pub(crate) fn parse_source_id(source_id: &str) -> Result<SourceLocator, String> {
