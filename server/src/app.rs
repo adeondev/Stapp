@@ -38,15 +38,19 @@ pub async fn build_app(config: Config) -> Result<(Router, Arc<AppState>)> {
 
     if let Some(dir) = static_dir.as_deref() {
         if dir.is_dir() {
-            tracing::info!(dir = %dir.display(), "servindo cliente web a partir do disco fisico");
+            tracing::warn!(
+                dir = %dir.display(),
+                "servindo cliente web do disco fisico; o cliente embutido neste binario esta sendo ignorado"
+            );
             let index = dir.join("index.html");
             app = app.fallback_service(ServeDir::new(dir).fallback(ServeFile::new(index)));
         } else {
             tracing::warn!(dir = %dir.display(), "static_dir nao encontrado, usando cliente web embutido");
+            log_embedded_client();
             app = app.fallback(http::assets::static_handler);
         }
     } else {
-        tracing::debug!("servindo cliente web embutido no binario");
+        log_embedded_client();
         app = app.fallback(http::assets::static_handler);
     }
 
@@ -63,6 +67,23 @@ pub async fn build_app(config: Config) -> Result<(Router, Arc<AppState>)> {
 pub async fn build(config: Config) -> Result<Router> {
     let (router, _) = build_app(config).await?;
     Ok(router)
+}
+
+/// Anuncia no boot qual cliente web esta sendo servido.
+///
+/// A pergunta "esse servidor esta entregando a SPA nova?" nao tinha resposta no
+/// log: o ramo do disco falava em `info!` e o ramo embutido em `debug!`, invisivel
+/// no nivel padrao de producao. E como o disco tem precedencia sobre o embutido,
+/// um binario recem-atualizado podia seguir servindo uma SPA velha parada em
+/// `static_dir`, com healthcheck 200 e nenhuma linha denunciando.
+fn log_embedded_client() {
+    if http::assets::embedded_client_is_placeholder() {
+        tracing::warn!(
+            "o cliente web embutido e apenas o placeholder do build; recompile o binario depois de `pnpm --dir web build`"
+        );
+    } else {
+        tracing::info!("servindo o cliente web embutido no binario");
+    }
 }
 
 async fn security_headers(request: Request, next: Next) -> Response {
