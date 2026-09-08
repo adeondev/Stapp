@@ -597,6 +597,11 @@ export async function startNativeScreenCapture(options: {
         resolveFirstFrame()
       }
     },
+    async onRequestKeyframe() {
+      if (captureId > 0) {
+        await requestScreenCaptureKeyframe(captureId)
+      }
+    },
     onError(err: Error) {
       console.error('[screen-capture] erro no nativeIngest:', err)
     },
@@ -645,7 +650,6 @@ export async function startNativeScreenCapture(options: {
 
     if (nativeIngest) {
       if (nativeIngest.feed(packet)) {
-        ingest.received(rawBytes.byteLength, false)
         return
       }
     }

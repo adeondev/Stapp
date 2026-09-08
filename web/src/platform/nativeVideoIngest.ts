@@ -59,11 +59,15 @@ export function extractH264CodecString(payload: Uint8Array): string {
 
 export interface NativeVideoDecoderOptions {
   onFrame: (frame: VideoFrame, decodeMs: number) => void
+  onRequestKeyframe?: () => Promise<void> | void
+  onDrop?: (byteLength: number) => void
   onError?: (error: Error) => void
+  maxQueueSize?: number
 }
 
 export interface NativeVideoDecoder {
   readonly isConfigured: boolean
+  readonly isWaitingForKeyframe: boolean
   readonly decodeQueueSize: number
   feed(packet: ScreenCapturePacket): boolean
   reset(): void
@@ -73,7 +77,9 @@ export interface NativeVideoDecoder {
 export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): NativeVideoDecoder | null {
   if (!isWebCodecsSupported()) return null
 
+  const maxQueueSize = options.maxQueueSize ?? 4
   let decoderConfigured = false
+  let waitingForKeyframe = false
   let chunkIndex = 0
   const pendingDecodeTimes = new Map<number, number>()
 
@@ -91,6 +97,8 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
       error(err) {
         const error = err instanceof Error ? err : new Error(String(err))
         console.error('[native-video-ingest] erro no VideoDecoder:', error)
+        waitingForKeyframe = true
+        void options.onRequestKeyframe?.()
         options.onError?.(error)
       },
     })
@@ -103,6 +111,9 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
     get isConfigured() {
       return decoderConfigured
     },
+    get isWaitingForKeyframe() {
+      return waitingForKeyframe
+    },
     get decodeQueueSize() {
       return videoDecoder?.decodeQueueSize ?? 0
     },
@@ -112,6 +123,11 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
       if (!decoderConfigured) {
         if (!packet.isKeyframe) {
           // Descarta delta-frames ate o primeiro keyframe com SPS/PPS
+          options.onDrop?.(packet.payload.byteLength)
+          if (!waitingForKeyframe) {
+            waitingForKeyframe = true
+            void options.onRequestKeyframe?.()
+          }
           return false
         }
         const codecStr = extractH264CodecString(packet.payload)
@@ -120,6 +136,24 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
           optimizeForLatency: true,
         })
         decoderConfigured = true
+        waitingForKeyframe = false
+      }
+
+      if (waitingForKeyframe) {
+        if (!packet.isKeyframe) {
+          options.onDrop?.(packet.payload.byteLength)
+          return false
+        }
+        waitingForKeyframe = false
+      }
+
+      // Contrapressao explicita: se o decodificador acumulou atraso acima do limite,
+      // descarta o quadro e solicita keyframe para restabelecer sincronia sem jitter
+      if (videoDecoder.decodeQueueSize >= maxQueueSize) {
+        options.onDrop?.(packet.payload.byteLength)
+        waitingForKeyframe = true
+        void options.onRequestKeyframe?.()
+        return false
       }
 
       const ts = chunkIndex++
@@ -139,6 +173,9 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
       } catch (err) {
         const error = err instanceof Error ? err : new Error(String(err))
         console.error('[native-video-ingest] erro ao decodificar chunk H.264:', error)
+        options.onDrop?.(packet.payload.byteLength)
+        waitingForKeyframe = true
+        void options.onRequestKeyframe?.()
         options.onError?.(error)
         return false
       }
@@ -149,6 +186,7 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
           videoDecoder.reset()
         } catch {}
         decoderConfigured = false
+        waitingForKeyframe = false
         pendingDecodeTimes.clear()
       }
     },
@@ -160,10 +198,12 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
         videoDecoder = null
       }
       decoderConfigured = false
+      waitingForKeyframe = false
       pendingDecodeTimes.clear()
     },
   }
 }
+
 
 export interface VideoTrackWriter {
   readonly track: MediaStreamTrack
@@ -230,7 +270,9 @@ export function createVideoTrackWriter(): VideoTrackWriter | null {
 export interface NativeVideoIngestOptions {
   ingest: IngestMetrics
   onFirstFrame: () => void
+  onRequestKeyframe?: () => Promise<void> | void
   onError?: (error: Error) => void
+  maxQueueSize?: number
 }
 
 export interface NativeVideoIngest {
@@ -270,6 +312,11 @@ export function createNativeVideoIngest(options: NativeVideoIngestOptions): Nati
           console.error('[native-video-ingest] erro ao entregar VideoFrame ao track:', err)
         })
     },
+    onRequestKeyframe: options.onRequestKeyframe,
+    onDrop: (byteLength) => {
+      options.ingest.received(byteLength, true)
+    },
+    maxQueueSize: options.maxQueueSize,
     onError: options.onError,
   })
 
@@ -319,9 +366,14 @@ export function createNativeVideoIngest(options: NativeVideoIngestOptions): Nati
     feed(packet: ScreenCapturePacket): boolean {
       if (stopped) return false
       if (packet.codec === 1) {
-        return decoder.feed(packet)
+        const decoded = decoder.feed(packet)
+        if (decoded) {
+          options.ingest.received(packet.payload.byteLength, false)
+        }
+        return decoded
       }
       if (packet.codec === 0) {
+        options.ingest.received(packet.payload.byteLength, latestJpegBytes !== null)
         latestJpegBytes = packet.payload
         void drawLatestJpeg()
         return true
