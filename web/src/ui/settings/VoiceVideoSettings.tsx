@@ -3,6 +3,7 @@ import type { DiagnosticReport, MediaDeviceLists, VoiceSnapshot, VoiceTransport 
 import { deduplicateDevices, type MicrophoneTest } from '../../voice/testMicrophone'
 import { DEFAULT_VOICE_PREFERENCES, resetVoicePreferences, type VoicePreferences } from '../../voice/preferences'
 import { IconCamera, IconHeadphones, IconMic } from '../Icons'
+import { ScreenStreamMetrics } from './ScreenStreamMetrics'
 import {
   SettingsButton, SettingsDangerZone, SettingsField, SettingsGroup, SettingsRow,
   SettingsSection, SettingsSegmented, SettingsSelect, SettingsSlider, SettingsToggle,
@@ -375,6 +376,8 @@ export function VoiceVideoSettings({ transport, snapshot, onPreferencesChange }:
             control={<SettingsButton onClick={copyReport}>Copiar relatório</SettingsButton>} />
           {report && <pre className="voicevideo__report">{JSON.stringify(report, null, 2)}</pre>}
         </SettingsGroup>
+
+        <ScreenStreamMetrics transport={transport} snapshot={snapshot} />
 
         <SettingsDangerZone
           title="Redefinir voz e vídeo"
