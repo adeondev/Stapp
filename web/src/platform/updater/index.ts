@@ -8,7 +8,7 @@ export type { BootPhase } from './useAutoUpdater'
 export { DesktopUpdater } from './desktopUpdater'
 export { WebUpdater, WEB_APP_VERSION } from './webUpdater'
 
-export const CURRENT_VERSION = '0.1.0-beta.9'
+export const CURRENT_VERSION = '0.1.0-beta.10'
 export const APP_VERSION = WEB_APP_VERSION
 
 /**
