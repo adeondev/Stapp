@@ -65,6 +65,10 @@ enum CaptureSource {
     Window(xcap::Window),
 }
 
+// HMONITOR e HWND no Windows sao identificadores do sistema operacional (inteiros
+// encapsulados como `*mut c_void`), completamente seguros para transferencia entre threads.
+unsafe impl Send for CaptureSource {}
+
 #[allow(dead_code)]
 #[derive(Serialize, Clone)]
 #[serde(tag = "event", rename_all = "snake_case")]
@@ -241,9 +245,8 @@ pub fn start_screen_capture(
 ) -> Result<u32, String> {
     let _ = include_audio;
     let locator = parse_source_id(&source_id)?;
-    if resolve_source(locator).is_none() {
-        return Err("a tela ou janela selecionada nao esta mais disponivel".to_string());
-    }
+    let source = resolve_source(locator)
+        .ok_or_else(|| "a tela ou janela selecionada nao esta mais disponivel".to_string())?;
 
     let capture_id = NEXT_CAPTURE_ID.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(AtomicBool::new(false));
@@ -259,6 +262,13 @@ pub fn start_screen_capture(
     // a interface MediaStream consumida pelo VoiceTransport permanece.
     let frames_per_second = fps.clamp(5, 60);
 
+    #[cfg(windows)]
+    let audio_target_result = if include_audio {
+        Some(audio_target_from_source(locator, &source))
+    } else {
+        None
+    };
+
     let video_channel = channel.clone();
     let video_frame_channel = frame_channel.clone();
     let worker = thread::Builder::new()
@@ -267,6 +277,7 @@ pub fn start_screen_capture(
             capture_loop(
                 capture_id,
                 locator,
+                source,
                 width,
                 height,
                 frames_per_second,
@@ -282,10 +293,9 @@ pub fn start_screen_capture(
     #[allow(unused_mut)]
     let mut threads = vec![worker];
     #[cfg(windows)]
-    if include_audio {
+    if let Some(target) = audio_target_result {
         let audio_stop = Arc::clone(&stop);
         let audio_event_channel = channel.clone();
-        let target = audio_target(locator);
         let audio_worker = thread::Builder::new()
             .name(format!("stapp-screen-audio-{capture_id}"))
             .spawn(move || audio_capture_loop(capture_id, target, audio_event_channel, audio_channel, audio_stop));
@@ -338,6 +348,7 @@ enum CaptureEngine {
 fn capture_loop(
     capture_id: u32,
     locator: SourceLocator,
+    source: CaptureSource,
     max_width: u32,
     max_height: u32,
     fps: u32,
@@ -360,28 +371,12 @@ fn capture_loop(
         }
         Err(err) => {
             log::warn!("WGC indisponivel ({err}), degradando para captura GDI");
-            let Some(source) = resolve_source(locator) else {
-                let _ = channel.send(CaptureEvent::Ended {
-                    capture_id,
-                    reason: "a fonte selecionada desapareceu".to_string(),
-                });
-                return;
-            };
             CaptureEngine::Gdi(source)
         }
     };
 
     #[cfg(not(windows))]
-    let mut engine = {
-        let Some(source) = resolve_source(locator) else {
-            let _ = channel.send(CaptureEvent::Ended {
-                capture_id,
-                reason: "a fonte selecionada desapareceu".to_string(),
-            });
-            return;
-        };
-        CaptureEngine::Gdi(source)
-    };
+    let mut engine = CaptureEngine::Gdi(source);
 
     let interval = Duration::from_nanos(1_000_000_000 / u64::from(fps));
     let maximum_failures = fps.saturating_mul(2);
@@ -776,20 +771,18 @@ struct AudioTarget {
 }
 
 #[cfg(windows)]
-fn audio_target(locator: SourceLocator) -> Result<AudioTarget, String> {
-    let selected_process_id = match locator {
-        SourceLocator::Screen(_) => None,
-        SourceLocator::Window(id) => Some(
-            xcap::Window::all()
-                .map_err(|error| error.to_string())?
-                .into_iter()
-                .find(|window| window.id().ok() == Some(id))
-                .and_then(|window| window.pid().ok())
-                .ok_or_else(|| "a janela selecionada desapareceu".to_string())?,
-        ),
+fn audio_target_from_source(locator: SourceLocator, source: &CaptureSource) -> Result<AudioTarget, String> {
+    let selected_process_id = match source {
+        CaptureSource::Screen(_) => None,
+        CaptureSource::Window(window) => window
+            .pid()
+            .ok()
+            .ok_or_else(|| "a janela selecionada desapareceu".to_string())
+            .map(Some)?,
     };
     make_audio_target(locator, selected_process_id, get_exclusion_process_id())
 }
+
 
 #[cfg(windows)]
 fn make_audio_target(
