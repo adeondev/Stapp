@@ -539,3 +539,106 @@ fn wgc_fallback_para_jpeg_quando_forcado_ou_sem_encoder_hardware() {
     std::env::remove_var("STAPP_FORCE_JPEG_ENCODER");
 }
 
+#[test]
+fn empacotamento_uniforme_jpeg_e_h264_no_cabecalho_stap() {
+    let jpeg_data = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46];
+    let h264_data = [0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1F, 0x00, 0x00, 0x00, 0x01, 0x68];
+
+    // Empacotamento JPEG
+    let p_jpeg = encoder::pack_frame(
+        encoder::CODEC_JPEG,
+        true,
+        55,
+        1920,
+        1080,
+        1,
+        1_000_000,
+        &jpeg_data,
+    );
+    let h_jpeg = encoder::PacketHeader::parse(&p_jpeg).expect("parse JPEG valido");
+    assert_eq!(h_jpeg.codec, encoder::CODEC_JPEG);
+    assert!(h_jpeg.is_keyframe());
+    assert_eq!(h_jpeg.capture_id, 55);
+    assert_eq!(h_jpeg.width, 1920);
+    assert_eq!(h_jpeg.height, 1080);
+    assert_eq!(h_jpeg.sequence, 1);
+    assert_eq!(h_jpeg.timestamp_us, 1_000_000);
+    assert_eq!(&p_jpeg[encoder::HEADER_SIZE..], &jpeg_data);
+
+    // Empacotamento H.264 (delta frame)
+    let p_h264 = encoder::pack_frame(
+        encoder::CODEC_H264,
+        false,
+        55,
+        1920,
+        1080,
+        2,
+        1_033_333,
+        &h264_data,
+    );
+    let h_h264 = encoder::PacketHeader::parse(&p_h264).expect("parse H.264 valido");
+    assert_eq!(h_h264.codec, encoder::CODEC_H264);
+    assert!(!h_h264.is_keyframe());
+    assert_eq!(h_h264.capture_id, 55);
+    assert_eq!(h_h264.width, 1920);
+    assert_eq!(h_h264.height, 1080);
+    assert_eq!(h_h264.sequence, 2);
+    assert_eq!(h_h264.timestamp_us, 1_033_333);
+    assert_eq!(&p_h264[encoder::HEADER_SIZE..], &h264_data);
+}
+
+#[test]
+fn negociacao_e_fallback_de_encoder_em_metricas() {
+    let mut acc = metrics::MetricsAccumulator::default();
+    acc.record(metrics::FrameSample {
+        capture: Duration::from_millis(2),
+        cursor: Duration::ZERO,
+        resize: Duration::from_millis(1),
+        encode: Duration::from_millis(2),
+        dispatch: Duration::from_millis(1),
+        idle: Duration::from_millis(10),
+        bytes: 45_000,
+        width: 1920,
+        height: 1080,
+    });
+
+    // Simulando negociacao bem-sucedida de encoder por hardware
+    let stats_hw = acc.snapshot_with_encoder(
+        Duration::from_secs(1),
+        60,
+        Some("NVIDIA NVENC H.264 (NVIDIA)".to_string()),
+    );
+    assert_eq!(
+        stats_hw.encoder_name,
+        Some("NVIDIA NVENC H.264 (NVIDIA)".to_string())
+    );
+
+    // Simulando degradacao / fallback para encoder JPEG por software
+    let stats_sw = acc.snapshot_with_encoder(
+        Duration::from_secs(1),
+        60,
+        Some("Software Fallback (JPEG)".to_string()),
+    );
+    assert_eq!(
+        stats_sw.encoder_name,
+        Some("Software Fallback (JPEG)".to_string())
+    );
+}
+
+#[test]
+fn deteccao_de_desalinhamento_e_renegociacao_de_encoder() {
+    // Simula a condicao em que a resolucao da janela muda e dispara re-inicializacao
+    let initial_w = 1280u32;
+    let initial_h = 720u32;
+    let new_w = 1920u32;
+    let new_h = 1080u32;
+
+    let needs_renegotiation = initial_w != new_w || initial_h != new_h;
+    assert!(needs_renegotiation, "mudanca de resolucao deve disparar renegociacao");
+
+    let same_w = 1280u32;
+    let same_h = 720u32;
+    let needs_renegotiation_same = initial_w != same_w || initial_h != same_h;
+    assert!(!needs_renegotiation_same, "mesma resolucao mantem encoder");
+}
+

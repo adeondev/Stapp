@@ -95,9 +95,13 @@ impl PacketHeader {
         if buf.len() < HEADER_SIZE || &buf[0..4] != &MAGIC_STAP {
             return None;
         }
+        let version = buf[4];
+        if version != 1 {
+            return None;
+        }
         Some(Self {
             magic: MAGIC_STAP,
-            version: buf[4],
+            version,
             codec: buf[5],
             flags: buf[6],
             reserved: buf[7],
@@ -914,5 +918,155 @@ mod tests {
         assert!(nalus.iter().any(|n| n.2 == 7), "keyframe deve conter SPS (NAL 7)");
         assert!(nalus.iter().any(|n| n.2 == 8), "keyframe deve conter PPS (NAL 8)");
         assert!(nalus.iter().any(|n| n.2 == 5), "keyframe deve conter IDR slice (NAL 5)");
+    }
+
+    #[test]
+    fn testa_validacao_de_cabecalhos_stap_corrompidos_ou_truncados() {
+        // Pacote menor que HEADER_SIZE (32 bytes)
+        let curto = vec![0u8; 31];
+        assert!(PacketHeader::parse(&curto).is_none());
+        assert!(PacketHeader::parse(&[]).is_none());
+
+        // Pacote com magic invalido
+        let mut invalido = pack_frame(CODEC_H264, true, 1, 1920, 1080, 1, 100, b"teste");
+        invalido[0] = b'X';
+        assert!(PacketHeader::parse(&invalido).is_none());
+
+        // Pacote com versao nao suportada (versao 99)
+        let mut versao_invalida = pack_frame(CODEC_H264, true, 1, 1920, 1080, 1, 100, b"teste");
+        versao_invalida[4] = 99;
+        assert!(PacketHeader::parse(&versao_invalida).is_none());
+
+        // Pacote com sequence wrapping (u32::MAX) e flag delta (nao-keyframe)
+        let seq_max = pack_frame(
+            CODEC_JPEG,
+            false,
+            999,
+            3840,
+            2160,
+            u32::MAX,
+            u64::MAX,
+            b"imagem jpeg delta",
+        );
+        let parsed = PacketHeader::parse(&seq_max).expect("deve aceitar sequencia u32::MAX");
+        assert_eq!(parsed.codec, CODEC_JPEG);
+        assert!(!parsed.is_keyframe());
+        assert_eq!(parsed.sequence, u32::MAX);
+        assert_eq!(parsed.timestamp_us, u64::MAX);
+        assert_eq!(parsed.width, 3840);
+        assert_eq!(parsed.height, 2160);
+        assert_eq!(&seq_max[HEADER_SIZE..], b"imagem jpeg delta");
+    }
+
+    #[test]
+    fn testa_analisador_annex_b_casos_complexos() {
+        // Stream vazio
+        assert!(find_annex_b_nalus(&[]).is_empty());
+
+        // Stream sem nenhum start code
+        assert!(find_annex_b_nalus(&[1, 2, 3, 4, 5, 6, 7, 8]).is_empty());
+
+        // Stream com start codes mistos de 3 bytes (0x000001) e 4 bytes (0x00000001)
+        let sei_nal = [0x00, 0x00, 0x01, 0x06, 0x05, 0xff]; // SEI (6)
+        let sps_nal = [0x00, 0x00, 0x00, 0x01, 0x67, 0x64, 0x00, 0x28]; // SPS (7)
+        let pps_nal = [0x00, 0x00, 0x00, 0x01, 0x68, 0xee, 0x3c, 0x80]; // PPS (8)
+        let non_idr = [0x00, 0x00, 0x01, 0x41, 0x9a, 0x01]; // Slice nao-IDR (1)
+
+        let mut stream = Vec::new();
+        stream.extend_from_slice(&sei_nal);
+        stream.extend_from_slice(&sps_nal);
+        stream.extend_from_slice(&pps_nal);
+        stream.extend_from_slice(&non_idr);
+
+        let nalus = find_annex_b_nalus(&stream);
+        assert_eq!(nalus.len(), 4);
+        assert_eq!(nalus[0].2, 6); // SEI
+        assert_eq!(nalus[1].2, 7); // SPS
+        assert_eq!(nalus[2].2, 8); // PPS
+        assert_eq!(nalus[3].2, 1); // Non-IDR Slice
+
+        assert_eq!(&stream[nalus[0].0..nalus[0].1], &sei_nal);
+        assert_eq!(&stream[nalus[1].0..nalus[1].1], &sps_nal);
+        assert_eq!(&stream[nalus[2].0..nalus[2].1], &pps_nal);
+        assert_eq!(&stream[nalus[3].0..nalus[3].1], &non_idr);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn testa_negociacao_e_keyframe_sob_demanda_no_encoder() {
+        use windows::Win32::Foundation::HMODULE;
+        use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+        use windows::Win32::Graphics::Direct3D11::{
+            D3D11CreateDevice, D3D11_BIND_RENDER_TARGET, D3D11_BIND_SHADER_RESOURCE,
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC,
+            D3D11_USAGE_DEFAULT,
+        };
+        use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
+
+        let mut d3d_device = None;
+        let mut d3d_context = None;
+        let hr = unsafe {
+            D3D11CreateDevice(
+                None,
+                D3D_DRIVER_TYPE_HARDWARE,
+                HMODULE::default(),
+                D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                None,
+                D3D11_SDK_VERSION,
+                Some(&mut d3d_device),
+                None,
+                Some(&mut d3d_context),
+            )
+        };
+        if hr.is_err() {
+            return;
+        }
+        let device = d3d_device.unwrap();
+
+        let mut encoder = match H264Encoder::new(&device, 1280, 720, 30, 2_000_000) {
+            Ok(enc) => enc,
+            Err(_) => return,
+        };
+
+        // Verifica propriedades negociadas
+        assert_eq!(encoder.width(), 1280);
+        assert_eq!(encoder.height(), 720);
+        assert_eq!(encoder.fps(), 30);
+        assert_eq!(encoder.bitrate(), 2_000_000);
+        assert!(!encoder.vendor_name().is_empty());
+        assert!(!encoder.friendly_name().is_empty());
+
+        // Verifica que solicitacao de keyframe ativa o indicador
+        encoder.request_keyframe();
+        assert!(encoder.force_keyframe_next);
+
+        let desc = D3D11_TEXTURE2D_DESC {
+            Width: 1280,
+            Height: 720,
+            MipLevels: 1,
+            ArraySize: 1,
+            Format: DXGI_FORMAT_NV12,
+            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+            Usage: D3D11_USAGE_DEFAULT,
+            BindFlags: (D3D11_BIND_RENDER_TARGET.0 | D3D11_BIND_SHADER_RESOURCE.0) as u32,
+            CPUAccessFlags: 0,
+            MiscFlags: 0,
+        };
+
+        let mut texture = None;
+        let tex_hr = unsafe { device.CreateTexture2D(&desc, None, Some(&mut texture)) };
+        assert!(tex_hr.is_ok());
+        let texture = texture.unwrap();
+
+        // Codifica solicitando keyframe explicitamente
+        let packets = encoder.encode_texture(&texture, true).expect("falha codificando textura com keyframe");
+        let flushed = encoder.drain_all().expect("falha no drain");
+        let all_packets: Vec<_> = packets.into_iter().chain(flushed.into_iter()).collect();
+
+        if let Some(kf) = all_packets.iter().find(|p| p.is_keyframe) {
+            let nalus = find_annex_b_nalus(&kf.data);
+            assert!(nalus.iter().any(|n| n.2 == 7), "keyframe sob demanda deve ter SPS");
+            assert!(nalus.iter().any(|n| n.2 == 8), "keyframe sob demanda deve ter PPS");
+        }
     }
 }

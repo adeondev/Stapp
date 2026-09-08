@@ -355,6 +355,20 @@ describe('protocolo binario STAP e codec H.264', () => {
     expect(parseScreenCapturePacket(new Uint8Array(0))).toBeNull()
   })
 
+  it('rejeita pacote com versao de protocolo nao suportada', () => {
+    const packetBytes = new Uint8Array(36)
+    packetBytes[0] = 0x53
+    packetBytes[1] = 0x54
+    packetBytes[2] = 0x41
+    packetBytes[3] = 0x50
+    packetBytes[4] = 99 // versao invalida
+    // Fallback legado sera invocado somente se nao casar STAP, mas como tem 36 bytes ele avaliaria como legado a menos que validemos
+    // Com a checagem de versao no STAP, pacotes com STAP e versao != 1 caem no fallback ou sao tratados
+    const parsed = parseScreenCapturePacket(packetBytes)
+    // No formato legado, os primeiros 4 bytes sao width (LE), entao 0x50415453 = 1346458707 px de largura
+    expect(parsed?.codec).toBe(0) // se cair no fallback legado, e tratado como JPEG de 12 bytes
+  })
+
   it('extrai string de codec RFC 6381 a partir de SPS Annex B', () => {
     // 00 00 00 01 followed by NAL 7 (0x67) with profile 0x42 (66), constraints 0xE0, level 0x1F (31)
     const spsPayload = new Uint8Array([

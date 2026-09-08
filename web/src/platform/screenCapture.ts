@@ -165,13 +165,14 @@ export interface ScreenCapturePacket {
 export function parseScreenCapturePacket(rawBytes: Uint8Array): ScreenCapturePacket | null {
   if (rawBytes.byteLength < 12) return null
 
-  // Verifica magic "STAP" (0x53, 0x54, 0x41, 0x50)
+  // Verifica magic "STAP" (0x53, 0x54, 0x41, 0x50) e versao 1
   if (
     rawBytes.byteLength >= 32 &&
     rawBytes[0] === 0x53 &&
     rawBytes[1] === 0x54 &&
     rawBytes[2] === 0x41 &&
-    rawBytes[3] === 0x50
+    rawBytes[3] === 0x50 &&
+    rawBytes[4] === 1
   ) {
     const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
     const codec = rawBytes[5]
