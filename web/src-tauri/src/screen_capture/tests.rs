@@ -175,11 +175,137 @@ fn medir_laco_legado(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
     // Sem pacer: a janela e o tempo que o laco levou para produzir os quadros,
     // entao o `fps` que sai daqui e o **teto** do produtor legado, e nao a taxa
     // que ele entregaria depois de dormir ate o proximo intervalo.
-    let stats = acumulador.snapshot(inicio.elapsed(), 60);
+        let stats = acumulador.snapshot(inicio.elapsed(), 60);
     println!("\n== linha de base do laco legado: {rotulo} ==");
     println!("{stats:#?}");
     println!(
         "teto do produtor: {:.1} FPS | orcamento de 60 FPS: 16.67 ms | quadro: {:.2} ms",
         stats.fps, stats.frame_ms,
+    );
+}
+
+static TEST_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn wgc_desabilita_com_variavel_de_ambiente_e_recusa_sessao() {
+    let _guard = TEST_ENV_MUTEX.lock().unwrap();
+    std::env::set_var("STAPP_FORCE_GDI_CAPTURE", "1");
+    assert!(!wgc::is_wgc_supported());
+    let res = wgc::WgcSession::new(SourceLocator::Screen(0));
+    assert!(res.is_err());
+    std::env::remove_var("STAPP_FORCE_GDI_CAPTURE");
+}
+
+#[test]
+fn fallback_gdi_resolve_fonte_valida() {
+    let Ok(monitors) = xcap::Monitor::all() else { return };
+    let Some(monitor) = monitors.first() else { return };
+    let Ok(id) = monitor.id() else { return };
+
+    let locator = SourceLocator::Screen(id);
+    let source = resolve_source(locator);
+    assert!(source.is_some());
+    if let Some(CaptureSource::Screen(screen)) = source {
+        assert_eq!(screen.id().ok(), Some(id));
+    } else {
+        panic!("esperava CaptureSource::Screen");
+    }
+}
+
+#[test]
+fn wgc_ciclo_de_vida_encerra_e_recusa_quadros_apos_fechamento() {
+    let _guard = TEST_ENV_MUTEX.lock().unwrap();
+    if !wgc::is_wgc_supported() {
+        return;
+    }
+    let Ok(monitors) = xcap::Monitor::all() else { return };
+    let Some(monitor) = monitors.first() else { return };
+    let Ok(id) = monitor.id() else { return };
+
+    let session = wgc::WgcSession::new(SourceLocator::Screen(id));
+    if let Ok(mut session) = session {
+        let frame = session.next_frame(Duration::from_millis(1000));
+        assert!(frame.is_ok());
+        session.close();
+        let frame_after_close = session.next_frame(Duration::from_millis(50));
+        assert!(frame_after_close.is_err());
+    }
+}
+
+#[test]
+#[ignore]
+fn linha_de_base_do_laco_wgc() {
+    if !wgc::is_wgc_supported() {
+        println!("WGC nao suportada nesta maquina");
+        return;
+    }
+    medir_laco_wgc("wgc balanced 1080p", 1920, 1080);
+}
+
+fn medir_laco_wgc(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
+    use super::metrics::{FrameSample, FrameTimer, MetricsAccumulator};
+
+    const QUADROS: u32 = 60;
+
+    let monitores = xcap::Monitor::all().expect("nenhum monitor disponivel");
+    let primeiro = monitores.first().expect("nenhum monitor disponivel");
+    let locator = SourceLocator::Screen(primeiro.id().expect("monitor sem id"));
+    let mut session = wgc::WgcSession::new(locator).expect("falha criando sessao WGC");
+
+    let mut acumulador = MetricsAccumulator::default();
+    let inicio = Instant::now();
+    for _ in 0..QUADROS {
+        let mut timer = FrameTimer::start();
+        let frame = session.next_frame(Duration::from_millis(500));
+        let captura = timer.lap();
+        let Ok(Some(imagem)) = frame else {
+            acumulador.record_failure();
+            continue;
+        };
+
+        let cursor = Duration::ZERO;
+
+        let (largura, altura) = imagem.dimensions();
+        let (destino_largura, destino_altura) =
+            scale_to_fit(largura, altura, largura_maxima, altura_maxima);
+        let imagem = if (largura, altura) == (destino_largura, destino_altura) {
+            imagem
+        } else {
+            parallel_resize_rgba(&imagem, destino_largura, destino_altura)
+        };
+        let redimensionar = timer.lap();
+
+        let mut pacote = Vec::with_capacity(12 + (destino_largura * destino_altura) as usize);
+        pacote.extend_from_slice(&destino_largura.to_le_bytes());
+        pacote.extend_from_slice(&destino_altura.to_le_bytes());
+        pacote.extend_from_slice(&1u32.to_le_bytes());
+        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut pacote, 72)
+            .encode_image(&imagem)
+            .is_err()
+        {
+            acumulador.record_failure();
+            continue;
+        }
+        let comprimir = timer.lap();
+
+        acumulador.record(FrameSample {
+            capture: captura,
+            cursor,
+            resize: redimensionar,
+            encode: comprimir,
+            dispatch: Duration::ZERO,
+            idle: Duration::ZERO,
+            bytes: pacote.len(),
+            width: destino_largura,
+            height: destino_altura,
+        });
+    }
+
+    let stats = acumulador.snapshot(inicio.elapsed(), 60);
+    println!("\n== linha de base do laco WGC: {rotulo} ==");
+    println!("{stats:#?}");
+    println!(
+        "teto do produtor WGC: {:.1} FPS | quadro: {:.2} ms (captura: {:.2} ms)",
+        stats.fps, stats.frame_ms, stats.capture_ms
     );
 }
