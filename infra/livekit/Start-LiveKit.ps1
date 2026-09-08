@@ -14,7 +14,7 @@ $repoRoot = (Resolve-Path (Join-Path $scriptRoot '..\..')).Path
 $envPath = Join-Path $scriptRoot '.env'
 $templatePath = Join-Path $scriptRoot 'livekit.template.yaml'
 $generatedPath = Join-Path $scriptRoot 'livekit.generated.yaml'
-$serverTemplate = Join-Path $repoRoot 'server\stapp.toml'
+$serverTemplate = Join-Path $repoRoot 'server\stapp.example.toml'
 $serverGenerated = Join-Path $repoRoot 'server\stapp.livekit.toml'
 
 if (-not (Test-Path -LiteralPath $envPath)) {

@@ -132,7 +132,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path dist-pkg
           Copy-Item "server/target/${{ matrix.target }}/release/stapp-server.exe" -Destination dist-pkg/
-          Copy-Item "server/stapp.toml" -Destination dist-pkg/
+          Copy-Item "server/stapp.example.toml" -Destination dist-pkg/stapp.toml
           Compress-Archive -Path dist-pkg/* -DestinationPath "${{ matrix.archive_name }}"
 
       - name: Package Linux archive
@@ -140,7 +140,7 @@ jobs:
         run: |
           mkdir -p dist-pkg
           cp "server/target/${{ matrix.target }}/release/stapp-server" dist-pkg/
-          cp "server/stapp.toml" dist-pkg/
+          cp "server/stapp.example.toml" dist-pkg/stapp.toml
           tar -czvf "${{ matrix.archive_name }}" -C dist-pkg .
 
       - name: Upload binary artifact
@@ -208,7 +208,7 @@ jobs:
 
       - name: Assemble Docker build context
         run: |
-          cp server/stapp.toml docker-ctx/stapp.toml
+          cp server/stapp.example.toml docker-ctx/stapp.toml
           ls -lR docker-ctx
 
       # Emulacao ainda e necessaria, mas so para o `apt-get` da imagem arm64 —

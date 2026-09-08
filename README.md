@@ -22,7 +22,7 @@ O Stapp é distribuído como um **executável único e autossuficiente** para Wi
    # Windows (PowerShell)
    .\stapp-server.exe
    ```
-3. **Bootstrapping Automático:** na primeira inicialização, o Stapp gera sozinho o arquivo de configuração comentado [`stapp.toml`](server/stapp.toml), a pasta de dados `data/`, inicializa o banco SQLite via SQLx e serve o cliente web moderno já embutido no executável em **`http://localhost:8787`**.
+3. **Bootstrapping Automático:** na primeira inicialização, o Stapp gera sozinho o arquivo de configuração comentado `stapp.toml` (a partir do template versionado [`stapp.example.toml`](server/stapp.example.toml)), a pasta de dados `data/`, inicializa o banco SQLite via SQLx e serve o cliente web moderno já embutido no executável em **`http://localhost:8787`**.
 
 ### TLS e HTTPS Automático (Sem Proxy Reverso)
 O executável possui suporte nativo a certificados TLS via Let's Encrypt (ACME TLS-ALPN-01) e certificados manuais (`.pem`), dispensando proxies externos como Nginx ou Caddy:
@@ -117,7 +117,7 @@ cargo run -- user passwd daniel
 cd server
 cargo run
 ```
-Sobe em `http://localhost:8787`. Configurações em [`server/stapp.toml`](server/stapp.toml) ou via variáveis de ambiente com prefixo `STAPP_`.
+Sobe em `http://localhost:8787`. Configurações no `server/stapp.toml` gerado na primeira execução — o template versionado é [`server/stapp.example.toml`](server/stapp.example.toml) — ou via variáveis de ambiente com prefixo `STAPP_`.
 
 ### 2. Subindo o frontend (Vite Dev Server)
 ```bash
@@ -146,7 +146,7 @@ pnpm app:build    # Gera o instalador standalone
 │   ├── Dockerfile        # Build multi-stage (Node SPA + Rust Release + Debian Runtime)
 │   ├── Dockerfile.release # Empacota o binário já compilado no CI (não compila nada)
 │   ├── src/              # Auth HTTP, WebSocket, presença, chat, chamadas e SQLite
-│   └── stapp.toml        # Arquivo de configuração padrão do servidor
+│   └── stapp.example.toml # Template da configuração; o stapp.toml vivo é gerado e fica fora do git
 ├── web/                  # Frontend Vite + React + TypeScript
 │   ├── src/              # UI flat sem sombras, cliente de voz e gerência de estado
 │   └── src-tauri/        # Casca desktop nativa (Windows, Linux, macOS)

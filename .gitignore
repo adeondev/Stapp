@@ -5,6 +5,11 @@
 # dados do servidor (banco, logs)
 /server/data/
 
+# Configuracao viva do servidor. O versionado e o stapp.example.toml; este aqui
+# e gerado na primeira execucao e carrega os segredos de quem hospeda — se
+# voltasse para o git, um "git pull" no deploy sobrescreveria a config de producao.
+/server/stapp.toml
+
 # Node / web
 node_modules/
 /web/dist/
