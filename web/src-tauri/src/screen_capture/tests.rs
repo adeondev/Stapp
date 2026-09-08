@@ -304,3 +304,119 @@ fn medir_laco_wgc(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
         stats.fps, stats.frame_ms, stats.capture_ms
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn calculo_de_destino_alinha_a_multiplos_de_dois_para_nv12() {
+    use super::scaler::calculate_aligned_destination;
+
+    // Resolucao de entrada impar e limites impares devem sair sempre pares
+    let (w, h) = calculate_aligned_destination(1365, 767, 1920, 1080);
+    assert_eq!(w % 2, 0, "largura deve ser par");
+    assert_eq!(h % 2, 0, "altura deve ser par");
+    assert_eq!((w, h), (1364, 766));
+
+    // Resolucao padrao par mantem valores intactos
+    let (w, h) = calculate_aligned_destination(1920, 1080, 1920, 1080);
+    assert_eq!((w, h), (1920, 1080));
+
+    // Reducao mantendo proporcao com saida par
+    let (w, h) = calculate_aligned_destination(2560, 1440, 1920, 1080);
+    assert_eq!((w, h), (1920, 1080));
+
+    let (w, h) = calculate_aligned_destination(3840, 2160, 1280, 720);
+    assert_eq!((w, h), (1280, 720));
+
+    // Dimensoes extremas pequenas garantem no minimo 2x2 para NV12
+    let (w, h) = calculate_aligned_destination(1, 1, 1920, 1080);
+    assert_eq!((w, h), (2, 2));
+
+    let (w, h) = calculate_aligned_destination(0, 0, 1920, 1080);
+    assert_eq!((w, h), (2, 2));
+
+    // Formato ultra-wide com reducao
+    let (w, h) = calculate_aligned_destination(3440, 1440, 1920, 1080);
+    assert_eq!(w % 2, 0);
+    assert_eq!(h % 2, 0);
+    assert!(w <= 1920);
+    assert!(h <= 1080);
+
+    // Orientacao vertical (ex.: monitor retrato)
+    let (w, h) = calculate_aligned_destination(1080, 1920, 1280, 720);
+    assert_eq!(w % 2, 0);
+    assert_eq!(h % 2, 0);
+    assert!(w <= 1280);
+    assert!(h <= 720);
+}
+
+#[cfg(windows)]
+#[test]
+fn escalonador_lida_com_dimensoes_impares_de_janela() {
+    use super::scaler::{D3D11VideoScaler, calculate_aligned_destination};
+    use windows::Win32::Foundation::HMODULE;
+    use windows::Win32::Graphics::Direct3D::D3D_DRIVER_TYPE_HARDWARE;
+    use windows::Win32::Graphics::Direct3D11::{
+        D3D11CreateDevice, D3D11_BIND_RENDER_TARGET, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_DEFAULT,
+    };
+
+    let mut d3d_device = None;
+    let mut d3d_context = None;
+    let hr = unsafe {
+        D3D11CreateDevice(
+            None,
+            D3D_DRIVER_TYPE_HARDWARE,
+            HMODULE::default(),
+            D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+            None,
+            D3D11_SDK_VERSION,
+            Some(&mut d3d_device),
+            None,
+            Some(&mut d3d_context),
+        )
+    };
+    if hr.is_err() {
+        return;
+    }
+    let device = d3d_device.unwrap();
+    let context = d3d_context.unwrap();
+
+    // Simula janela com tamanho impar (ex.: 1365 x 767) redimensionada para 1280 x 720
+    let (dst_w, dst_h) = calculate_aligned_destination(1365, 767, 1280, 720);
+    assert_eq!(dst_w % 2, 0);
+    assert_eq!(dst_h % 2, 0);
+
+    let mut scaler = D3D11VideoScaler::new(&device, &context, 1365, 767, dst_w, dst_h, 60)
+        .expect("falha ao criar scaler com dimensoes impares de entrada");
+
+    let in_desc = D3D11_TEXTURE2D_DESC {
+        Width: 1365,
+        Height: 767,
+        MipLevels: 1,
+        ArraySize: 1,
+        Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM,
+        SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC {
+            Count: 1,
+            Quality: 0,
+        },
+        Usage: D3D11_USAGE_DEFAULT,
+        BindFlags: D3D11_BIND_RENDER_TARGET.0 as u32,
+        CPUAccessFlags: 0,
+        MiscFlags: 0,
+    };
+    let mut input_texture = None;
+    unsafe {
+        device
+            .CreateTexture2D(&in_desc, None, Some(&mut input_texture))
+            .expect("falha criando textura BGRA impar");
+    }
+    let input_texture = input_texture.unwrap();
+
+    let res = scaler.scale_nv12(&input_texture, 1365, 767, dst_w, dst_h, 60);
+    assert!(res.is_ok(), "scale_nv12 falhou com entrada impar: {:?}", res.err());
+
+    let rgba = scaler.read_to_rgba();
+    assert!(rgba.is_ok(), "read_to_rgba falhou: {:?}", rgba.err());
+    let img = rgba.unwrap();
+    assert_eq!(img.dimensions(), (dst_w, dst_h));
+}
