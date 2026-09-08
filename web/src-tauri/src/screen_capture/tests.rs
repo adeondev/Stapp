@@ -98,7 +98,7 @@ fn detector_encontra_o_probe_mesmo_com_silencio_em_volta() {
 /// `cargo test --lib -- --ignored --nocapture linha_de_base`.
 ///
 /// Exercita as funcoes do `capture_loop` legado: `capture_image`,
-/// `scale_to_fit` + `parallel_resize_rgba` e o `JpegEncoder` na qualidade 72.
+/// `scale_to_fit` + `simple_resize_rgba` e o `JpegEncoder` na qualidade 72.
 /// O cursor e composto pela WGC (custo zero nesta medicao).
 #[test]
 #[ignore]
@@ -142,7 +142,7 @@ fn medir_laco_legado(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
         let imagem = if (largura, altura) == (destino_largura, destino_altura) {
             imagem
         } else {
-            parallel_resize_rgba(&imagem, destino_largura, destino_altura)
+            simple_resize_rgba(&imagem, destino_largura, destino_altura)
         };
         let redimensionar = timer.lap();
 

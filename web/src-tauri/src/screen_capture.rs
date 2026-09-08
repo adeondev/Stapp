@@ -446,7 +446,7 @@ fn capture_loop(
                 let image = if (width, height) == (target_w, target_h) {
                     image
                 } else {
-                    parallel_resize_rgba(&image, target_w, target_h)
+                    simple_resize_rgba(&image, target_w, target_h)
                 };
                 let resize_elapsed = resize_timer.lap();
 
@@ -508,13 +508,13 @@ fn capture_loop(
     }
 }
 
-fn parallel_resize_rgba(
+/// Redimensionamento simples em CPU por vizinho-mais-proximo, sem paralelismo ou dependencias extras.
+/// Usado exclusivamente como fallback quando a sessao WGC/GPU nao esta disponivel.
+fn simple_resize_rgba(
     src: &image::RgbaImage,
     target_width: u32,
     target_height: u32,
 ) -> image::RgbaImage {
-    use rayon::prelude::*;
-
     let (src_width, src_height) = src.dimensions();
     if target_width == 0 || target_height == 0 || src_width == 0 || src_height == 0 {
         return image::RgbaImage::new(target_width, target_height);
@@ -522,21 +522,20 @@ fn parallel_resize_rgba(
     let src_raw = src.as_raw();
     let mut dest_raw = vec![0u8; (target_width as usize) * (target_height as usize) * 4];
 
-    dest_raw
-        .par_chunks_exact_mut((target_width as usize) * 4)
-        .enumerate()
-        .for_each(|(target_y, row)| {
-            let src_y = ((target_y as u64 * src_height as u64) / target_height as u64) as u32;
-            let src_row_offset = (src_y as usize) * (src_width as usize) * 4;
-            let src_row = &src_raw[src_row_offset..src_row_offset + (src_width as usize) * 4];
+    for target_y in 0..target_height {
+        let src_y = ((target_y as u64 * src_height as u64) / target_height as u64) as u32;
+        let src_row_offset = (src_y as usize) * (src_width as usize) * 4;
+        let src_row = &src_raw[src_row_offset..src_row_offset + (src_width as usize) * 4];
+        let dst_row_offset = (target_y as usize) * (target_width as usize) * 4;
+        let dst_row = &mut dest_raw[dst_row_offset..dst_row_offset + (target_width as usize) * 4];
 
-            for target_x in 0..target_width {
-                let src_x = ((target_x as u64 * src_width as u64) / target_width as u64) as usize;
-                let src_idx = src_x * 4;
-                let dst_idx = (target_x as usize) * 4;
-                row[dst_idx..dst_idx + 4].copy_from_slice(&src_row[src_idx..src_idx + 4]);
-            }
-        });
+        for target_x in 0..target_width {
+            let src_x = ((target_x as u64 * src_width as u64) / target_width as u64) as usize;
+            let src_idx = src_x * 4;
+            let dst_idx = (target_x as usize) * 4;
+            dst_row[dst_idx..dst_idx + 4].copy_from_slice(&src_row[src_idx..src_idx + 4]);
+        }
+    }
 
     image::RgbaImage::from_raw(target_width, target_height, dest_raw)
         .unwrap_or_else(|| image::RgbaImage::new(target_width, target_height))
