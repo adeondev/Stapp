@@ -1,6 +1,8 @@
 mod metrics;
 #[cfg(windows)]
 pub(crate) mod wgc;
+#[cfg(windows)]
+pub(crate) mod scaler;
 
 use crate::screen_sources::{parse_source_id, scale_to_fit, SourceLocator};
 use metrics::{CaptureStats, FrameSample, FrameTimer, MetricsAccumulator};
@@ -352,17 +354,17 @@ fn capture_loop(
             }
         }
 
-        let (image, capture_elapsed, idle_elapsed) = match &mut engine {
+        let (image, target_width, target_height, capture_elapsed, resize_elapsed, idle_elapsed) = match &mut engine {
             #[cfg(windows)]
             CaptureEngine::Wgc(session) => {
                 let wait_timeout = Duration::from_millis(100);
                 let wait_start = Instant::now();
-                let frame_result = session.next_frame(wait_timeout);
+                let frame_result = session.next_frame(wait_timeout, max_width, max_height, fps);
                 let idle_elapsed = wait_start.elapsed();
 
                 let mut timer = FrameTimer::start();
-                let image = match frame_result {
-                    Ok(Some(img)) => {
+                let (image, target_w, target_h, resize_elapsed) = match frame_result {
+                    Ok(Some(frame)) => {
                         let now = Instant::now();
                         if now.saturating_duration_since(last_frame_time) + Duration::from_millis(1) < interval {
                             // Frame chegou antes do proximo intervalo desejado (ex.: monitor 144Hz)
@@ -370,7 +372,7 @@ fn capture_loop(
                         }
                         last_frame_time = now;
                         consecutive_failures = 0;
-                        img
+                        (frame.image, frame.width, frame.height, frame.resize_duration)
                     }
                     Ok(None) => {
                         // Sem quadro novo nesta janela de espera (tela estatica)
@@ -400,7 +402,7 @@ fn capture_loop(
                     }
                 };
                 let capture_elapsed = timer.lap();
-                (image, capture_elapsed, idle_elapsed)
+                (image, target_w, target_h, capture_elapsed, resize_elapsed, idle_elapsed)
             }
             CaptureEngine::Gdi(source) => {
                 let mut timer = FrameTimer::start();
@@ -438,6 +440,16 @@ fn capture_loop(
                     }
                 };
 
+                let (width, height) = image.dimensions();
+                let (target_w, target_h) = scale_to_fit(width, height, max_width, max_height);
+                let mut resize_timer = FrameTimer::start();
+                let image = if (width, height) == (target_w, target_h) {
+                    image
+                } else {
+                    parallel_resize_rgba(&image, target_w, target_h)
+                };
+                let resize_elapsed = resize_timer.lap();
+
                 let elapsed = timer.total();
                 let idle_elapsed = if elapsed < interval {
                     thread::sleep(interval - elapsed);
@@ -447,21 +459,12 @@ fn capture_loop(
                     Duration::ZERO
                 };
 
-                (image, capture_elapsed, idle_elapsed)
+                (image, target_w, target_h, capture_elapsed, resize_elapsed, idle_elapsed)
             }
         };
 
         let mut timer = FrameTimer::start();
         let cursor_elapsed = Duration::ZERO;
-
-        let (width, height) = image.dimensions();
-        let (target_width, target_height) = scale_to_fit(width, height, max_width, max_height);
-        let image = if (width, height) == (target_width, target_height) {
-            image
-        } else {
-            parallel_resize_rgba(&image, target_width, target_height)
-        };
-        let resize_elapsed = timer.lap();
 
         let mut packet = Vec::with_capacity(12 + (target_width * target_height) as usize);
         packet.extend_from_slice(&target_width.to_le_bytes());

@@ -17,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use crate::screen_sources::SourceLocator;
+use crate::screen_sources::{SourceLocator, scale_to_fit};
 use image::RgbaImage;
 use windows::{
     Foundation::TypedEventHandler,
@@ -31,12 +31,11 @@ use windows::{
         Graphics::{
             Direct3D::D3D_DRIVER_TYPE_HARDWARE,
             Direct3D11::{
-                D3D11CreateDevice, D3D11_BOX, D3D11_CPU_ACCESS_READ,
-                D3D11_CREATE_DEVICE_BGRA_SUPPORT, D3D11_MAP_READ, D3D11_MAPPED_SUBRESOURCE,
-                D3D11_SDK_VERSION, D3D11_TEXTURE2D_DESC, D3D11_USAGE_STAGING, ID3D11Device,
-                ID3D11DeviceContext, ID3D11Resource, ID3D11Texture2D,
+                D3D11CreateDevice, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+                D3D11_SDK_VERSION, ID3D11Device, ID3D11DeviceContext, ID3D11Texture2D,
+                ID3D11VideoDevice,
             },
-            Dxgi::{Common::DXGI_FORMAT_B8G8R8A8_UNORM, IDXGIDevice},
+            Dxgi::IDXGIDevice,
             Gdi::HMONITOR,
         },
         System::WinRT::{
@@ -59,6 +58,16 @@ pub fn is_wgc_supported() -> bool {
     GraphicsCaptureSession::IsSupported().unwrap_or(false)
 }
 
+/// Quadro capturado por WGC e escalonado em GPU com conversao para NV12.
+#[derive(Clone)]
+pub struct ScaledWgcFrame {
+    pub image: RgbaImage,
+    pub width: u32,
+    pub height: u32,
+    pub resize_duration: Duration,
+    pub nv12_texture: ID3D11Texture2D,
+}
+
 pub struct WgcSession {
     d3d_device: ID3D11Device,
     d3d_context: ID3D11DeviceContext,
@@ -68,7 +77,7 @@ pub struct WgcSession {
     session: GraphicsCaptureSession,
     notify_rx: Receiver<()>,
     current_size: SizeInt32,
-    staging_texture: Option<(ID3D11Texture2D, u32, u32)>,
+    scaler: Option<super::scaler::D3D11VideoScaler>,
     closed: bool,
 }
 
@@ -167,6 +176,11 @@ impl WgcSession {
             log::debug!("SetIsBorderRequired(false) nao suportado: {e}");
         }
 
+        // Garante suporte ao pipeline de processamento de video D3D11
+        let _video_device: ID3D11VideoDevice = d3d_device
+            .cast()
+            .map_err(|e| format!("dispositivo D3D11 nao suporta ID3D11VideoDevice: {e}"))?;
+
         session
             .StartCapture()
             .map_err(|e| format!("falha iniciando GraphicsCaptureSession: {e}"))?;
@@ -180,16 +194,23 @@ impl WgcSession {
             session,
             notify_rx,
             current_size: item_size,
-            staging_texture: None,
+            scaler: None,
             closed: false,
         })
     }
 
-    /// Aguarda o proximo quadro emitido pelo compositor da WGC.
+    /// Aguarda o proximo quadro emitido pelo compositor da WGC e realiza escala
+    /// e conversao de cor na GPU via `ID3D11VideoProcessor`.
     ///
-    /// Retorna `Ok(Some(imagem))` quando um novo quadro chega, `Ok(None)` em caso de timeout
-    /// (por exemplo tela estatica ou ausencia de redesenho), ou `Err(...)` se a sessao falhar.
-    pub fn next_frame(&mut self, timeout: Duration) -> Result<Option<RgbaImage>, String> {
+    /// Retorna `Ok(Some(frame))` quando um novo quadro chega e e escalonado,
+    /// `Ok(None)` em caso de timeout (por exemplo tela estatica), ou `Err(...)`.
+    pub fn next_frame(
+        &mut self,
+        timeout: Duration,
+        max_width: u32,
+        max_height: u32,
+        fps: u32,
+    ) -> Result<Option<ScaledWgcFrame>, String> {
         if self.closed {
             return Err("sessao WGC encerrada".to_string());
         }
@@ -245,117 +266,39 @@ impl WgcSession {
         let width = content_size.Width as u32;
         let height = content_size.Height as u32;
 
-        let staging = self.get_or_create_staging_texture(width, height)?;
+        let (target_width, target_height) = scale_to_fit(width, height, max_width, max_height);
 
-        let box_region = D3D11_BOX {
-            left: 0,
-            top: 0,
-            right: width,
-            bottom: height,
-            front: 0,
-            back: 1,
-        };
-
-        unsafe {
-            self.d3d_context.CopySubresourceRegion(
-                Some(&staging.cast().map_err(|e| e.to_string())?),
-                0,
-                0,
-                0,
-                0,
-                Some(&source_texture.cast().map_err(|e| e.to_string())?),
-                0,
-                Some(&box_region),
-            );
+        if self.scaler.is_none() {
+            let scaler = super::scaler::D3D11VideoScaler::new(
+                &self.d3d_device,
+                &self.d3d_context,
+                width,
+                height,
+                target_width,
+                target_height,
+                fps,
+            )?;
+            self.scaler = Some(scaler);
         }
 
-        let resource: ID3D11Resource = staging
-            .cast()
-            .map_err(|e| format!("falha convertendo staging para ID3D11Resource: {e}"))?;
+        let scaler = self.scaler.as_mut().unwrap();
 
-        let mut mapped = D3D11_MAPPED_SUBRESOURCE::default();
-        unsafe {
-            self.d3d_context
-                .Map(
-                    Some(&resource),
-                    0,
-                    D3D11_MAP_READ,
-                    0,
-                    Some(&mut mapped),
-                )
-                .map_err(|e| format!("falha ao mapear staging texture: {e}"))?;
-        }
+        let timer = std::time::Instant::now();
+        let nv12_texture = scaler
+            .scale_nv12(&source_texture, width, height, target_width, target_height, fps)?
+            .clone();
+        let resize_duration = timer.elapsed();
 
-        let mut raw = vec![0u8; (width * height * 4) as usize];
-        let src_ptr = mapped.pData as *const u8;
-        let row_pitch = mapped.RowPitch as usize;
-
-        for y in 0..height as usize {
-            let src_row = unsafe {
-                std::slice::from_raw_parts(src_ptr.add(y * row_pitch), width as usize * 4)
-            };
-            let dst_offset = y * width as usize * 4;
-            let dst_row = &mut raw[dst_offset..dst_offset + (width as usize * 4)];
-
-            // Conversao BGRA -> RGBA e garantia de canal alfa opaco.
-            for x in 0..width as usize {
-                let px = x * 4;
-                dst_row[px] = src_row[px + 2];     // R
-                dst_row[px + 1] = src_row[px + 1]; // G
-                dst_row[px + 2] = src_row[px];     // B
-                dst_row[px + 3] = 255;            // A
-            }
-        }
-
-        unsafe {
-            self.d3d_context.Unmap(Some(&resource), 0);
-        }
-
+        let image = scaler.read_to_rgba()?;
         let _ = frame.Close();
 
-        let image = RgbaImage::from_raw(width, height, raw)
-            .ok_or_else(|| "falha ao construir RgbaImage a partir do buffer WGC".to_string())?;
-
-        Ok(Some(image))
-    }
-
-    fn get_or_create_staging_texture(
-        &mut self,
-        width: u32,
-        height: u32,
-    ) -> Result<ID3D11Texture2D, String> {
-        if let Some((ref tex, w, h)) = self.staging_texture {
-            if w == width && h == height {
-                return Ok(tex.clone());
-            }
-        }
-
-        let desc = D3D11_TEXTURE2D_DESC {
-            Width: width,
-            Height: height,
-            MipLevels: 1,
-            ArraySize: 1,
-            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-            SampleDesc: windows::Win32::Graphics::Dxgi::Common::DXGI_SAMPLE_DESC {
-                Count: 1,
-                Quality: 0,
-            },
-            Usage: D3D11_USAGE_STAGING,
-            BindFlags: 0,
-            CPUAccessFlags: D3D11_CPU_ACCESS_READ.0 as u32,
-            MiscFlags: 0,
-        };
-
-        let mut staging = None;
-        unsafe {
-            self.d3d_device
-                .CreateTexture2D(&desc, None, Some(&mut staging))
-                .map_err(|e| format!("falha ao criar staging texture WGC: {e}"))?;
-        }
-
-        let staging = staging.ok_or_else(|| "staging texture nula".to_string())?;
-        self.staging_texture = Some((staging.clone(), width, height));
-        Ok(staging)
+        Ok(Some(ScaledWgcFrame {
+            image,
+            width: target_width,
+            height: target_height,
+            resize_duration,
+            nv12_texture,
+        }))
     }
 
     pub fn close(&mut self) {
@@ -365,7 +308,7 @@ impl WgcSession {
         self.closed = true;
         let _ = self.session.Close();
         let _ = self.frame_pool.Close();
-        self.staging_texture = None;
+        self.scaler = None;
     }
 }
 

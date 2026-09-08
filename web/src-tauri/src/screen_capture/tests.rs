@@ -224,10 +224,10 @@ fn wgc_ciclo_de_vida_encerra_e_recusa_quadros_apos_fechamento() {
 
     let session = wgc::WgcSession::new(SourceLocator::Screen(id));
     if let Ok(mut session) = session {
-        let frame = session.next_frame(Duration::from_millis(1000));
+        let frame = session.next_frame(Duration::from_millis(1000), 1920, 1080, 60);
         assert!(frame.is_ok());
         session.close();
-        let frame_after_close = session.next_frame(Duration::from_millis(50));
+        let frame_after_close = session.next_frame(Duration::from_millis(50), 1920, 1080, 60);
         assert!(frame_after_close.is_err());
     }
 }
@@ -256,24 +256,18 @@ fn medir_laco_wgc(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
     let inicio = Instant::now();
     for _ in 0..QUADROS {
         let mut timer = FrameTimer::start();
-        let frame = session.next_frame(Duration::from_millis(500));
+        let frame = session.next_frame(Duration::from_millis(500), largura_maxima, altura_maxima, 60);
         let captura = timer.lap();
-        let Ok(Some(imagem)) = frame else {
+        let Ok(Some(frame)) = frame else {
             acumulador.record_failure();
             continue;
         };
 
         let cursor = Duration::ZERO;
-
-        let (largura, altura) = imagem.dimensions();
-        let (destino_largura, destino_altura) =
-            scale_to_fit(largura, altura, largura_maxima, altura_maxima);
-        let imagem = if (largura, altura) == (destino_largura, destino_altura) {
-            imagem
-        } else {
-            parallel_resize_rgba(&imagem, destino_largura, destino_altura)
-        };
-        let redimensionar = timer.lap();
+        let imagem = frame.image;
+        let destino_largura = frame.width;
+        let destino_altura = frame.height;
+        let redimensionar = frame.resize_duration;
 
         let mut pacote = Vec::with_capacity(12 + (destino_largura * destino_altura) as usize);
         pacote.extend_from_slice(&destino_largura.to_le_bytes());
