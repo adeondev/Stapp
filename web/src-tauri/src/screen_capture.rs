@@ -1,4 +1,7 @@
+mod metrics;
+
 use crate::screen_sources::{parse_source_id, scale_to_fit, SourceLocator};
+use metrics::{CaptureStats, FrameSample, FrameTimer, MetricsAccumulator};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -71,6 +74,15 @@ pub enum CaptureEvent {
     AudioUnavailable {
         capture_id: u32,
         reason: String,
+    },
+    /// Retrato de uma janela de medicao do laco de video.
+    ///
+    /// Vai pelo canal JSON de proposito: e um evento por segundo, nao por
+    /// quadro. O quadro em si continua saindo pelo canal binario — misturar os
+    /// dois inflaria de novo o IPC que o `frame_channel` existe para evitar.
+    VideoStats {
+        capture_id: u32,
+        stats: CaptureStats,
     },
     Ended {
         capture_id: u32,
@@ -292,6 +304,8 @@ fn capture_loop(
     let interval = Duration::from_nanos(1_000_000_000 / u64::from(fps));
     let maximum_failures = fps.saturating_mul(2);
     let mut consecutive_failures = 0;
+    let mut accumulator = MetricsAccumulator::default();
+    let mut window_started = Instant::now();
 
     while !stop.load(Ordering::Relaxed) {
         if let Some(win_id) = window_id {
@@ -307,17 +321,19 @@ fn capture_loop(
             CaptureSource::Screen(screen) => (screen.x().unwrap_or(0), screen.y().unwrap_or(0)),
             CaptureSource::Window(window) => (window.x().unwrap_or(0), window.y().unwrap_or(0)),
         };
-        let started = Instant::now();
+        let mut timer = FrameTimer::start();
         let image = match &source {
             CaptureSource::Screen(screen) => screen.capture_image(),
             CaptureSource::Window(window) => window.capture_image(),
         };
+        let capture_elapsed = timer.lap();
         let mut image = match image {
             Ok(image) => {
                 consecutive_failures = 0;
                 image
             }
             Err(_) => {
+                accumulator.record_failure();
                 if let Some(win_id) = window_id {
                     if !is_window_valid(win_id) {
                         let _ = channel.send(CaptureEvent::Ended {
@@ -341,6 +357,7 @@ fn capture_loop(
         };
 
         overlay_mouse_cursor(&mut image, origin_x, origin_y);
+        let cursor_elapsed = timer.lap();
 
         let (width, height) = image.dimensions();
         let (target_width, target_height) = scale_to_fit(width, height, max_width, max_height);
@@ -349,6 +366,8 @@ fn capture_loop(
         } else {
             parallel_resize_rgba(&image, target_width, target_height)
         };
+        let resize_elapsed = timer.lap();
+
         let mut packet = Vec::with_capacity(12 + (target_width * target_height) as usize);
         packet.extend_from_slice(&target_width.to_le_bytes());
         packet.extend_from_slice(&target_height.to_le_bytes());
@@ -357,18 +376,48 @@ fn capture_loop(
             .encode_image(&image)
             .is_err()
         {
+            accumulator.record_failure();
             continue;
         }
+        let encode_elapsed = timer.lap();
+        let bytes = packet.len();
 
         if frame_channel.send(Response::new(packet)).is_err() {
             break;
         }
+        let dispatch_elapsed = timer.lap();
 
-        let elapsed = started.elapsed();
-        if elapsed < interval {
+        // O `idle` e medido depois do sono, e nao calculado antes dele: o
+        // `sleep` do sistema sempre passa um pouco do pedido, e e esse excesso
+        // que explica um fps abaixo do alvo mesmo com o laco sobrando tempo.
+        let elapsed = timer.total();
+        let idle_elapsed = if elapsed < interval {
             thread::sleep(interval - elapsed);
+            timer.lap()
         } else {
             thread::yield_now();
+            Duration::ZERO
+        };
+
+        accumulator.record(FrameSample {
+            capture: capture_elapsed,
+            cursor: cursor_elapsed,
+            resize: resize_elapsed,
+            encode: encode_elapsed,
+            dispatch: dispatch_elapsed,
+            idle: idle_elapsed,
+            bytes,
+            width: target_width,
+            height: target_height,
+        });
+
+        let window_elapsed = window_started.elapsed();
+        if window_elapsed >= metrics::WINDOW {
+            window_started = Instant::now();
+            let _ = channel.send(CaptureEvent::VideoStats {
+                capture_id,
+                stats: accumulator.snapshot(window_elapsed, fps),
+            });
         }
     }
 }
