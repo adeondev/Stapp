@@ -1,4 +1,6 @@
 mod metrics;
+#[cfg(windows)]
+pub(crate) mod wgc;
 
 use crate::screen_sources::{parse_source_id, scale_to_fit, SourceLocator};
 use metrics::{CaptureStats, FrameSample, FrameTimer, MetricsAccumulator};
