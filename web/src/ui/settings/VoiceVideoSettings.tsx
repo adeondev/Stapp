@@ -349,7 +349,8 @@ export function VoiceVideoSettings({ transport, snapshot, onPreferencesChange }:
             options={[
               { value: 'economy', label: 'Econômico', detail: '720p · 15 FPS' },
               { value: 'balanced', label: 'Equilibrado', detail: '1080p · 30 FPS' },
-              { value: 'fluid', label: 'Fluido', detail: '720p · até 60 FPS' },
+              { value: 'fluid', label: 'Fluido', detail: '720p · 60 FPS' },
+              { value: '1080p60', label: '1080p60', detail: '1080p · 60 FPS' },
               { value: 'original', label: 'Original', detail: 'Resolução da fonte' },
             ]}
           />

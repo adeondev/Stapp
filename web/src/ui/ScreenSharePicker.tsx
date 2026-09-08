@@ -16,8 +16,9 @@ interface Props {
 const PRESETS: Array<{ id: ScreenPreset; title: string; detail: string }> = [
   { id: 'economy', title: 'Econômico', detail: '720p · 15 FPS' },
   { id: 'balanced', title: 'Equilibrado', detail: '1080p · 30 FPS' },
-  { id: 'fluid', title: 'Fluido', detail: '720p · até 30 FPS no app' },
-  { id: 'original', title: 'Original', detail: 'Resolução original · até 30 FPS no app' },
+  { id: 'fluid', title: 'Fluido', detail: '720p · até 60 FPS' },
+  { id: '1080p60', title: '1080p60', detail: '1080p · até 60 FPS' },
+  { id: 'original', title: 'Original', detail: 'Resolução original · até 60 FPS' },
 ]
 
 export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }: Props) {

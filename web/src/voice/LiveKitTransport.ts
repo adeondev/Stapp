@@ -56,10 +56,11 @@ interface InboundAudioBaseline {
   jitterBufferEmittedCount: number
 }
 
-const SCREEN_PRESETS = {
+export const SCREEN_PRESETS = {
   economy: { width: 1280, height: 720, frameRate: 15, maxBitrate: 1_200_000 },
   balanced: { width: 1920, height: 1080, frameRate: 30, maxBitrate: 3_500_000 },
-  fluid: { width: 1280, height: 720, frameRate: 60, maxBitrate: 4_500_000 },
+  fluid: { width: 1280, height: 720, frameRate: 60, maxBitrate: 3_000_000 },
+  '1080p60': { width: 1920, height: 1080, frameRate: 60, maxBitrate: 6_000_000 },
   original: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 8_000_000 },
 } as const
 
@@ -237,8 +238,8 @@ export class LiveKitTransport implements VoiceTransport {
       }
 
       const quality = SCREEN_PRESETS[preset]
-      const contentHint = preset === 'fluid' ? 'motion' : 'detail'
-      const degradationPreference: RTCDegradationPreference = preset === 'fluid'
+      const contentHint = (preset === 'fluid' || preset === '1080p60') ? 'motion' : 'detail'
+      const degradationPreference: RTCDegradationPreference = (preset === 'fluid' || preset === '1080p60')
         ? 'maintain-framerate'
         : 'maintain-resolution'
 
