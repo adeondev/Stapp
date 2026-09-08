@@ -36,6 +36,9 @@ pub const CODEC_JPEG: u8 = 0;
 pub const CODEC_H264: u8 = 1;
 pub const FLAG_KEYFRAME: u8 = 1 << 0;
 
+pub const MAGIC_SAUD: [u8; 4] = *b"SAUD";
+pub const AUDIO_HEADER_SIZE: usize = 32;
+
 /// Cabecalho de 32 bytes para pacotes de video transmitidos pelo canal binario.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PacketHeader {
@@ -145,6 +148,102 @@ pub fn pack_frame(
     packet.extend_from_slice(payload);
     packet
 }
+
+/// Cabecalho padrao de 32 bytes para pacotes de audio PCM transmitidos pelo canal binario.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioPacketHeader {
+    pub magic: [u8; 4],
+    pub version: u8,
+    pub channels: u8,
+    pub flags: u8,
+    pub reserved: u8,
+    pub capture_id: u32,
+    pub sample_rate: u32,
+    pub sequence: u32,
+    pub timestamp_us: u64,
+}
+
+impl AudioPacketHeader {
+    pub fn new(
+        capture_id: u32,
+        sample_rate: u32,
+        channels: u8,
+        sequence: u32,
+        timestamp_us: u64,
+    ) -> Self {
+        Self {
+            magic: MAGIC_SAUD,
+            version: 1,
+            channels,
+            flags: 0,
+            reserved: 0,
+            capture_id,
+            sample_rate,
+            sequence,
+            timestamp_us,
+        }
+    }
+
+    pub fn to_bytes(&self) -> [u8; AUDIO_HEADER_SIZE] {
+        let mut buf = [0u8; AUDIO_HEADER_SIZE];
+        buf[0..4].copy_from_slice(&self.magic);
+        buf[4] = self.version;
+        buf[5] = self.channels;
+        buf[6] = self.flags;
+        buf[7] = self.reserved;
+        buf[8..12].copy_from_slice(&self.capture_id.to_le_bytes());
+        buf[12..16].copy_from_slice(&self.sample_rate.to_le_bytes());
+        buf[16..20].copy_from_slice(&self.sequence.to_le_bytes());
+        buf[20..28].copy_from_slice(&self.timestamp_us.to_le_bytes());
+        buf[28..32].copy_from_slice(&[0u8; 4]);
+        buf
+    }
+
+    #[allow(dead_code)]
+    pub fn parse(buf: &[u8]) -> Option<Self> {
+        if buf.len() < AUDIO_HEADER_SIZE || &buf[0..4] != &MAGIC_SAUD {
+            return None;
+        }
+        let version = buf[4];
+        if version != 1 {
+            return None;
+        }
+        Some(Self {
+            magic: MAGIC_SAUD,
+            version,
+            channels: buf[5],
+            flags: buf[6],
+            reserved: buf[7],
+            capture_id: u32::from_le_bytes(buf[8..12].try_into().unwrap()),
+            sample_rate: u32::from_le_bytes(buf[12..16].try_into().unwrap()),
+            sequence: u32::from_le_bytes(buf[16..20].try_into().unwrap()),
+            timestamp_us: u64::from_le_bytes(buf[20..28].try_into().unwrap()),
+        })
+    }
+}
+
+/// Empacota dados de audio PCM precedidos pelo cabecalho padrao de 32 bytes do Stapp.
+pub fn pack_audio_frame(
+    capture_id: u32,
+    sample_rate: u32,
+    channels: u8,
+    sequence: u32,
+    timestamp_us: u64,
+    payload: &[u8],
+) -> Vec<u8> {
+    let header = AudioPacketHeader::new(
+        capture_id,
+        sample_rate,
+        channels,
+        sequence,
+        timestamp_us,
+    );
+    let mut packet = Vec::with_capacity(AUDIO_HEADER_SIZE + payload.len());
+    packet.extend_from_slice(&header.to_bytes());
+    packet.extend_from_slice(payload);
+    packet
+}
+
 
 /// Localiza todos os NALUs em bitstream Annex B (com prefixos 00 00 01 ou 00 00 00 01).
 /// Retorna tuplas `(offset_inicio_nal_com_prefixo, offset_fim_nal, nal_unit_type)`.

@@ -237,6 +237,7 @@ pub fn start_screen_capture(
     include_audio: bool,
     channel: Channel<CaptureEvent>,
     frame_channel: Channel<Response>,
+    audio_channel: Channel<Response>,
 ) -> Result<u32, String> {
     let _ = include_audio;
     let locator = parse_source_id(&source_id)?;
@@ -283,11 +284,11 @@ pub fn start_screen_capture(
     #[cfg(windows)]
     if include_audio {
         let audio_stop = Arc::clone(&stop);
-        let audio_channel = channel.clone();
+        let audio_event_channel = channel.clone();
         let target = audio_target(locator);
         let audio_worker = thread::Builder::new()
             .name(format!("stapp-screen-audio-{capture_id}"))
-            .spawn(move || audio_capture_loop(capture_id, target, audio_channel, audio_stop));
+            .spawn(move || audio_capture_loop(capture_id, target, audio_event_channel, audio_channel, audio_stop));
         let audio_worker = match audio_worker {
             Ok(worker) => worker,
             Err(error) => {
@@ -831,10 +832,12 @@ fn audio_capture_loop(
     capture_id: u32,
     target: Result<AudioTarget, String>,
     channel: Channel<CaptureEvent>,
+    audio_channel: Channel<Response>,
     stop: Arc<AtomicBool>,
 ) {
-    let result =
-        target.and_then(|target| capture_process_audio(capture_id, target, &channel, &stop));
+    let result = target.and_then(|target| {
+        capture_process_audio(capture_id, target, &channel, &audio_channel, &stop)
+    });
     deinitialize();
     if let Err(reason) = result {
         let _ = channel.send(CaptureEvent::AudioUnavailable { capture_id, reason });
@@ -846,6 +849,7 @@ fn capture_process_audio(
     capture_id: u32,
     target: AudioTarget,
     channel: &Channel<CaptureEvent>,
+    audio_channel: &Channel<Response>,
     stop: &AtomicBool,
 ) -> Result<(), String> {
     initialize_mta()
@@ -888,6 +892,8 @@ fn capture_process_audio(
     // 10 ms packets doubled WebView messages and could build a delayed backlog.
     let chunk_bytes = bytes_per_frame * 960;
     let mut samples = VecDeque::with_capacity(chunk_bytes * 4);
+    let mut sequence: u32 = 0;
+    let capture_started = Instant::now();
     while !stop.load(Ordering::Relaxed) {
         let frames = capture
             .get_next_packet_size()
@@ -900,13 +906,18 @@ fn capture_process_audio(
                 .map_err(|error| format!("falha copiando o audio: {error}"))?;
         }
         while let Some(chunk) = take_pcm_chunk(&mut samples, chunk_bytes) {
-            if channel
-                .send(CaptureEvent::AudioChunk {
-                    capture_id,
-                    pcm: chunk,
-                })
-                .is_err()
-            {
+            sequence = sequence.wrapping_add(1);
+            let timestamp_us = capture_started.elapsed().as_micros() as u64;
+
+            let packet = encoder::pack_audio_frame(
+                capture_id,
+                48_000,
+                2,
+                sequence,
+                timestamp_us,
+                &chunk,
+            );
+            if audio_channel.send(Response::new(packet)).is_err() {
                 let _ = client.stop_stream();
                 return Ok(());
             }

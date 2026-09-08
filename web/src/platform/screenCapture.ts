@@ -227,6 +227,50 @@ export function parseScreenCapturePacket(rawBytes: Uint8Array): ScreenCapturePac
   }
 }
 
+export interface ScreenAudioPacket {
+  captureId: number
+  sampleRate: number
+  channels: number
+  sequence: number
+  timestampUs: bigint
+  pcm: Uint8Array
+}
+
+/**
+ * Interpreta pacotes binarios de audio recebidos pelo canal dedicado de audio.
+ * Valida o cabecalho padrao 'SAUD' (32 bytes) e extrai os parametros e payload PCM.
+ */
+export function parseScreenAudioPacket(rawBytes: Uint8Array): ScreenAudioPacket | null {
+  if (rawBytes.byteLength < 32) return null
+
+  // Verifica magic "SAUD" (0x53, 0x41, 0x55, 0x44) e versao 1
+  if (
+    rawBytes[0] === 0x53 &&
+    rawBytes[1] === 0x41 &&
+    rawBytes[2] === 0x55 &&
+    rawBytes[3] === 0x44 &&
+    rawBytes[4] === 1
+  ) {
+    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
+    const channels = rawBytes[5]
+    const captureId = view.getUint32(8, true)
+    const sampleRate = view.getUint32(12, true)
+    const sequence = view.getUint32(16, true)
+    const timestampUs = view.getBigUint64(20, true)
+    const pcm = rawBytes.subarray(32)
+    return {
+      captureId,
+      sampleRate,
+      channels,
+      sequence,
+      timestampUs,
+      pcm,
+    }
+  }
+
+  return null
+}
+
 export { extractH264CodecString } from './nativeVideoIngest'
 
 
@@ -504,6 +548,7 @@ export async function startNativeScreenCapture(options: {
   const includeAudio = options.includeAudio && (!fullScreenAudio || audioValidation?.safe === true)
   const channel = new Channel<CaptureEvent>()
   const frameChannel = new Channel<ArrayBuffer | Uint8Array>()
+  const audioChannel = new Channel<ArrayBuffer | Uint8Array>()
   let captureId = 0
   let stopped = false
   const ingest = createIngestMetrics()
@@ -589,6 +634,22 @@ export async function startNativeScreenCapture(options: {
     ingestPipeline.feed(packet)
   }
 
+  audioChannel.onmessage = (message) => {
+    if (stopped) return
+    if (!audioConfirmed || !audioPipeline) return
+
+    const rawBytes = message instanceof Uint8Array
+      ? message
+      : new Uint8Array(message instanceof ArrayBuffer ? message : (message as ArrayBufferView).buffer)
+
+    const packet = parseScreenAudioPacket(rawBytes)
+    const pcmBytes = packet ? packet.pcm : rawBytes
+    if (packet && captureId > 0 && packet.captureId !== captureId) return
+
+    const buffer = pcmBytes.buffer.slice(pcmBytes.byteOffset, pcmBytes.byteOffset + pcmBytes.byteLength) as ArrayBuffer
+    audioPipeline.node.port.postMessage({ t: 'pcm', buffer }, [buffer])
+  }
+
   channel.onmessage = (event) => {
     if (event.event === 'ended') {
       const error = new Error(event.reason)
@@ -639,6 +700,7 @@ export async function startNativeScreenCapture(options: {
       includeAudio: includeAudio && Boolean(audioPipeline),
       channel,
       frameChannel,
+      audioChannel,
     })
   } catch (error) {
     await audioPipeline?.close()
@@ -698,6 +760,8 @@ export async function startNativeScreenCapture(options: {
     async stop() {
       if (stopped) return
       stopped = true
+      frameChannel.onmessage = () => {}
+      audioChannel.onmessage = () => {}
       ingestPipeline.stop()
       await invoke('stop_screen_capture', { captureId }).catch(() => {})
       for (const mediaTrack of stream.getTracks()) mediaTrack.stop()
