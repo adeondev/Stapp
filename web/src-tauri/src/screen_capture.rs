@@ -255,11 +255,12 @@ pub fn start_screen_capture(
     let worker_request_keyframe = Arc::clone(&request_keyframe);
     let width = max_width.clamp(320, 3840);
     let height = max_height.clamp(180, 2160);
-    // PROTOTYPE: JPEG por IPC mantem a captura dentro da casca Tauri e
-    // elimina o seletor do navegador. A taxa e limitada pelo preset (ate 60 FPS no modo fluido).
-    // O invariante e nunca abrir o picker do WebView2 no executavel.
-    // FUTURE: trocar somente este produtor por frames nativos/WebCodecs;
-    // a interface MediaStream consumida pelo VoiceTransport permanece.
+    // PROTOTYPE: O pipeline atual (Arquitetura A) codifica em H.264 por hardware (MFT) na GPU
+    // e despacha pacotes binarios STAP via `frame_channel: Channel<Response>` para decodificacao
+    // no WebView2 via WebCodecs. A taxa vai ate 60 FPS (preset 1080p60 e original).
+    // FUTURE (Arquitetura B): Conectar o bitstream H.264 diretamente ao SDK Rust do LiveKit (livekit-rust),
+    // publicando a faixa de tela como participante nativo na sala SFU. Isso elimina o round-trip de
+    // decodificacao na WebView2 e re-codificacao no WebRTC do Chromium (modelo Parsec/Discord).
     let frames_per_second = fps.clamp(5, 60);
 
     #[cfg(windows)]

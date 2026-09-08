@@ -231,17 +231,24 @@ onde `<video src>` e `<img src>` funcionam. Isso já derrubou o player de áudio
 A UI **nunca** importa `RTCPeerConnection` ou qualquer API de WebRTC direto. Ela consome só
 [`web/src/voice/VoiceTransport.ts`](web/src/voice/VoiceTransport.ts).
 
-Hoje quem implementa é `MeshTransport` (P2P direto, o servidor só repassa sinalização). Isso
-**trava acima de ~6 pessoas** na call, e é sabido — a migração para um SFU (LiveKit) já está
-costurada em três pontos:
+Hoje quem implementa são `LiveKitTransport` (padrão via SFU LiveKit WebRTC) e `MeshTransport` (fallback P2P).
+A escolha do transporte é feita **em runtime** pelo cliente lendo o campo `backend` do `VoiceConfig` entregue no `welcome`.
 
-1. `VoiceTransport` — a interface. Amanhã ganha um `LiveKitTransport` ao lado do `MeshTransport`.
-2. [`server/src/voice.rs`](server/src/voice.rs) — isola o backend de voz. `ws.rs` só delega.
-3. `VoiceConfig`, entregue ao cliente dentro do `welcome`, tem um campo `backend`. O cliente
-   escolhe o transporte **em runtime**, lendo esse campo. Trocar de mesh para SFU é config de
-   servidor, não alteração de código de UI.
+### Costura Futura: Publicação nativa via SDK Rust do LiveKit (Arquitetura B)
 
-Não fure essas costuras por conveniência.
+No pipeline de tela atual (Arquitetura A), a captura (WGC) e a codificação (MFT H.264) rodam em GPU na casca nativa em Rust,
+o bitstream é despachado via IPC binário (`Channel<Response>`), a WebView2 decodifica via WebCodecs (`VideoDecoder`), entrega
+o `VideoFrame` a um `MediaStreamTrackGenerator` e o publica na sala SFU via WebRTC do Chromium (`LiveKitTransport`).
+
+Embora isso tenha eliminado completamente o consumo massivo de CPU e a alocação de canvas no host (sustentando 1080p60 fluido
+com uso residual de CPU), ainda restam duas passagens de codec por hardware no cliente: decode no WebView2 + re-encode no WebRTC.
+
+O estado da arte (o que aplicações como Parsec e Discord fazem) é a **Arquitetura B**:
+- A casca Rust entra na sala do LiveKit como participante direto ou publicador sidecar usando o SDK nativo `livekit-rust`.
+- O bitstream H.264 gerado pelo MFT por hardware é publicado diretamente nos tracks RTP do SFU em Rust, zerando o envolvimento da WebView2.
+- A WebView2 deixa de decodificar e re-codificar a tela localmente; recebe apenas o feedback de status e controle da UI.
+- Esta costura deve ser modelada como uma nova implementação de `VoiceTransport` (ex: `NativeLiveKitTransport`), preservando a regra
+  dura de isolamento e mantendo o fallback web puro intacto. Merece sua própria release dedicada.
 
 ### Regra dura: Tauri é só a casca
 

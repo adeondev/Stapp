@@ -591,6 +591,11 @@ impl H264Encoder {
     }
 
     /// Codifica uma textura NV12 da GPU e produz os pacotes H.264 prontos.
+    ///
+    /// PROTOTYPE: os pacotes H.264 (com SPS/PPS anexados em keyframes) sao empacotados em
+    /// cabecalhos STAP de 32 bytes e transferidos para a WebView2 via IPC.
+    /// FUTURE (Arquitetura B): alimentar diretamente `livekit_core::webrtc` / SDK Rust do LiveKit
+    /// com os pacotes H.264 Annex B aqui gerados, publicando como NativeTrack no SFU sem IPC.
     pub fn encode_texture(
         &mut self,
         texture: &ID3D11Texture2D,
