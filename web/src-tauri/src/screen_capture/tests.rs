@@ -90,17 +90,6 @@ fn detector_encontra_o_probe_mesmo_com_silencio_em_volta() {
     assert!(goertzel_level(&pcm, 48_000.0, 18_000.0, 2) > 0.01);
 }
 
-#[test]
-fn composicao_do_cursor_do_mouse_executa_sem_panico_mesmo_fora_dos_limites() {
-    let mut image = image::RgbaImage::new(100, 100);
-    overlay_mouse_cursor(&mut image, 0, 0);
-    overlay_mouse_cursor(&mut image, -10000, -10000);
-    overlay_mouse_cursor(&mut image, 10000, 10000);
-    assert_eq!(image.width(), 100);
-    assert_eq!(image.height(), 100);
-}
-
-
 /// Regua da linha de base do pipeline legado, para comparar com os proximos
 /// passos da auditoria de performance.
 ///
@@ -108,11 +97,9 @@ fn composicao_do_cursor_do_mouse_executa_sem_panico_mesmo_fora_dos_limites() {
 /// hardware, entao nao serve como assercao — serve como medicao. Roda com
 /// `cargo test --lib -- --ignored --nocapture linha_de_base`.
 ///
-/// Exercita exatamente as funcoes do `capture_loop`: `capture_image`,
-/// `overlay_mouse_cursor`, `scale_to_fit` + `parallel_resize_rgba` e o
-/// `JpegEncoder` na mesma qualidade 72. O que **nao** entra aqui e o envio pelo
-/// IPC, que precisa do runtime do Tauri; no lugar dele fica o tamanho do
-/// pacote, que e o que determina o custo daquela etapa.
+/// Exercita as funcoes do `capture_loop` legado: `capture_image`,
+/// `scale_to_fit` + `parallel_resize_rgba` e o `JpegEncoder` na qualidade 72.
+/// O cursor e composto pela WGC (custo zero nesta medicao).
 #[test]
 #[ignore]
 fn linha_de_base_do_laco_legado() {
@@ -132,10 +119,6 @@ fn medir_laco_legado(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
     let primeiro = monitores.first().expect("nenhum monitor disponivel");
     let locator = SourceLocator::Screen(primeiro.id().expect("monitor sem id"));
     let source = resolve_source(locator).expect("monitor sumiu entre listar e resolver");
-    let (origem_x, origem_y) = match &source {
-        CaptureSource::Screen(screen) => (screen.x().unwrap_or(0), screen.y().unwrap_or(0)),
-        CaptureSource::Window(window) => (window.x().unwrap_or(0), window.y().unwrap_or(0)),
-    };
 
     let mut acumulador = MetricsAccumulator::default();
     let inicio = Instant::now();
@@ -146,13 +129,12 @@ fn medir_laco_legado(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
             CaptureSource::Window(window) => window.capture_image(),
         };
         let captura = timer.lap();
-        let Ok(mut imagem) = imagem else {
+        let Ok(imagem) = imagem else {
             acumulador.record_failure();
             continue;
         };
 
-        overlay_mouse_cursor(&mut imagem, origem_x, origem_y);
-        let cursor = timer.lap();
+        let cursor = Duration::ZERO;
 
         let (largura, altura) = imagem.dimensions();
         let (destino_largura, destino_altura) =
