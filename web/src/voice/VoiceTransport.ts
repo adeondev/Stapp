@@ -135,6 +135,8 @@ export interface ScreenShareOptions {
   preset?: ScreenPreset
   sourceId?: string
   includeAudio?: boolean
+  sourceWidth?: number
+  sourceHeight?: number
 }
 
 export interface VoiceTransport {

@@ -10,7 +10,13 @@ interface Props {
   transport: VoiceTransport
   initialPreset: ScreenPreset
   onClose(): void
-  onShare(sourceId: string | undefined, preset: ScreenPreset, includeAudio: boolean): Promise<ScreenShareResult>
+  onShare(
+    sourceId: string | undefined,
+    preset: ScreenPreset,
+    includeAudio: boolean,
+    sourceWidth?: number,
+    sourceHeight?: number,
+  ): Promise<ScreenShareResult>
 }
 
 const PRESETS: Array<{ id: ScreenPreset; title: string; detail: string }> = [
@@ -78,7 +84,14 @@ export function ScreenSharePicker({ transport, initialPreset, onClose, onShare }
     if (native && !selected) return
     setSharing(true)
     setError(null)
-    const resultado = await onShare(selected ?? undefined, preset, includeAudio)
+    const selectedSource = sources.find((s) => s.id === selected)
+    const resultado = await onShare(
+      selected ?? undefined,
+      preset,
+      includeAudio,
+      selectedSource?.width,
+      selectedSource?.height,
+    )
     setSharing(false)
     if (resultado === true) {
       onClose()

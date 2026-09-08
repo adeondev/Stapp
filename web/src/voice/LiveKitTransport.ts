@@ -64,6 +64,60 @@ export const SCREEN_PRESETS = {
   original: { width: 3840, height: 2160, frameRate: 60, maxBitrate: 8_000_000 },
 } as const
 
+export interface ScreenSourceResolution {
+  width?: number
+  height?: number
+}
+
+export interface ResolvedScreenPreset {
+  width: number
+  height: number
+  frameRate: number
+  maxBitrate: number
+  contentHint: 'detail' | 'motion'
+  degradationPreference: RTCDegradationPreference
+}
+
+export function resolveScreenPreset(
+  preset: ScreenPreset,
+  source?: ScreenSourceResolution | null,
+): ResolvedScreenPreset {
+  const base = SCREEN_PRESETS[preset]
+  const isMotion = preset === 'fluid' || preset === '1080p60'
+  const contentHint: 'detail' | 'motion' = isMotion ? 'motion' : 'detail'
+  const degradationPreference: RTCDegradationPreference = isMotion
+    ? 'maintain-framerate'
+    : 'maintain-resolution'
+
+  if (preset === 'original' && source && source.width && source.height && source.width > 0 && source.height > 0) {
+    const srcW = source.width
+    const srcH = source.height
+    // No preset "original", respeita a resolucao real da fonte em vez de forcar 4K (3840x2160).
+    // O bitrate e adaptado a resolucao real para nao alocar 8 Mbps cegamente em telas 1080p/720p.
+    const pixels = srcW * srcH
+    const pps = pixels * 60
+    const calculatedBitrate = Math.round(pps * 0.035)
+    const maxBitrate = Math.min(base.maxBitrate, Math.max(1_500_000, calculatedBitrate))
+    return {
+      width: srcW,
+      height: srcH,
+      frameRate: base.frameRate,
+      maxBitrate,
+      contentHint,
+      degradationPreference,
+    }
+  }
+
+  return {
+    width: base.width,
+    height: base.height,
+    frameRate: base.frameRate,
+    maxBitrate: base.maxBitrate,
+    contentHint,
+    degradationPreference,
+  }
+}
+
 async function applySenderDegradationPreference(
   publication: TrackPublication | undefined,
   preference: RTCDegradationPreference,
@@ -237,11 +291,22 @@ export class LiveKitTransport implements VoiceTransport {
         await this.stopScreenShare(room)
       }
 
-      const quality = SCREEN_PRESETS[preset]
-      const contentHint = (preset === 'fluid' || preset === '1080p60') ? 'motion' : 'detail'
-      const degradationPreference: RTCDegradationPreference = (preset === 'fluid' || preset === '1080p60')
-        ? 'maintain-framerate'
-        : 'maintain-resolution'
+      let sourceResolution: ScreenSourceResolution | undefined =
+        options.sourceWidth && options.sourceHeight
+          ? { width: options.sourceWidth, height: options.sourceHeight }
+          : undefined
+
+      if (!sourceResolution && sourceId && isTauriRuntime()) {
+        try {
+          const sources = await listScreenSources()
+          const found = sources.find((s) => s.id === sourceId)
+          if (found && found.width > 0 && found.height > 0) {
+            sourceResolution = { width: found.width, height: found.height }
+          }
+        } catch {}
+      }
+
+      let quality = resolveScreenPreset(preset, sourceResolution)
 
       if (isTauriRuntime()) {
         if (!sourceId) {
@@ -255,7 +320,7 @@ export class LiveKitTransport implements VoiceTransport {
           fps: quality.frameRate,
           bitrate: quality.maxBitrate,
           includeAudio: includeAudio && this.config.screen_audio,
-          contentHint,
+          contentHint: quality.contentHint,
         })
         this.nativeScreenCapture = capture
         this.screenAudioDiagnostic = capture.audioValidation ?? null
@@ -280,7 +345,7 @@ export class LiveKitTransport implements VoiceTransport {
           await capture.stop()
           throw error
         }
-        await applySenderDegradationPreference(screenPublication, degradationPreference)
+        await applySenderDegradationPreference(screenPublication, quality.degradationPreference)
         let hasAudio = false
         if (capture.audioTrack) {
           try {
@@ -320,11 +385,22 @@ export class LiveKitTransport implements VoiceTransport {
         maxHeight: quality.height,
         fps: quality.frameRate,
         includeAudio: includeAudio && this.config.screen_audio,
-        contentHint,
+        contentHint: quality.contentHint,
       })
       this.browserScreenCapture = capture
       this.browserScreenAudioDiagnostic = capture.audioValidation ?? null
       this.screenAudioDiagnostic = null
+
+      if (preset === 'original') {
+        const settings = capture.track.getSettings()
+        if (settings.width && settings.height) {
+          quality = resolveScreenPreset('original', {
+            width: settings.width,
+            height: settings.height,
+          })
+        }
+      }
+
       const streamName = `stapp-screen-${capture.stream.id || capture.track.id || 'web'}`
       let screenPublication: TrackPublication | undefined
       try {
@@ -345,7 +421,7 @@ export class LiveKitTransport implements VoiceTransport {
         await capture.stop()
         throw error
       }
-      await applySenderDegradationPreference(screenPublication, degradationPreference)
+      await applySenderDegradationPreference(screenPublication, quality.degradationPreference)
       let hasAudio = false
       if (capture.audioTrack) {
         try {

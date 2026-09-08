@@ -329,8 +329,14 @@ export function CallStage({ channelName, snapshot, transport, onLeave, onOpenSet
     )
   }, [ordered.length, viewportBounds.width, viewportBounds.height])
 
-  const startShare = (sourceId: string | undefined, preset: ScreenPreset, includeAudio: boolean) =>
-    transport.setScreenShareEnabled(true, { preset, sourceId, includeAudio })
+  const startShare = (
+    sourceId: string | undefined,
+    preset: ScreenPreset,
+    includeAudio: boolean,
+    sourceWidth?: number,
+    sourceHeight?: number,
+  ) =>
+    transport.setScreenShareEnabled(true, { preset, sourceId, includeAudio, sourceWidth, sourceHeight })
 
   const isPartyOnly = ordered.length > 0 && ordered.every((t) => t.kind === 'avatar')
   const isSecure = typeof window === 'undefined' || (window.isSecureContext && Boolean(navigator.mediaDevices?.getUserMedia))
