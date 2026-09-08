@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   browserAudioExclusionIsSafe,
   createIngestMetrics,
+  extractH264CodecString,
+  parseScreenCapturePacket,
   resetAudioExclusionValidationCache,
   startBrowserScreenCapture,
   startNativeScreenCapture,
@@ -259,5 +261,116 @@ describe('metricas de ingestao do quadro', () => {
     expect(metricas.stats.decodeMs).toBe(0)
     expect(metricas.stats.drawMs).toBe(0)
     expect(metricas.stats.drawnFps).toBe(0)
+  })
+})
+
+describe('protocolo binario STAP e codec H.264', () => {
+  it('interpreta pacote STAP moderno de 32 bytes com H.264 e keyframe', () => {
+    const payload = new Uint8Array([0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1f, 0x05])
+    const packetBytes = new Uint8Array(32 + payload.byteLength)
+
+    // Magic "STAP"
+    packetBytes[0] = 0x53
+    packetBytes[1] = 0x54
+    packetBytes[2] = 0x41
+    packetBytes[3] = 0x50
+
+    packetBytes[4] = 1 // version
+    packetBytes[5] = 1 // codec = H.264
+    packetBytes[6] = 1 // flags = keyframe
+    packetBytes[7] = 0 // reserved
+
+    const view = new DataView(packetBytes.buffer, packetBytes.byteOffset, packetBytes.byteLength)
+    view.setUint32(8, 77, true) // captureId
+    view.setUint32(12, 1920, true) // width
+    view.setUint32(16, 1080, true) // height
+    view.setUint32(20, 15, true) // sequence
+    view.setBigUint64(24, 987654321n, true) // timestampUs
+
+    packetBytes.set(payload, 32)
+
+    const parsed = parseScreenCapturePacket(packetBytes)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.codec).toBe(1)
+    expect(parsed?.isKeyframe).toBe(true)
+    expect(parsed?.captureId).toBe(77)
+    expect(parsed?.width).toBe(1920)
+    expect(parsed?.height).toBe(1080)
+    expect(parsed?.sequence).toBe(15)
+    expect(parsed?.timestampUs).toBe(987654321n)
+    expect(parsed?.payload).toEqual(payload)
+  })
+
+  it('interpreta pacote STAP com codec JPEG', () => {
+    const payload = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])
+    const packetBytes = new Uint8Array(32 + payload.byteLength)
+
+    packetBytes[0] = 0x53
+    packetBytes[1] = 0x54
+    packetBytes[2] = 0x41
+    packetBytes[3] = 0x50
+    packetBytes[4] = 1
+    packetBytes[5] = 0 // codec = JPEG
+    packetBytes[6] = 0 // delta / non-key
+
+    const view = new DataView(packetBytes.buffer, packetBytes.byteOffset, packetBytes.byteLength)
+    view.setUint32(8, 10, true)
+    view.setUint32(12, 1280, true)
+    view.setUint32(16, 720, true)
+    view.setUint32(20, 1, true)
+    view.setBigUint64(24, 1000n, true)
+    packetBytes.set(payload, 32)
+
+    const parsed = parseScreenCapturePacket(packetBytes)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.codec).toBe(0)
+    expect(parsed?.isKeyframe).toBe(false)
+    expect(parsed?.width).toBe(1280)
+    expect(parsed?.height).toBe(720)
+  })
+
+  it('mantem retrocompatibilidade com o cabecalho legado de 12 bytes', () => {
+    const jpegPayload = new Uint8Array([0xFF, 0xD8, 0xFF, 0xDB])
+    const legacyBytes = new Uint8Array(12 + jpegPayload.byteLength)
+    const view = new DataView(legacyBytes.buffer, legacyBytes.byteOffset, legacyBytes.byteLength)
+
+    view.setUint32(0, 1280, true) // width
+    view.setUint32(4, 720, true) // height
+    view.setUint32(8, 99, true) // captureId
+    legacyBytes.set(jpegPayload, 12)
+
+    const parsed = parseScreenCapturePacket(legacyBytes)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.codec).toBe(0) // JPEG
+    expect(parsed?.isKeyframe).toBe(true)
+    expect(parsed?.width).toBe(1280)
+    expect(parsed?.height).toBe(720)
+    expect(parsed?.captureId).toBe(99)
+    expect(parsed?.payload).toEqual(jpegPayload)
+  })
+
+  it('rejeita pacotes truncados menores que 12 bytes', () => {
+    expect(parseScreenCapturePacket(new Uint8Array(8))).toBeNull()
+    expect(parseScreenCapturePacket(new Uint8Array(0))).toBeNull()
+  })
+
+  it('extrai string de codec RFC 6381 a partir de SPS Annex B', () => {
+    // 00 00 00 01 followed by NAL 7 (0x67) with profile 0x42 (66), constraints 0xE0, level 0x1F (31)
+    const spsPayload = new Uint8Array([
+      0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0xE0, 0x1F, 0x8D,
+    ])
+    expect(extractH264CodecString(spsPayload)).toBe('avc1.42e01f')
+  })
+
+  it('extrai string de codec com prefixo de 3 bytes (00 00 01)', () => {
+    const spsPayload = new Uint8Array([
+      0x00, 0x00, 0x01, 0x67, 0x64, 0x00, 0x28, 0xAC,
+    ])
+    expect(extractH264CodecString(spsPayload)).toBe('avc1.640028')
+  })
+
+  it('retorna fallback seguro quando payload nao contem SPS', () => {
+    const dummyPayload = new Uint8Array([0x01, 0x02, 0x03, 0x04])
+    expect(extractH264CodecString(dummyPayload)).toBe('avc1.420028')
   })
 })

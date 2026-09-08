@@ -143,6 +143,101 @@ function round2(value: number) {
   return Math.round(value * 100) / 100
 }
 
+export interface ScreenCapturePacket {
+  codec: number // 0 = JPEG, 1 = H.264
+  isKeyframe: boolean
+  captureId: number
+  width: number
+  height: number
+  sequence: number
+  timestampUs: bigint
+  payload: Uint8Array
+}
+
+/**
+ * Interpreta pacotes binarios recebidos pelo canal de quadros da captura nativa.
+ * Suporta tanto o cabecalho moderno 'STAP' (32 bytes) com codec H.264/JPEG quanto
+ * o cabecalho legado de 12 bytes (width, height, capture_id) para retrocompatibilidade.
+ */
+export function parseScreenCapturePacket(rawBytes: Uint8Array): ScreenCapturePacket | null {
+  if (rawBytes.byteLength < 12) return null
+
+  // Verifica magic "STAP" (0x53, 0x54, 0x41, 0x50)
+  if (
+    rawBytes.byteLength >= 32 &&
+    rawBytes[0] === 0x53 &&
+    rawBytes[1] === 0x54 &&
+    rawBytes[2] === 0x41 &&
+    rawBytes[3] === 0x50
+  ) {
+    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
+    const codec = rawBytes[5]
+    const flags = rawBytes[6]
+    const isKeyframe = (flags & 1) !== 0
+    const captureId = view.getUint32(8, true)
+    const width = view.getUint32(12, true)
+    const height = view.getUint32(16, true)
+    const sequence = view.getUint32(20, true)
+    const timestampUs = view.getBigUint64(24, true)
+    const payload = rawBytes.subarray(32)
+    return {
+      codec,
+      isKeyframe,
+      captureId,
+      width,
+      height,
+      sequence,
+      timestampUs,
+      payload,
+    }
+  }
+
+  // Fallback para cabecalho legado de 12 bytes (width, height, capture_id) com JPEG
+  const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
+  const width = view.getUint32(0, true)
+  const height = view.getUint32(4, true)
+  const captureId = view.getUint32(8, true)
+  const payload = rawBytes.subarray(12)
+  return {
+    codec: 0,
+    isKeyframe: true,
+    captureId,
+    width,
+    height,
+    sequence: 0,
+    timestampUs: 0n,
+    payload,
+  }
+}
+
+/**
+ * Extrai a string de codec RFC 6381 (ex: avc1.42001f ou avc1.64002a) a partir
+ * do NAL unit de SPS em formato Annex B.
+ */
+export function extractH264CodecString(payload: Uint8Array): string {
+  for (let i = 0; i + 4 < payload.length; i++) {
+    if (payload[i] === 0 && payload[i + 1] === 0) {
+      let offset = -1
+      if (payload[i + 2] === 1) {
+        offset = i + 3
+      } else if (i + 3 < payload.length && payload[i + 2] === 0 && payload[i + 3] === 1) {
+        offset = i + 4
+      }
+      if (offset !== -1 && offset + 3 < payload.length) {
+        const nalType = payload[offset] & 0x1F
+        if (nalType === 7) {
+          const profile = payload[offset + 1].toString(16).padStart(2, '0')
+          const constraints = payload[offset + 2].toString(16).padStart(2, '0')
+          const level = payload[offset + 3].toString(16).padStart(2, '0')
+          return `avc1.${profile}${constraints}${level}`
+        }
+      }
+    }
+  }
+  return 'avc1.420028'
+}
+
+
 export interface ScreenAudioPlaybackStats {
   bufferedFrames: number
   playbackRate: number
@@ -504,6 +599,48 @@ export async function startNativeScreenCapture(options: {
     resolveAudioReady(available)
   }
 
+  let videoDecoder: VideoDecoder | null = null
+  let decoderConfigured = false
+  const pendingDecodeTimes = new Map<number, number>()
+  let chunkIndex = 0
+
+  if (typeof VideoDecoder !== 'undefined' && typeof EncodedVideoChunk !== 'undefined') {
+    try {
+      videoDecoder = new VideoDecoder({
+        output(frame: VideoFrame) {
+          if (stopped) {
+            frame.close()
+            return
+          }
+          const frameTimestamp = frame.timestamp ?? 0
+          const startedAt = pendingDecodeTimes.get(frameTimestamp) ?? performance.now()
+          pendingDecodeTimes.delete(frameTimestamp)
+          const decodedAt = performance.now()
+          const decodeMs = decodedAt - startedAt
+
+          const drawStart = performance.now()
+          if (renderer.width !== frame.displayWidth || renderer.height !== frame.displayHeight) {
+            renderer.resize(frame.displayWidth, frame.displayHeight)
+          }
+          context.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight)
+          frame.close()
+          ingest.drawn(decodeMs, performance.now() - drawStart)
+
+          if (!firstFrameDone) {
+            firstFrameDone = true
+            resolveFirstFrame()
+          }
+        },
+        error(err) {
+          console.error('[screen-capture] erro no VideoDecoder:', err)
+        },
+      })
+    } catch (e) {
+      console.warn('[screen-capture] falha ao instanciar VideoDecoder, usando fallback JPEG:', e)
+      videoDecoder = null
+    }
+  }
+
   const drawLatest = async () => {
     if (decoding) return
     decoding = true
@@ -539,21 +676,52 @@ export async function startNativeScreenCapture(options: {
     const rawBytes = message instanceof Uint8Array
       ? message
       : new Uint8Array(message instanceof ArrayBuffer ? message : (message as ArrayBufferView).buffer)
-    if (rawBytes.byteLength < 12) return
 
-    const view = new DataView(rawBytes.buffer, rawBytes.byteOffset, rawBytes.byteLength)
-    const width = view.getUint32(0, true)
-    const height = view.getUint32(4, true)
-    const packetCaptureId = view.getUint32(8, true)
-    if (captureId > 0 && packetCaptureId !== captureId) return
+    const packet = parseScreenCapturePacket(rawBytes)
+    if (!packet) return
+    if (captureId > 0 && packet.captureId !== captureId) return
+
+    if (packet.codec === 1 && videoDecoder) {
+      if (!decoderConfigured) {
+        if (!packet.isKeyframe) {
+          // Descarta delta-frames ate o primeiro keyframe com SPS/PPS
+          return
+        }
+        const codecStr = extractH264CodecString(packet.payload)
+        videoDecoder.configure({
+          codec: codecStr,
+          optimizeForLatency: true,
+        })
+        decoderConfigured = true
+      }
+
+      ingest.received(rawBytes.byteLength, false)
+      const ts = chunkIndex++
+      pendingDecodeTimes.set(ts, performance.now())
+      if (pendingDecodeTimes.size > 60) {
+        const oldest = pendingDecodeTimes.keys().next().value
+        if (oldest !== undefined) pendingDecodeTimes.delete(oldest)
+      }
+
+      try {
+        videoDecoder.decode(new EncodedVideoChunk({
+          type: packet.isKeyframe ? 'key' : 'delta',
+          timestamp: ts,
+          data: packet.payload,
+        }))
+      } catch (err) {
+        console.error('[screen-capture] erro ao decodificar chunk H.264:', err)
+      }
+      return
+    }
 
     // Antes de sobrescrever: se ainda havia quadro no slot, ele morreu sem
     // nunca ter sido desenhado. E esse o descarte que sumia sem rastro.
     ingest.received(rawBytes.byteLength, latestFrame !== null)
     latestFrame = {
-      width,
-      height,
-      bytes: rawBytes.subarray(12),
+      width: packet.width,
+      height: packet.height,
+      bytes: packet.payload,
     }
     void drawLatest()
   }
@@ -663,6 +831,12 @@ export async function startNativeScreenCapture(options: {
     async stop() {
       if (stopped) return
       stopped = true
+      if (videoDecoder) {
+        try {
+          if (videoDecoder.state !== 'closed') videoDecoder.close()
+        } catch {}
+        videoDecoder = null
+      }
       await invoke('stop_screen_capture', { captureId }).catch(() => {})
       for (const mediaTrack of stream.getTracks()) mediaTrack.stop()
       await audioPipeline?.close()
