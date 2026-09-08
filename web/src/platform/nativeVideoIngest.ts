@@ -74,10 +74,17 @@ export interface NativeVideoDecoder {
   close(): void
 }
 
+/**
+ * Tamanho maximo calibrado da fila do VideoDecoder.
+ * Com tempo de decodificacao de ~1-3ms por quadro em GPU, 4 quadros representam ~66ms
+ * de margem de seguranca contra jitter momentaneo do SO em 60fps sem acumular latencia perceptivel.
+ */
+export const DEFAULT_DECODE_QUEUE_CAPACITY = 4
+
 export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): NativeVideoDecoder | null {
   if (!isWebCodecsSupported()) return null
 
-  const maxQueueSize = options.maxQueueSize ?? 4
+  const maxQueueSize = options.maxQueueSize ?? DEFAULT_DECODE_QUEUE_CAPACITY
   let decoderConfigured = false
   let waitingForKeyframe = false
   let chunkIndex = 0

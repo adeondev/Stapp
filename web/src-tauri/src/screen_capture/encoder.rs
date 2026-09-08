@@ -615,6 +615,12 @@ impl H264Encoder {
         let fps = self.fps.max(1) as u64;
         let duration_100ns = 10_000_000u64 / fps;
         let sample_time_100ns = self.frame_index * duration_100ns;
+
+        // Intervalo de keyframe periodico (GOP): a cada 2 segundos (ex: 120 quadros a 60fps, 60 quadros a 30fps)
+        // para garantir auto-recuperacao do decodificador e sincronizacao de novos participantes sem depender apenas de PLIs.
+        let gop_size = (fps * 2).max(30);
+        let is_periodic_keyframe = self.frame_index > 0 && (self.frame_index % gop_size == 0);
+
         self.frame_index += 1;
 
         unsafe {
@@ -624,7 +630,7 @@ impl H264Encoder {
             sample
                 .SetSampleDuration(duration_100ns as i64)
                 .map_err(|e| format!("falha definindo sample duration: {e}"))?;
-            if force_keyframe || self.force_keyframe_next {
+            if force_keyframe || self.force_keyframe_next || is_periodic_keyframe {
                 let _ = sample.SetUINT32(&MFSampleExtension_CleanPoint, 1);
                 self.force_keyframe_next = false;
             }

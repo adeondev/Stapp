@@ -1,6 +1,7 @@
 import screenAudioWorkletUrl from './screen-audio-worklet.ts?worker&url'
 import {
   createNativeVideoIngest,
+  DEFAULT_DECODE_QUEUE_CAPACITY,
   type NativeVideoIngest,
 } from './nativeVideoIngest'
 import {
@@ -607,6 +608,7 @@ export async function startNativeScreenCapture(options: {
       onError(err: Error) {
         console.error('[screen-capture] erro no nativeIngest:', err)
       },
+      maxQueueSize: DEFAULT_DECODE_QUEUE_CAPACITY,
     }) ??
     createCanvasFallbackIngest({
       maxWidth: options.maxWidth,
