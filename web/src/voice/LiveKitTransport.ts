@@ -634,6 +634,11 @@ export class LiveKitTransport implements VoiceTransport {
   async diagnosticReport(): Promise<DiagnosticReport> {
     await this.collectInboundAudioDiagnostics()
     const browserAudio = this.browserScreenAudioDiagnostic
+    // O retrato nativo chega uma vez por segundo pelo canal de eventos; aqui so
+    // se le o ultimo que chegou. Nada de pedir medicao sob demanda: o laco de
+    // captura nao pode parar para responder a tela de configuracoes.
+    const nativeVideo = this.nativeScreenCapture?.videoStats?.native ?? null
+    const ingestVideo = this.nativeScreenCapture?.videoStats?.ingest ?? null
     const report: DiagnosticReport = {
       generatedAt: new Date().toISOString(),
       backend: 'livekit',
@@ -652,6 +657,26 @@ export class LiveKitTransport implements VoiceTransport {
       screenAudioOwnAudioApplied: browserAudio?.applied,
       screenAudioProbeControlLevel: browserAudio?.controlLevel,
       screenAudioProbeCaptureLevel: browserAudio?.captureLevel,
+      screenCaptureFps: nativeVideo?.fps,
+      screenCaptureTargetFps: nativeVideo?.target_fps,
+      screenCaptureResolution: nativeVideo && nativeVideo.width > 0
+        ? `${nativeVideo.width}x${nativeVideo.height}`
+        : undefined,
+      screenCaptureMs: nativeVideo?.capture_ms,
+      screenCursorMs: nativeVideo?.cursor_ms,
+      screenResizeMs: nativeVideo?.resize_ms,
+      screenEncodeMs: nativeVideo?.encode_ms,
+      screenDispatchMs: nativeVideo?.dispatch_ms,
+      screenFrameMs: nativeVideo?.frame_ms,
+      screenIdleMs: nativeVideo?.idle_ms,
+      screenCaptureFailures: nativeVideo?.failures,
+      screenCaptureKbps: nativeVideo ? round(nativeVideo.bytes_per_second * 8 / 1000) : undefined,
+      screenIngestReceivedFps: ingestVideo?.receivedFps,
+      screenIngestDrawnFps: ingestVideo?.drawnFps,
+      screenIngestDroppedFps: ingestVideo?.droppedFps,
+      screenIngestDroppedFrames: ingestVideo?.droppedFrames,
+      screenIngestDecodeMs: ingestVideo?.decodeMs,
+      screenIngestDrawMs: ingestVideo?.drawMs,
       screenAudioBufferedMs: this.nativeScreenCapture?.audioPlaybackStats
         ? round(this.nativeScreenCapture.audioPlaybackStats.bufferedFrames / 48)
         : undefined,

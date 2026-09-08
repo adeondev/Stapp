@@ -18,8 +18,129 @@ export interface NativeScreenCapture {
   audioError?: string
   audioValidation?: AudioExclusionValidation
   audioPlaybackStats?: ScreenAudioPlaybackStats
+  videoStats?: ScreenVideoStats
   ended: Promise<string>
   stop(): Promise<void>
+}
+
+/**
+ * Retrato do laco nativo. Os nomes sao `snake_case` porque vem direto do serde
+ * de `screen_capture/metrics.rs` — nao "arrume" isso.
+ */
+export interface ScreenVideoNativeStats {
+  fps: number
+  target_fps: number
+  frames: number
+  failures: number
+  capture_ms: number
+  cursor_ms: number
+  resize_ms: number
+  encode_ms: number
+  dispatch_ms: number
+  frame_ms: number
+  idle_ms: number
+  bytes_per_second: number
+  width: number
+  height: number
+}
+
+/**
+ * O que acontece com o quadro depois que ele cruza o IPC.
+ *
+ * `droppedFrames` e acumulado desde o inicio da captura, e nao por janela: e o
+ * numero que responde "quantos quadros o pipeline perdeu nesta transmissao".
+ * Ele conta o descarte silencioso do slot unico `latestFrame` — quando a
+ * decodificacao nao acompanha a chegada, o quadro anterior morre sem nunca ter
+ * sido desenhado, e ate agora isso sumia sem deixar rastro.
+ */
+export interface ScreenVideoIngestStats {
+  receivedFps: number
+  drawnFps: number
+  droppedFps: number
+  droppedFrames: number
+  decodeMs: number
+  drawMs: number
+  bytesPerSecond: number
+}
+
+export interface ScreenVideoStats {
+  native: ScreenVideoNativeStats | null
+  ingest: ScreenVideoIngestStats
+}
+
+export interface IngestMetrics {
+  readonly stats: ScreenVideoIngestStats
+  received(bytes: number, replacedUndrawn: boolean): void
+  drawn(decodeMs: number, drawMs: number): void
+  /** Fecha a janela quando ela ja completou. `true` quando publicou. */
+  flush(): boolean
+}
+
+/**
+ * Acumulador da ingestao no WebView, espelho do `MetricsAccumulator` do Rust.
+ *
+ * `now` e `windowMs` sao injetaveis para o teste nao depender de relogio real —
+ * a conta que precisa de cobertura e a media por janela, nao o `performance.now`.
+ */
+export function createIngestMetrics(
+  now: () => number = () => performance.now(),
+  windowMs = 1_000,
+): IngestMetrics {
+  const stats: ScreenVideoIngestStats = {
+    receivedFps: 0, drawnFps: 0, droppedFps: 0, droppedFrames: 0,
+    decodeMs: 0, drawMs: 0, bytesPerSecond: 0,
+  }
+  let windowStart = now()
+  let received = 0
+  let drawn = 0
+  let dropped = 0
+  let bytes = 0
+  let decodeTotal = 0
+  let drawTotal = 0
+
+  const flush = () => {
+    const elapsed = now() - windowStart
+    if (elapsed < windowMs) return false
+    const seconds = elapsed / 1_000
+    stats.receivedFps = round2(received / seconds)
+    stats.drawnFps = round2(drawn / seconds)
+    stats.droppedFps = round2(dropped / seconds)
+    stats.decodeMs = drawn > 0 ? round2(decodeTotal / drawn) : 0
+    stats.drawMs = drawn > 0 ? round2(drawTotal / drawn) : 0
+    stats.bytesPerSecond = round2(bytes / seconds)
+    windowStart = now()
+    received = 0
+    drawn = 0
+    dropped = 0
+    bytes = 0
+    decodeTotal = 0
+    drawTotal = 0
+    return true
+  }
+
+  return {
+    stats,
+    received(byteLength: number, replacedUndrawn: boolean) {
+      received += 1
+      bytes += byteLength
+      if (replacedUndrawn) {
+        dropped += 1
+        stats.droppedFrames += 1
+      }
+      flush()
+    },
+    drawn(decodeMs: number, drawMs: number) {
+      drawn += 1
+      decodeTotal += decodeMs
+      drawTotal += drawMs
+      flush()
+    },
+    flush,
+  }
+}
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100
 }
 
 export interface ScreenAudioPlaybackStats {
@@ -83,6 +204,7 @@ type CaptureEvent =
       pcm: Uint8Array | ArrayBuffer | number[]
     }
   | { event: 'audio_unavailable'; capture_id: number; reason: string }
+  | { event: 'video_stats'; capture_id: number; stats: ScreenVideoNativeStats }
   | { event: 'ended'; capture_id: number; reason: string }
 
 export function isTauriRuntime() {
@@ -343,6 +465,8 @@ export async function startNativeScreenCapture(options: {
   let stopped = false
   let latestFrame: { width: number; height: number; bytes: Uint8Array } | null = null
   let decoding = false
+  const ingest = createIngestMetrics()
+  const videoStats: ScreenVideoStats = { native: null, ingest: ingest.stats }
   let firstFrameDone = false
   let resolveFirstFrame!: () => void
   let rejectFirstFrame!: (error: Error) => void
@@ -387,16 +511,19 @@ export async function startNativeScreenCapture(options: {
       while (latestFrame && !stopped) {
         const frame = latestFrame
         latestFrame = null
+        const decodeStarted = performance.now()
         const blob = new Blob([frame.bytes as BlobPart], { type: 'image/jpeg' })
         const bitmap = await createImageBitmap(
           blob,
           { imageOrientation: 'none', premultiplyAlpha: 'none' },
         )
+        const decodedAt = performance.now()
         if (renderer.width !== frame.width || renderer.height !== frame.height) {
           renderer.resize(frame.width, frame.height)
         }
         context.drawImage(bitmap, 0, 0, frame.width, frame.height)
         bitmap.close()
+        ingest.drawn(decodedAt - decodeStarted, performance.now() - decodedAt)
         if (!firstFrameDone) {
           firstFrameDone = true
           resolveFirstFrame()
@@ -420,6 +547,9 @@ export async function startNativeScreenCapture(options: {
     const packetCaptureId = view.getUint32(8, true)
     if (captureId > 0 && packetCaptureId !== captureId) return
 
+    // Antes de sobrescrever: se ainda havia quadro no slot, ele morreu sem
+    // nunca ter sido desenhado. E esse o descarte que sumia sem rastro.
+    ingest.received(rawBytes.byteLength, latestFrame !== null)
     latestFrame = {
       width,
       height,
@@ -438,6 +568,10 @@ export async function startNativeScreenCapture(options: {
     if (event.event === 'audio_unavailable') {
       audioError = event.reason
       finishAudioReady(false)
+      return
+    }
+    if (event.event === 'video_stats') {
+      videoStats.native = event.stats
       return
     }
     if (event.event === 'audio_format') {
@@ -524,6 +658,7 @@ export async function startNativeScreenCapture(options: {
     audioError,
     audioValidation,
     audioPlaybackStats: audioPipeline?.stats,
+    videoStats,
     ended,
     async stop() {
       if (stopped) return
