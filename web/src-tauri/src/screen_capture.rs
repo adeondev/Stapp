@@ -3,6 +3,8 @@ mod metrics;
 pub(crate) mod wgc;
 #[cfg(windows)]
 pub(crate) mod scaler;
+#[cfg(windows)]
+pub(crate) mod encoder;
 
 use crate::screen_sources::{parse_source_id, SourceLocator};
 #[cfg(not(windows))]
