@@ -282,6 +282,12 @@ pub fn stop_screen_capture(capture_id: u32) -> Result<(), String> {
     Ok(())
 }
 
+enum CaptureEngine {
+    #[cfg(windows)]
+    Wgc(wgc::WgcSession),
+    Gdi(CaptureSource),
+}
+
 fn capture_loop(
     capture_id: u32,
     locator: SourceLocator,
@@ -298,17 +304,26 @@ fn capture_loop(
     };
 
     #[cfg(windows)]
-    let mut wgc_session = match wgc::WgcSession::new(locator) {
-        Ok(session) => Some(session),
+    let mut engine = match wgc::WgcSession::new(locator) {
+        Ok(session) => {
+            log::info!("Captura iniciada via Windows Graphics Capture (WGC)");
+            CaptureEngine::Wgc(session)
+        }
         Err(err) => {
-            log::warn!("WGC indisponivel ({err}), degradando para caminho GDI");
-            None
+            log::warn!("WGC indisponivel ({err}), degradando para captura GDI");
+            let Some(source) = resolve_source(locator) else {
+                let _ = channel.send(CaptureEvent::Ended {
+                    capture_id,
+                    reason: "a fonte selecionada desapareceu".to_string(),
+                });
+                return;
+            };
+            CaptureEngine::Gdi(source)
         }
     };
-    #[cfg(not(windows))]
-    let mut wgc_session: Option<()> = None;
 
-    let gdi_source = if wgc_session.is_none() {
+    #[cfg(not(windows))]
+    let mut engine = {
         let Some(source) = resolve_source(locator) else {
             let _ = channel.send(CaptureEvent::Ended {
                 capture_id,
@@ -316,9 +331,7 @@ fn capture_loop(
             });
             return;
         };
-        Some(source)
-    } else {
-        None
+        CaptureEngine::Gdi(source)
     };
 
     let interval = Duration::from_nanos(1_000_000_000 / u64::from(fps));
@@ -339,148 +352,106 @@ fn capture_loop(
             }
         }
 
-        #[cfg(windows)]
-        if let Some(ref mut session) = wgc_session {
-            let wait_timeout = Duration::from_millis(100);
-            let wait_start = Instant::now();
-            let frame_result = session.next_frame(wait_timeout);
-            let idle_elapsed = wait_start.elapsed();
+        let (image, capture_elapsed, idle_elapsed) = match &mut engine {
+            #[cfg(windows)]
+            CaptureEngine::Wgc(session) => {
+                let wait_timeout = Duration::from_millis(100);
+                let wait_start = Instant::now();
+                let frame_result = session.next_frame(wait_timeout);
+                let idle_elapsed = wait_start.elapsed();
 
-            let mut timer = FrameTimer::start();
-            let image = match frame_result {
-                Ok(Some(img)) => {
-                    let now = Instant::now();
-                    if now.saturating_duration_since(last_frame_time) + Duration::from_millis(1) < interval {
-                        // Frame chegou antes do proximo intervalo desejado (ex.: monitor 144Hz)
+                let mut timer = FrameTimer::start();
+                let image = match frame_result {
+                    Ok(Some(img)) => {
+                        let now = Instant::now();
+                        if now.saturating_duration_since(last_frame_time) + Duration::from_millis(1) < interval {
+                            // Frame chegou antes do proximo intervalo desejado (ex.: monitor 144Hz)
+                            continue;
+                        }
+                        last_frame_time = now;
+                        consecutive_failures = 0;
+                        img
+                    }
+                    Ok(None) => {
+                        // Sem quadro novo nesta janela de espera (tela estatica)
+                        let window_elapsed = window_started.elapsed();
+                        if window_elapsed >= metrics::WINDOW {
+                            window_started = Instant::now();
+                            let _ = channel.send(CaptureEvent::VideoStats {
+                                capture_id,
+                                stats: accumulator.snapshot(window_elapsed, fps),
+                            });
+                        }
                         continue;
                     }
-                    last_frame_time = now;
-                    consecutive_failures = 0;
-                    img
-                }
-                Ok(None) => {
-                    // Sem quadro novo nesta janela de espera (tela estatica)
-                    let window_elapsed = window_started.elapsed();
-                    if window_elapsed >= metrics::WINDOW {
-                        window_started = Instant::now();
-                        let _ = channel.send(CaptureEvent::VideoStats {
-                            capture_id,
-                            stats: accumulator.snapshot(window_elapsed, fps),
-                        });
+                    Err(err) => {
+                        log::warn!("falha no quadro WGC: {err}");
+                        accumulator.record_failure();
+                        consecutive_failures += 1;
+                        if consecutive_failures >= maximum_failures {
+                            let _ = channel.send(CaptureEvent::Ended {
+                                capture_id,
+                                reason: "a tela ou janela deixou de responder".to_string(),
+                            });
+                            break;
+                        }
+                        thread::sleep(interval);
+                        continue;
                     }
-                    continue;
-                }
-                Err(err) => {
-                    log::warn!("falha no quadro WGC: {err}");
-                    accumulator.record_failure();
-                    consecutive_failures += 1;
-                    if consecutive_failures >= maximum_failures {
-                        let _ = channel.send(CaptureEvent::Ended {
-                            capture_id,
-                            reason: "a tela ou janela deixou de responder".to_string(),
-                        });
-                        break;
+                };
+                let capture_elapsed = timer.lap();
+                (image, capture_elapsed, idle_elapsed)
+            }
+            CaptureEngine::Gdi(source) => {
+                let mut timer = FrameTimer::start();
+                let image = match source {
+                    CaptureSource::Screen(screen) => screen.capture_image(),
+                    CaptureSource::Window(window) => window.capture_image(),
+                };
+                let capture_elapsed = timer.lap();
+                let image = match image {
+                    Ok(image) => {
+                        consecutive_failures = 0;
+                        image
                     }
-                    thread::sleep(interval);
-                    continue;
-                }
-            };
-            let capture_elapsed = timer.lap();
+                    Err(_) => {
+                        accumulator.record_failure();
+                        if let Some(win_id) = window_id {
+                            if !is_window_valid(win_id) {
+                                let _ = channel.send(CaptureEvent::Ended {
+                                    capture_id,
+                                    reason: "a janela foi fechada".to_string(),
+                                });
+                                break;
+                            }
+                        }
+                        consecutive_failures += 1;
+                        if consecutive_failures >= maximum_failures {
+                            let _ = channel.send(CaptureEvent::Ended {
+                                capture_id,
+                                reason: "a tela ou janela deixou de responder".to_string(),
+                            });
+                            break;
+                        }
+                        thread::sleep(interval);
+                        continue;
+                    }
+                };
 
-            // Na WGC o cursor e composto em hardware pelo DWM
-            let cursor_elapsed = Duration::ZERO;
+                let elapsed = timer.total();
+                let idle_elapsed = if elapsed < interval {
+                    thread::sleep(interval - elapsed);
+                    timer.lap()
+                } else {
+                    thread::yield_now();
+                    Duration::ZERO
+                };
 
-            let (width, height) = image.dimensions();
-            let (target_width, target_height) = scale_to_fit(width, height, max_width, max_height);
-            let image = if (width, height) == (target_width, target_height) {
-                image
-            } else {
-                parallel_resize_rgba(&image, target_width, target_height)
-            };
-            let resize_elapsed = timer.lap();
-
-            let mut packet = Vec::with_capacity(12 + (target_width * target_height) as usize);
-            packet.extend_from_slice(&target_width.to_le_bytes());
-            packet.extend_from_slice(&target_height.to_le_bytes());
-            packet.extend_from_slice(&capture_id.to_le_bytes());
-            if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut packet, 72)
-                .encode_image(&image)
-                .is_err()
-            {
-                accumulator.record_failure();
-                continue;
+                (image, capture_elapsed, idle_elapsed)
             }
-            let encode_elapsed = timer.lap();
-            let bytes = packet.len();
-
-            if frame_channel.send(Response::new(packet)).is_err() {
-                break;
-            }
-            let dispatch_elapsed = timer.lap();
-
-            accumulator.record(FrameSample {
-                capture: capture_elapsed,
-                cursor: cursor_elapsed,
-                resize: resize_elapsed,
-                encode: encode_elapsed,
-                dispatch: dispatch_elapsed,
-                idle: idle_elapsed,
-                bytes,
-                width: target_width,
-                height: target_height,
-            });
-
-            let window_elapsed = window_started.elapsed();
-            if window_elapsed >= metrics::WINDOW {
-                window_started = Instant::now();
-                let _ = channel.send(CaptureEvent::VideoStats {
-                    capture_id,
-                    stats: accumulator.snapshot(window_elapsed, fps),
-                });
-            }
-            continue;
-        }
-
-        // Caminho fallback GDI
-        let Some(ref source) = gdi_source else {
-            break;
         };
 
         let mut timer = FrameTimer::start();
-        let image = match source {
-            CaptureSource::Screen(screen) => screen.capture_image(),
-            CaptureSource::Window(window) => window.capture_image(),
-        };
-        let capture_elapsed = timer.lap();
-        let image = match image {
-            Ok(image) => {
-                consecutive_failures = 0;
-                image
-            }
-            Err(_) => {
-                accumulator.record_failure();
-                if let Some(win_id) = window_id {
-                    if !is_window_valid(win_id) {
-                        let _ = channel.send(CaptureEvent::Ended {
-                            capture_id,
-                            reason: "a janela foi fechada".to_string(),
-                        });
-                        break;
-                    }
-                }
-                consecutive_failures += 1;
-                if consecutive_failures >= maximum_failures {
-                    let _ = channel.send(CaptureEvent::Ended {
-                        capture_id,
-                        reason: "a tela ou janela deixou de responder".to_string(),
-                    });
-                    break;
-                }
-                thread::sleep(interval);
-                continue;
-            }
-        };
-
         let cursor_elapsed = Duration::ZERO;
 
         let (width, height) = image.dimensions();
@@ -510,15 +481,6 @@ fn capture_loop(
             break;
         }
         let dispatch_elapsed = timer.lap();
-
-        let elapsed = timer.total();
-        let idle_elapsed = if elapsed < interval {
-            thread::sleep(interval - elapsed);
-            timer.lap()
-        } else {
-            thread::yield_now();
-            Duration::ZERO
-        };
 
         accumulator.record(FrameSample {
             capture: capture_elapsed,
