@@ -1,4 +1,5 @@
 import screenAudioWorkletUrl from './screen-audio-worklet.ts?worker&url'
+import { createNativeVideoDecoder } from './nativeVideoIngest'
 
 export type ScreenSourceKind = 'screen' | 'window'
 
@@ -214,32 +215,7 @@ export function parseScreenCapturePacket(rawBytes: Uint8Array): ScreenCapturePac
   }
 }
 
-/**
- * Extrai a string de codec RFC 6381 (ex: avc1.42001f ou avc1.64002a) a partir
- * do NAL unit de SPS em formato Annex B.
- */
-export function extractH264CodecString(payload: Uint8Array): string {
-  for (let i = 0; i + 4 < payload.length; i++) {
-    if (payload[i] === 0 && payload[i + 1] === 0) {
-      let offset = -1
-      if (payload[i + 2] === 1) {
-        offset = i + 3
-      } else if (i + 3 < payload.length && payload[i + 2] === 0 && payload[i + 3] === 1) {
-        offset = i + 4
-      }
-      if (offset !== -1 && offset + 3 < payload.length) {
-        const nalType = payload[offset] & 0x1F
-        if (nalType === 7) {
-          const profile = payload[offset + 1].toString(16).padStart(2, '0')
-          const constraints = payload[offset + 2].toString(16).padStart(2, '0')
-          const level = payload[offset + 3].toString(16).padStart(2, '0')
-          return `avc1.${profile}${constraints}${level}`
-        }
-      }
-    }
-  }
-  return 'avc1.420028'
-}
+export { extractH264CodecString } from './nativeVideoIngest'
 
 
 export interface ScreenAudioPlaybackStats {
@@ -610,47 +586,29 @@ export async function startNativeScreenCapture(options: {
     resolveAudioReady(available)
   }
 
-  let videoDecoder: VideoDecoder | null = null
-  let decoderConfigured = false
-  const pendingDecodeTimes = new Map<number, number>()
-  let chunkIndex = 0
+  const nativeDecoder = createNativeVideoDecoder({
+    onFrame(frame: VideoFrame, decodeMs: number) {
+      if (stopped) {
+        frame.close()
+        return
+      }
+      const drawStart = performance.now()
+      if (renderer.width !== frame.displayWidth || renderer.height !== frame.displayHeight) {
+        renderer.resize(frame.displayWidth, frame.displayHeight)
+      }
+      context.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight)
+      frame.close()
+      ingest.drawn(decodeMs, performance.now() - drawStart)
 
-  if (typeof VideoDecoder !== 'undefined' && typeof EncodedVideoChunk !== 'undefined') {
-    try {
-      videoDecoder = new VideoDecoder({
-        output(frame: VideoFrame) {
-          if (stopped) {
-            frame.close()
-            return
-          }
-          const frameTimestamp = frame.timestamp ?? 0
-          const startedAt = pendingDecodeTimes.get(frameTimestamp) ?? performance.now()
-          pendingDecodeTimes.delete(frameTimestamp)
-          const decodedAt = performance.now()
-          const decodeMs = decodedAt - startedAt
-
-          const drawStart = performance.now()
-          if (renderer.width !== frame.displayWidth || renderer.height !== frame.displayHeight) {
-            renderer.resize(frame.displayWidth, frame.displayHeight)
-          }
-          context.drawImage(frame, 0, 0, frame.displayWidth, frame.displayHeight)
-          frame.close()
-          ingest.drawn(decodeMs, performance.now() - drawStart)
-
-          if (!firstFrameDone) {
-            firstFrameDone = true
-            resolveFirstFrame()
-          }
-        },
-        error(err) {
-          console.error('[screen-capture] erro no VideoDecoder:', err)
-        },
-      })
-    } catch (e) {
-      console.warn('[screen-capture] falha ao instanciar VideoDecoder, usando fallback JPEG:', e)
-      videoDecoder = null
-    }
-  }
+      if (!firstFrameDone) {
+        firstFrameDone = true
+        resolveFirstFrame()
+      }
+    },
+    onError(err: Error) {
+      console.error('[screen-capture] erro no VideoDecoder:', err)
+    },
+  })
 
   const drawLatest = async () => {
     if (decoding) return
@@ -692,38 +650,11 @@ export async function startNativeScreenCapture(options: {
     if (!packet) return
     if (captureId > 0 && packet.captureId !== captureId) return
 
-    if (packet.codec === 1 && videoDecoder) {
-      if (!decoderConfigured) {
-        if (!packet.isKeyframe) {
-          // Descarta delta-frames ate o primeiro keyframe com SPS/PPS
-          return
-        }
-        const codecStr = extractH264CodecString(packet.payload)
-        videoDecoder.configure({
-          codec: codecStr,
-          optimizeForLatency: true,
-        })
-        decoderConfigured = true
-      }
-
+    if (packet.codec === 1 && nativeDecoder) {
       ingest.received(rawBytes.byteLength, false)
-      const ts = chunkIndex++
-      pendingDecodeTimes.set(ts, performance.now())
-      if (pendingDecodeTimes.size > 60) {
-        const oldest = pendingDecodeTimes.keys().next().value
-        if (oldest !== undefined) pendingDecodeTimes.delete(oldest)
+      if (nativeDecoder.feed(packet)) {
+        return
       }
-
-      try {
-        videoDecoder.decode(new EncodedVideoChunk({
-          type: packet.isKeyframe ? 'key' : 'delta',
-          timestamp: ts,
-          data: packet.payload,
-        }))
-      } catch (err) {
-        console.error('[screen-capture] erro ao decodificar chunk H.264:', err)
-      }
-      return
     }
 
     // Antes de sobrescrever: se ainda havia quadro no slot, ele morreu sem
@@ -847,11 +778,8 @@ export async function startNativeScreenCapture(options: {
     async stop() {
       if (stopped) return
       stopped = true
-      if (videoDecoder) {
-        try {
-          if (videoDecoder.state !== 'closed') videoDecoder.close()
-        } catch {}
-        videoDecoder = null
+      if (nativeDecoder) {
+        nativeDecoder.close()
       }
       await invoke('stop_screen_capture', { captureId }).catch(() => {})
       for (const mediaTrack of stream.getTracks()) mediaTrack.stop()
