@@ -325,7 +325,15 @@ export function createNativeVideoIngest(options: NativeVideoIngestOptions): Nati
     return null
   }
 
-  const stream = new MediaStream([trackWriter.track])
+  const stream = typeof MediaStream !== 'undefined'
+    ? new MediaStream([trackWriter.track])
+    : ({
+        getVideoTracks: () => [trackWriter.track],
+        getAudioTracks: () => [],
+        getTracks: () => [trackWriter.track],
+        addTrack: () => {},
+        removeTrack: () => {},
+      } as unknown as MediaStream)
 
   const drawLatestJpeg = async () => {
     if (decodingJpeg) return
