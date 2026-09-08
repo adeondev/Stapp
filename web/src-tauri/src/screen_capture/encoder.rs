@@ -875,6 +875,82 @@ mod tests {
     }
 
     #[test]
+    fn testa_pacotes_e_cabecalho_saud() {
+        let pcm_data = vec![0.5f32, -0.5f32, 0.25f32, -0.25f32];
+        let mut payload = Vec::with_capacity(pcm_data.len() * 4);
+        for sample in &pcm_data {
+            payload.extend_from_slice(&sample.to_le_bytes());
+        }
+
+        let capture_id = 77;
+        let sample_rate = 48000;
+        let channels = 2;
+        let sequence = 101;
+        let timestamp_us = 987_654_321;
+
+        let packet = pack_audio_frame(
+            capture_id,
+            sample_rate,
+            channels,
+            sequence,
+            timestamp_us,
+            &payload,
+        );
+
+        assert_eq!(packet.len(), AUDIO_HEADER_SIZE + payload.len());
+
+        let header = AudioPacketHeader::parse(&packet).expect("falha no parse do cabecalho SAUD");
+        assert_eq!(header.magic, MAGIC_SAUD);
+        assert_eq!(header.version, 1);
+        assert_eq!(header.channels, channels);
+        assert_eq!(header.flags, 0);
+        assert_eq!(header.capture_id, capture_id);
+        assert_eq!(header.sample_rate, sample_rate);
+        assert_eq!(header.sequence, sequence);
+        assert_eq!(header.timestamp_us, timestamp_us);
+        assert_eq!(&packet[AUDIO_HEADER_SIZE..], &payload);
+
+        // Testa to_bytes() e new()
+        let created = AudioPacketHeader::new(capture_id, sample_rate, channels, sequence, timestamp_us);
+        assert_eq!(created.to_bytes(), header.to_bytes());
+    }
+
+    #[test]
+    fn testa_validacao_de_cabecalhos_saud_corrompidos_ou_truncados() {
+        // Pacote menor que AUDIO_HEADER_SIZE (32 bytes)
+        assert!(AudioPacketHeader::parse(&[]).is_none());
+        assert!(AudioPacketHeader::parse(&[0u8; 15]).is_none());
+        assert!(AudioPacketHeader::parse(&[0u8; 31]).is_none());
+
+        // Pacote com magic invalido
+        let mut invalido = pack_audio_frame(1, 48000, 2, 0, 100, b"pcm data");
+        invalido[0] = b'X';
+        assert!(AudioPacketHeader::parse(&invalido).is_none());
+
+        // Pacote com versao nao suportada
+        let mut versao_invalida = pack_audio_frame(1, 48000, 2, 0, 100, b"pcm data");
+        versao_invalida[4] = 99;
+        assert!(AudioPacketHeader::parse(&versao_invalida).is_none());
+
+        // Pacote com valores maximos e sequence wrapping
+        let max_packet = pack_audio_frame(
+            u32::MAX,
+            192_000,
+            8,
+            u32::MAX,
+            u64::MAX,
+            b"surround 7.1",
+        );
+        let parsed = AudioPacketHeader::parse(&max_packet).expect("deve aceitar valores maximos");
+        assert_eq!(parsed.capture_id, u32::MAX);
+        assert_eq!(parsed.sample_rate, 192_000);
+        assert_eq!(parsed.channels, 8);
+        assert_eq!(parsed.sequence, u32::MAX);
+        assert_eq!(parsed.timestamp_us, u64::MAX);
+        assert_eq!(&max_packet[AUDIO_HEADER_SIZE..], b"surround 7.1");
+    }
+
+    #[test]
     fn testa_analisador_annex_b_e_anexacao_sps_pps() {
         // Simula bitstream Annex B com SPS (7), PPS (8) e IDR (5)
         let sps_nal = [0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0x00, 0x1f];

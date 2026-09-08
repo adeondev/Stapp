@@ -5,6 +5,7 @@ import {
   browserAudioExclusionIsSafe,
   createIngestMetrics,
   extractH264CodecString,
+  parseScreenAudioPacket,
   parseScreenCapturePacket,
   requestScreenCaptureKeyframe,
   resetAudioExclusionValidationCache,
@@ -395,5 +396,109 @@ describe('solicitacao de keyframe sob demanda', () => {
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
     await expect(requestScreenCaptureKeyframe(0)).resolves.toBeUndefined()
     await expect(requestScreenCaptureKeyframe(-1)).resolves.toBeUndefined()
+  })
+})
+
+describe('parseScreenAudioPacket (canal binario SAUD)', () => {
+  it('interpreta corretamente pacote de audio SAUD com 32 bytes de cabecalho', () => {
+    // 4 float32 samples = 16 bytes payload
+    const pcmFloats = new Float32Array([0.25, -0.25, 0.75, -0.75])
+    const pcmPayload = new Uint8Array(pcmFloats.buffer, pcmFloats.byteOffset, pcmFloats.byteLength)
+
+    const raw = new Uint8Array(32 + pcmPayload.byteLength)
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
+
+    // Magic: "SAUD"
+    raw[0] = 0x53
+    raw[1] = 0x41
+    raw[2] = 0x55
+    raw[3] = 0x44
+    // Version: 1
+    raw[4] = 1
+    // Channels: 2
+    raw[5] = 2
+    // Flags: 0, Reserved: 0
+    raw[6] = 0
+    raw[7] = 0
+    // CaptureId: 42
+    view.setUint32(8, 42, true)
+    // SampleRate: 48000
+    view.setUint32(12, 48_000, true)
+    // Sequence: 100
+    view.setUint32(16, 100, true)
+    // TimestampUs: 1234567890123n
+    view.setBigUint64(20, 1234567890123n, true)
+    // Reserved 4 bytes (28..32)
+    view.setUint32(28, 0, true)
+
+    // Payload
+    raw.set(pcmPayload, 32)
+
+    const parsed = parseScreenAudioPacket(raw)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.captureId).toBe(42)
+    expect(parsed?.sampleRate).toBe(48_000)
+    expect(parsed?.channels).toBe(2)
+    expect(parsed?.sequence).toBe(100)
+    expect(parsed?.timestampUs).toBe(1234567890123n)
+    expect(parsed?.pcm).toEqual(pcmPayload)
+
+    // Verifica integridade dos floats
+    const parsedFloats = new Float32Array(
+      parsed!.pcm.buffer,
+      parsed!.pcm.byteOffset,
+      parsed!.pcm.byteLength / Float32Array.BYTES_PER_ELEMENT,
+    )
+    expect(Array.from(parsedFloats)).toEqual([0.25, -0.25, 0.75, -0.75])
+  })
+
+  it('rejeita pacotes truncados menores que 32 bytes', () => {
+    expect(parseScreenAudioPacket(new Uint8Array(0))).toBeNull()
+    expect(parseScreenAudioPacket(new Uint8Array(16))).toBeNull()
+    expect(parseScreenAudioPacket(new Uint8Array(31))).toBeNull()
+  })
+
+  it('rejeita magic invalido', () => {
+    const raw = new Uint8Array(32)
+    raw[0] = 0x58 // 'X'
+    raw[1] = 0x41
+    raw[2] = 0x55
+    raw[3] = 0x44
+    raw[4] = 1
+    expect(parseScreenAudioPacket(raw)).toBeNull()
+  })
+
+  it('rejeita versao invalida', () => {
+    const raw = new Uint8Array(32)
+    raw[0] = 0x53
+    raw[1] = 0x41
+    raw[2] = 0x55
+    raw[3] = 0x44
+    raw[4] = 2 // versao 2 nao suportada
+    expect(parseScreenAudioPacket(raw)).toBeNull()
+  })
+
+  it('suporta valores maximos de sequencia e timestamp', () => {
+    const raw = new Uint8Array(32)
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
+    raw[0] = 0x53
+    raw[1] = 0x41
+    raw[2] = 0x55
+    raw[3] = 0x44
+    raw[4] = 1
+    raw[5] = 8 // 8 canais (ex: 7.1)
+    view.setUint32(8, 0xFFFFFFFF, true)
+    view.setUint32(12, 192_000, true)
+    view.setUint32(16, 0xFFFFFFFF, true)
+    view.setBigUint64(20, 0xFFFFFFFFFFFFFFFFn, true)
+
+    const parsed = parseScreenAudioPacket(raw)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.captureId).toBe(0xFFFFFFFF)
+    expect(parsed?.sampleRate).toBe(192_000)
+    expect(parsed?.channels).toBe(8)
+    expect(parsed?.sequence).toBe(0xFFFFFFFF)
+    expect(parsed?.timestampUs).toBe(0xFFFFFFFFFFFFFFFFn)
+    expect(parsed?.pcm.byteLength).toBe(0)
   })
 })
