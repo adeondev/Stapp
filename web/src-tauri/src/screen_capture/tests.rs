@@ -443,3 +443,99 @@ fn solicitacao_de_keyframe_para_sessao_inexistente_nao_entra_em_panico() {
     assert!(res.is_ok());
 }
 
+#[test]
+fn parser_de_variavel_force_jpeg_encoder() {
+    let _guard = TEST_ENV_MUTEX.lock().unwrap();
+
+    std::env::set_var("STAPP_FORCE_JPEG_ENCODER", "1");
+    let active = std::env::var("STAPP_FORCE_JPEG_ENCODER")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    assert!(active);
+
+    std::env::set_var("STAPP_FORCE_JPEG_ENCODER", "0");
+    let active = std::env::var("STAPP_FORCE_JPEG_ENCODER")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    assert!(!active);
+
+    std::env::set_var("STAPP_FORCE_JPEG_ENCODER", "false");
+    let active = std::env::var("STAPP_FORCE_JPEG_ENCODER")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    assert!(!active);
+
+    std::env::remove_var("STAPP_FORCE_JPEG_ENCODER");
+    let active = std::env::var("STAPP_FORCE_JPEG_ENCODER")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    assert!(!active);
+}
+
+#[cfg(windows)]
+#[test]
+fn wgc_fallback_para_jpeg_quando_forcado_ou_sem_encoder_hardware() {
+    let _guard = TEST_ENV_MUTEX.lock().unwrap();
+    std::env::set_var("STAPP_FORCE_JPEG_ENCODER", "1");
+
+    let is_disabled = std::env::var("STAPP_FORCE_JPEG_ENCODER")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    assert!(is_disabled, "variavel STAPP_FORCE_JPEG_ENCODER deve ser respeitada");
+
+    if !wgc::is_wgc_supported() {
+        std::env::remove_var("STAPP_FORCE_JPEG_ENCODER");
+        return;
+    }
+
+    let Ok(monitors) = xcap::Monitor::all() else {
+        std::env::remove_var("STAPP_FORCE_JPEG_ENCODER");
+        return;
+    };
+    let Some(monitor) = monitors.first() else {
+        std::env::remove_var("STAPP_FORCE_JPEG_ENCODER");
+        return;
+    };
+    let Ok(id) = monitor.id() else {
+        std::env::remove_var("STAPP_FORCE_JPEG_ENCODER");
+        return;
+    };
+
+    let session = wgc::WgcSession::new(SourceLocator::Screen(id));
+    if let Ok(mut session) = session {
+        let frame = session.next_frame(Duration::from_millis(1000), 1280, 720, 60);
+        if let Ok(Some(frame)) = frame {
+            let image = session.read_to_rgba().expect("read_to_rgba deve funcionar no fallback");
+            assert_eq!(image.dimensions(), (frame.width, frame.height));
+
+            let mut jpeg_bytes = Vec::with_capacity(32 * 1024);
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, 72)
+                .encode_image(&image)
+                .expect("codificacao JPEG de fallback deve ter sucesso");
+            assert!(!jpeg_bytes.is_empty());
+            assert_eq!(&jpeg_bytes[0..2], &[0xFF, 0xD8], "deve iniciar com SOI de JPEG");
+
+            let packet = encoder::pack_frame(
+                encoder::CODEC_JPEG,
+                true,
+                100,
+                frame.width,
+                frame.height,
+                1,
+                12345,
+                &jpeg_bytes,
+            );
+
+            let header = encoder::PacketHeader::parse(&packet).expect("cabecalho STAP valido");
+            assert_eq!(header.codec, encoder::CODEC_JPEG);
+            assert!(header.is_keyframe());
+            assert_eq!(header.capture_id, 100);
+            assert_eq!(header.width, frame.width);
+            assert_eq!(header.height, frame.height);
+        }
+        session.close();
+    }
+
+    std::env::remove_var("STAPP_FORCE_JPEG_ENCODER");
+}
+

@@ -383,7 +383,13 @@ fn capture_loop(
     #[cfg(windows)]
     let mut h264_encoder: Option<encoder::H264Encoder> = None;
     #[cfg(windows)]
-    let mut h264_disabled = std::env::var_os("STAPP_FORCE_JPEG_ENCODER").is_some();
+    let mut h264_disabled = std::env::var("STAPP_FORCE_JPEG_ENCODER")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    #[cfg(windows)]
+    if h264_disabled {
+        log::info!("STAPP_FORCE_JPEG_ENCODER ativo: utilizando fallback JPEG por software");
+    }
 
     while !stop.load(Ordering::Relaxed) {
         if let Some(win_id) = window_id {
@@ -479,61 +485,66 @@ fn capture_loop(
                                 h264_encoder = Some(enc);
                             }
                             Err(err) => {
-                                log::warn!("Encoder H.264 indisponivel ({err}), usando fallback JPEG");
+                                log::warn!("Encoder H.264 indisponivel ({err}), mantendo fallback JPEG");
                                 h264_disabled = true;
                             }
                         }
                     }
                 }
 
+                let mut encoded_h264 = false;
                 if let Some(enc) = &mut h264_encoder {
                     let force_keyframe = request_keyframe.swap(false, Ordering::Relaxed);
                     let mut timer = FrameTimer::start();
-                    let packets = match enc.encode_texture(&wgc_frame.nv12_texture, force_keyframe) {
-                        Ok(pkts) => pkts,
+                    match enc.encode_texture(&wgc_frame.nv12_texture, force_keyframe) {
+                        Ok(packets) => {
+                            let encode_elapsed = timer.lap();
+                            let timestamp_us = capture_started.elapsed().as_micros() as u64;
+
+                            let mut total_bytes = 0;
+                            let mut dispatch_elapsed = Duration::ZERO;
+                            for packet in packets {
+                                sequence = sequence.wrapping_add(1);
+                                let packed = encoder::pack_frame(
+                                    encoder::CODEC_H264,
+                                    packet.is_keyframe,
+                                    capture_id,
+                                    target_w,
+                                    target_h,
+                                    sequence,
+                                    timestamp_us,
+                                    &packet.data,
+                                );
+                                total_bytes += packed.len();
+                                let d_timer = Instant::now();
+                                if frame_channel.send(Response::new(packed)).is_err() {
+                                    return;
+                                }
+                                dispatch_elapsed += d_timer.elapsed();
+                            }
+
+                            accumulator.record(FrameSample {
+                                capture: capture_elapsed,
+                                cursor: Duration::ZERO,
+                                resize: resize_elapsed,
+                                encode: encode_elapsed,
+                                dispatch: dispatch_elapsed,
+                                idle: idle_elapsed,
+                                bytes: total_bytes,
+                                width: target_w,
+                                height: target_h,
+                            });
+                            encoded_h264 = true;
+                        }
                         Err(err) => {
-                            log::error!("falha na codificacao H.264: {err}");
-                            accumulator.record_failure();
-                            continue;
+                            log::warn!("falha na codificacao H.264 ({err}), degradando para fallback JPEG");
+                            h264_encoder = None;
+                            h264_disabled = true;
                         }
-                    };
-                    let encode_elapsed = timer.lap();
-                    let timestamp_us = capture_started.elapsed().as_micros() as u64;
-
-                    let mut total_bytes = 0;
-                    let mut dispatch_elapsed = Duration::ZERO;
-                    for packet in packets {
-                        sequence = sequence.wrapping_add(1);
-                        let packed = encoder::pack_frame(
-                            encoder::CODEC_H264,
-                            packet.is_keyframe,
-                            capture_id,
-                            target_w,
-                            target_h,
-                            sequence,
-                            timestamp_us,
-                            &packet.data,
-                        );
-                        total_bytes += packed.len();
-                        let d_timer = Instant::now();
-                        if frame_channel.send(Response::new(packed)).is_err() {
-                            return;
-                        }
-                        dispatch_elapsed += d_timer.elapsed();
                     }
+                }
 
-                    accumulator.record(FrameSample {
-                        capture: capture_elapsed,
-                        cursor: Duration::ZERO,
-                        resize: resize_elapsed,
-                        encode: encode_elapsed,
-                        dispatch: dispatch_elapsed,
-                        idle: idle_elapsed,
-                        bytes: total_bytes,
-                        width: target_w,
-                        height: target_h,
-                    });
-                } else {
+                if !encoded_h264 {
                     let image = match session.read_to_rgba() {
                         Ok(img) => img,
                         Err(err) => {
