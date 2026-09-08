@@ -9,6 +9,27 @@ use rust_embed::RustEmbed;
 #[folder = "../web/dist"]
 pub struct EmbeddedAssets;
 
+/// Marca do `index.html` de aviso que o `build.rs` grava quando `web/dist`
+/// nao existe. Mexeu no texto la, mexe aqui: sao os dois lados do mesmo contrato.
+const PLACEHOLDER_MARKER: &str = "Stapp web client is not built";
+
+fn is_placeholder_html(bytes: &[u8]) -> bool {
+    String::from_utf8_lossy(bytes).contains(PLACEHOLDER_MARKER)
+}
+
+/// Diz se o cliente web embutido e apenas o placeholder do build.
+///
+/// O `build.rs` gera esse `index.html` de aviso para que `cargo build` nao
+/// quebre quando a SPA nao foi construida. O efeito colateral e um binario que
+/// compila, sobe e responde 200 servindo uma pagina vazia: indistinguivel de um
+/// servidor saudavel para qualquer healthcheck. Quem pergunta isso e o boot, para
+/// dizer no log em vez de deixar a descoberta para o navegador de alguem.
+pub fn embedded_client_is_placeholder() -> bool {
+    EmbeddedAssets::get("index.html")
+        .map(|file| is_placeholder_html(file.data.as_ref()))
+        .unwrap_or(true)
+}
+
 /// Handler HTTP que serve os assets embutidos com suporte a SPA fallback e controle de cache.
 pub async fn static_handler(req: Request) -> Response {
     if req.method() != Method::GET && req.method() != Method::HEAD {
@@ -101,6 +122,22 @@ fn serve_embedded_file(path: &str, file: rust_embed::EmbeddedFile, req: &Request
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reconhece_o_placeholder_gerado_pelo_build() {
+        let placeholder = EmbeddedAssets::get("index.html");
+        assert!(placeholder.is_some(), "o build sempre deixa um index.html no lugar");
+        assert!(is_placeholder_html(
+            b"<html><body>Stapp web client is not built. Run pnpm --dir web build.</body></html>"
+        ));
+    }
+
+    #[test]
+    fn nao_confunde_a_spa_de_verdade_com_o_placeholder() {
+        assert!(!is_placeholder_html(
+            b"<html><head><script src=/assets/index-abc.js></script></head><body></body></html>"
+        ));
+    }
     use axum::body::to_bytes;
     use axum::http::Request;
 

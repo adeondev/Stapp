@@ -5,8 +5,15 @@ name      = "Stapp dos guri"
 bind      = "0.0.0.0"
 port      = 8787
 max_users = 20
-# Descomente em producao para o proprio servidor entregar o cliente ja buildado
-# (mesma origem, sem CORS). Caminho relativo a este arquivo.
+# NAO precisa mexer aqui para servir o cliente web: o binario ja carrega a SPA
+# embutida, e e ela que responde por padrao, na mesma origem e sem CORS.
+#
+# static_dir existe para desenvolvimento e builds proprios, e tem PRECEDENCIA sobre
+# a SPA embutida. Apontar isto para uma pasta em disco num servidor de producao faz
+# o binario novo continuar entregando o cliente velho que estiver parado la, sem
+# jeito de perceber: o healthcheck responde 200 do mesmo jeito. Se apontar, passa a
+# ser sua a responsabilidade de reconstruir a pasta a cada atualizacao.
+# Caminho relativo a este arquivo.
 # static_dir = "../web/dist"
 
 [auth]

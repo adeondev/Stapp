@@ -96,10 +96,12 @@ describe('createNativeVideoDecoder - decodificador nativo e politica de descarte
     target.EncodedVideoChunk = class {
       type: string
       timestamp: number
+      duration?: number
       data: Uint8Array
-      constructor(init: { type: string; timestamp: number; data: Uint8Array }) {
+      constructor(init: { type: string; timestamp: number; duration?: number; data: Uint8Array }) {
         this.type = init.type
         this.timestamp = init.timestamp
+        this.duration = init.duration
         this.data = init.data
       }
     }
@@ -132,10 +134,11 @@ describe('createNativeVideoDecoder - decodificador nativo e politica de descarte
     payload?: Uint8Array
     width?: number
     height?: number
+    timestampUs?: bigint
   }): ScreenCapturePacket => ({
     codec: 1,
     isKeyframe: opts.isKeyframe,
-    timestampUs: 0n,
+    timestampUs: opts.timestampUs ?? 0n,
     sequence: 0,
     width: opts.width ?? 1920,
     height: opts.height ?? 1080,
@@ -317,6 +320,55 @@ describe('createNativeVideoDecoder - decodificador nativo e politica de descarte
     expect(mockDecoderInstance.close).toHaveBeenCalledOnce()
     expect(decoder.feed(makePacket({ isKeyframe: true }))).toBe(false)
   })
+
+  it('preserva o relogio do produtor, rebaseado no primeiro quadro', () => {
+    const decoder = createNativeVideoDecoder({ onFrame: vi.fn(), fps: 60 })!
+
+    // O produtor conta de capture_started.elapsed(): comeca com o atraso de
+    // partida, e o primeiro quadro precisa virar a origem da linha do tempo.
+    decoder.feed(makePacket({ isKeyframe: true, timestampUs: 5_000_000n }))
+    decoder.feed(makePacket({ isKeyframe: false, timestampUs: 5_016_666n }))
+    decoder.feed(makePacket({ isKeyframe: false, timestampUs: 5_033_332n }))
+
+    const chunks = mockDecoderInstance.decode.mock.calls.map((call) => call[0])
+    expect(chunks.map((chunk) => chunk.timestamp)).toEqual([0, 16_666, 33_332])
+    // 60 quadros tem que ocupar 1 segundo, nao 60 microssegundos.
+    expect(chunks[2].timestamp - chunks[0].timestamp).toBe(33_332)
+  })
+
+  it('declara a duracao do quadro a partir do fps alvo', () => {
+    const decoder = createNativeVideoDecoder({ onFrame: vi.fn(), fps: 30 })!
+
+    decoder.feed(makePacket({ isKeyframe: true, timestampUs: 1_000n }))
+
+    expect(mockDecoderInstance.decode.mock.calls[0][0].duration).toBe(33_333)
+  })
+
+  it('sintetiza uma linha do tempo quando o produtor nao manda relogio', () => {
+    // Cabecalho legado de 12 bytes: timestamp_us chega sempre 0. Sem sintetizar,
+    // todos os quadros cairiam no mesmo instante.
+    const decoder = createNativeVideoDecoder({ onFrame: vi.fn(), fps: 60 })!
+
+    decoder.feed(makePacket({ isKeyframe: true, timestampUs: 0n }))
+    decoder.feed(makePacket({ isKeyframe: false, timestampUs: 0n }))
+    decoder.feed(makePacket({ isKeyframe: false, timestampUs: 0n }))
+
+    const timestamps = mockDecoderInstance.decode.mock.calls.map((call) => call[0].timestamp)
+    expect(timestamps).toEqual([0, 16_667, 33_334])
+  })
+
+  it('nunca entrega timestamp que ande para tras', () => {
+    const decoder = createNativeVideoDecoder({ onFrame: vi.fn(), fps: 60 })!
+
+    decoder.feed(makePacket({ isKeyframe: true, timestampUs: 1_000_000n }))
+    decoder.feed(makePacket({ isKeyframe: false, timestampUs: 1_050_000n }))
+    // Produtor repetindo ou regredindo o relogio nao pode rebobinar a faixa.
+    decoder.feed(makePacket({ isKeyframe: false, timestampUs: 1_020_000n }))
+
+    const timestamps = mockDecoderInstance.decode.mock.calls.map((call) => call[0].timestamp)
+    expect(timestamps[1]).toBeGreaterThan(timestamps[0])
+    expect(timestamps[2]).toBeGreaterThan(timestamps[1])
+  })
 })
 
 describe('createVideoTrackWriter', () => {
@@ -428,10 +480,12 @@ describe('createNativeVideoIngest - integracao ponta a ponta', () => {
     target.EncodedVideoChunk = class {
       type: string
       timestamp: number
+      duration?: number
       data: Uint8Array
-      constructor(init: { type: string; timestamp: number; data: Uint8Array }) {
+      constructor(init: { type: string; timestamp: number; duration?: number; data: Uint8Array }) {
         this.type = init.type
         this.timestamp = init.timestamp
+        this.duration = init.duration
         this.data = init.data
       }
     }

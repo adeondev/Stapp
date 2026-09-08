@@ -239,8 +239,14 @@ impl Default for TlsConfig {
 }
 
 impl Config {
-    /// Template de configuracao padrao do Stapp (stapp.toml) embutido no binario.
-    pub const DEFAULT_CONFIG_TEMPLATE: &'static str = include_str!("../../stapp.toml");
+    /// Template de configuracao padrao do Stapp embutido no binario.
+    ///
+    /// A fonte e `server/stapp.example.toml`, versionada, e NAO o `stapp.toml` que o
+    /// servidor le em producao — esse e gerado em disco na primeira execucao e fica
+    /// fora do git. Fossem o mesmo arquivo, um `git pull` num deploy feito a partir
+    /// do repositorio sobrescreveria a configuracao viva: chaves do LiveKit,
+    /// credenciais de armazenamento, TLS e a lista de canais.
+    pub const DEFAULT_CONFIG_TEMPLATE: &'static str = include_str!("../../stapp.example.toml");
 
     /// Le o stapp.toml ou gera a configuracao inicial padrao caso o arquivo nao exista.
     ///

@@ -63,6 +63,8 @@ export interface NativeVideoDecoderOptions {
   onDrop?: (byteLength: number) => void
   onError?: (error: Error) => void
   maxQueueSize?: number
+  /** Fps alvo da captura. Define a duracao declarada de cada quadro. */
+  fps?: number
 }
 
 export interface NativeVideoDecoder {
@@ -81,14 +83,52 @@ export interface NativeVideoDecoder {
  */
 export const DEFAULT_DECODE_QUEUE_CAPACITY = 4
 
+/** Fps assumido quando o chamador nao informa o alvo da captura. */
+export const DEFAULT_TARGET_FPS = 60
+
 export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): NativeVideoDecoder | null {
   if (!isWebCodecsSupported()) return null
 
   const maxQueueSize = options.maxQueueSize ?? DEFAULT_DECODE_QUEUE_CAPACITY
+  const frameDurationUs = Math.max(
+    1,
+    Math.round(1_000_000 / Math.max(1, options.fps ?? DEFAULT_TARGET_FPS)),
+  )
   let decoderConfigured = false
   let waitingForKeyframe = false
-  let chunkIndex = 0
+  let baseTimestampUs: number | null = null
+  let lastTimestampUs = -frameDurationUs
   const pendingDecodeTimes = new Map<number, number>()
+
+  /**
+   * Relogio de apresentacao do quadro, em microssegundos, rebaseado no primeiro
+   * quadro da sessao.
+   *
+   * O quadro decodificado vai direto para o `MediaStreamTrackGenerator`, que e a
+   * fonte do track publicado no SFU — entao ESTE timestamp e o que vira relogio
+   * RTP do outro lado. Um contador de unidade (0, 1, 2 us) fazia 60 quadros
+   * caberem em 60 microssegundos: quem assistia via a cadencia errada e o audio
+   * da tela, que carrega timestamp real, saia de sincronia.
+   *
+   * O produtor nativo conta de `capture_started.elapsed()`, ja monotonico e
+   * comecando perto de zero; rebasear no primeiro quadro so tira o atraso de
+   * partida.
+   *
+   * PROTOTYPE: o cabecalho legado de 12 bytes nao tem relogio (`timestamp_us`
+   * chega 0) e um produtor antigo pode repetir o mesmo valor. Nesses casos a
+   * linha do tempo e sintetizada no intervalo do fps alvo. Invariante que nao
+   * pode ser quebrado: o timestamp entregue ao decodificador e estritamente
+   * crescente e medido na mesma escala do relogio real.
+   */
+  const presentationTimestamp = (packet: ScreenCapturePacket): number => {
+    const raw = Number(packet.timestampUs)
+    if (Number.isFinite(raw) && raw > 0) {
+      baseTimestampUs ??= raw
+      const rebased = raw - baseTimestampUs
+      if (rebased > lastTimestampUs) return rebased
+    }
+    return lastTimestampUs + frameDurationUs
+  }
 
   let videoDecoder: VideoDecoder | null = null
 
@@ -163,7 +203,8 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
         return false
       }
 
-      const ts = chunkIndex++
+      const ts = presentationTimestamp(packet)
+      lastTimestampUs = ts
       pendingDecodeTimes.set(ts, performance.now())
       if (pendingDecodeTimes.size > 60) {
         const oldest = pendingDecodeTimes.keys().next().value
@@ -174,6 +215,7 @@ export function createNativeVideoDecoder(options: NativeVideoDecoderOptions): Na
         videoDecoder.decode(new EncodedVideoChunk({
           type: packet.isKeyframe ? 'key' : 'delta',
           timestamp: ts,
+          duration: frameDurationUs,
           data: packet.payload,
         }))
         return true
@@ -280,6 +322,8 @@ export interface NativeVideoIngestOptions {
   onRequestKeyframe?: () => Promise<void> | void
   onError?: (error: Error) => void
   maxQueueSize?: number
+  /** Fps alvo da captura, repassado ao decodificador. */
+  fps?: number
 }
 
 export interface NativeVideoIngest {
@@ -324,6 +368,7 @@ export function createNativeVideoIngest(options: NativeVideoIngestOptions): Nati
       options.ingest.received(byteLength, true)
     },
     maxQueueSize: options.maxQueueSize,
+    fps: options.fps,
     onError: options.onError,
   })
 

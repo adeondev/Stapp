@@ -14,7 +14,10 @@ services:
       STAPP_SERVER_NAME: "${STAPP_SERVER_NAME:-Stapp}"
       STAPP_SERVER_BIND: "0.0.0.0"
       STAPP_SERVER_PORT: "8787"
-      STAPP_SERVER_STATIC_DIR: "/app/web/dist"
+      # Sem STAPP_SERVER_STATIC_DIR de proposito: a SPA viaja embutida no binario.
+      # A imagem nao tem /app/web/dist (o dist so existe no estagio de build), entao
+      # apontar para la caia no fallback e imprimia um warn a cada boot — aviso que
+      # enganava justamente quem estava investigando o servidor.
       STAPP_STORAGE_DATABASE: "/app/data/stapp.db"
       STAPP_STORAGE_ATTACHMENTS_DIR: "/app/data/attachments"
       STAPP_AUTH_ALLOW_REGISTRATION: "${STAPP_ALLOW_REGISTRATION:-true}"

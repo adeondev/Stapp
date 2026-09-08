@@ -609,6 +609,7 @@ export async function startNativeScreenCapture(options: {
         console.error('[screen-capture] erro no nativeIngest:', err)
       },
       maxQueueSize: DEFAULT_DECODE_QUEUE_CAPACITY,
+      fps: options.fps,
     }) ??
     createCanvasFallbackIngest({
       maxWidth: options.maxWidth,
