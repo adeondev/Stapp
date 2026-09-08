@@ -266,7 +266,7 @@ export class LiveKitTransport implements VoiceTransport {
             source: sdk.Track.Source.ScreenShare,
             name: 'stapp-screen',
             stream: streamName,
-            videoCodec: 'vp9',
+            videoCodec: 'h264',
             backupCodec: { codec: 'vp8' },
             simulcast: false,
             screenShareEncoding: {
@@ -331,7 +331,7 @@ export class LiveKitTransport implements VoiceTransport {
           source: sdk.Track.Source.ScreenShare,
           name: 'stapp-screen',
           stream: streamName,
-          videoCodec: 'vp9',
+          videoCodec: 'h264',
           backupCodec: { codec: 'vp8' },
           simulcast: false,
           screenShareEncoding: {
