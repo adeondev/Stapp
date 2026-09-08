@@ -10,6 +10,8 @@
 //! de nome, mas a forma (acumular no laco, publicar por janela) permanece.
 
 use serde::Serialize;
+#[cfg(test)]
+use std::thread;
 use std::time::{Duration, Instant};
 
 /// Janela de agregacao: curta o bastante para acompanhar a transmissao ao vivo
@@ -167,3 +169,6 @@ impl MetricsAccumulator {
 fn round2(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
+
+#[cfg(test)]
+mod tests;

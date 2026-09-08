@@ -100,3 +100,104 @@ fn composicao_do_cursor_do_mouse_executa_sem_panico_mesmo_fora_dos_limites() {
     assert_eq!(image.height(), 100);
 }
 
+
+/// Regua da linha de base do pipeline legado, para comparar com os proximos
+/// passos da auditoria de performance.
+///
+/// Ignorado por padrao: depende da tela real da maquina e o numero varia com o
+/// hardware, entao nao serve como assercao — serve como medicao. Roda com
+/// `cargo test --lib -- --ignored --nocapture linha_de_base`.
+///
+/// Exercita exatamente as funcoes do `capture_loop`: `capture_image`,
+/// `overlay_mouse_cursor`, `scale_to_fit` + `parallel_resize_rgba` e o
+/// `JpegEncoder` na mesma qualidade 72. O que **nao** entra aqui e o envio pelo
+/// IPC, que precisa do runtime do Tauri; no lugar dele fica o tamanho do
+/// pacote, que e o que determina o custo daquela etapa.
+#[test]
+#[ignore]
+fn linha_de_base_do_laco_legado() {
+    // Duas passadas: a primeira no tamanho nativo da tela (numa tela 1080p o
+    // preset `balanced` nao redimensiona nada) e a segunda reduzindo, que e o
+    // unico jeito de a etapa de resize aparecer na conta.
+    medir_laco_legado("balanced 1080p", 1920, 1080);
+    medir_laco_legado("fluid 720p (com reducao)", 1280, 720);
+}
+
+fn medir_laco_legado(rotulo: &str, largura_maxima: u32, altura_maxima: u32) {
+    use super::metrics::{FrameSample, FrameTimer, MetricsAccumulator};
+
+    const QUADROS: u32 = 120;
+
+    let monitores = xcap::Monitor::all().expect("nenhum monitor disponivel");
+    let primeiro = monitores.first().expect("nenhum monitor disponivel");
+    let locator = SourceLocator::Screen(primeiro.id().expect("monitor sem id"));
+    let source = resolve_source(locator).expect("monitor sumiu entre listar e resolver");
+    let (origem_x, origem_y) = match &source {
+        CaptureSource::Screen(screen) => (screen.x().unwrap_or(0), screen.y().unwrap_or(0)),
+        CaptureSource::Window(window) => (window.x().unwrap_or(0), window.y().unwrap_or(0)),
+    };
+
+    let mut acumulador = MetricsAccumulator::default();
+    let inicio = Instant::now();
+    for _ in 0..QUADROS {
+        let mut timer = FrameTimer::start();
+        let imagem = match &source {
+            CaptureSource::Screen(screen) => screen.capture_image(),
+            CaptureSource::Window(window) => window.capture_image(),
+        };
+        let captura = timer.lap();
+        let Ok(mut imagem) = imagem else {
+            acumulador.record_failure();
+            continue;
+        };
+
+        overlay_mouse_cursor(&mut imagem, origem_x, origem_y);
+        let cursor = timer.lap();
+
+        let (largura, altura) = imagem.dimensions();
+        let (destino_largura, destino_altura) =
+            scale_to_fit(largura, altura, largura_maxima, altura_maxima);
+        let imagem = if (largura, altura) == (destino_largura, destino_altura) {
+            imagem
+        } else {
+            parallel_resize_rgba(&imagem, destino_largura, destino_altura)
+        };
+        let redimensionar = timer.lap();
+
+        let mut pacote = Vec::with_capacity(12 + (destino_largura * destino_altura) as usize);
+        pacote.extend_from_slice(&destino_largura.to_le_bytes());
+        pacote.extend_from_slice(&destino_altura.to_le_bytes());
+        pacote.extend_from_slice(&1u32.to_le_bytes());
+        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut pacote, 72)
+            .encode_image(&imagem)
+            .is_err()
+        {
+            acumulador.record_failure();
+            continue;
+        }
+        let comprimir = timer.lap();
+
+        acumulador.record(FrameSample {
+            capture: captura,
+            cursor,
+            resize: redimensionar,
+            encode: comprimir,
+            dispatch: Duration::ZERO,
+            idle: Duration::ZERO,
+            bytes: pacote.len(),
+            width: destino_largura,
+            height: destino_altura,
+        });
+    }
+
+    // Sem pacer: a janela e o tempo que o laco levou para produzir os quadros,
+    // entao o `fps` que sai daqui e o **teto** do produtor legado, e nao a taxa
+    // que ele entregaria depois de dormir ate o proximo intervalo.
+    let stats = acumulador.snapshot(inicio.elapsed(), 60);
+    println!("\n== linha de base do laco legado: {rotulo} ==");
+    println!("{stats:#?}");
+    println!(
+        "teto do produtor: {:.1} FPS | orcamento de 60 FPS: 16.67 ms | quadro: {:.2} ms",
+        stats.fps, stats.frame_ms,
+    );
+}

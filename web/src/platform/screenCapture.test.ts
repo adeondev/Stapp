@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   browserAudioExclusionIsSafe,
+  createIngestMetrics,
   resetAudioExclusionValidationCache,
   startBrowserScreenCapture,
   startNativeScreenCapture,
@@ -176,3 +177,87 @@ describe('captura nativa de tela no desktop', () => {
   })
 })
 
+describe('metricas de ingestao do quadro', () => {
+  /* Relogio de mentira: a conta que precisa de cobertura e a media por janela,
+     nao o `performance.now`. */
+  const relogio = () => {
+    let agora = 0
+    return { ler: () => agora, avancar: (ms: number) => { agora += ms } }
+  }
+
+  it('so publica quando a janela fecha', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(1_000, false)
+    metricas.drawn(5, 1)
+    expect(metricas.stats.drawnFps).toBe(0)
+
+    t.avancar(1_000)
+    expect(metricas.flush()).toBe(true)
+    expect(metricas.stats.drawnFps).toBe(1)
+    expect(metricas.stats.receivedFps).toBe(1)
+    expect(metricas.stats.bytesPerSecond).toBe(1_000)
+  })
+
+  it('conta como perdido o quadro sobrescrito antes de ser desenhado', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(100, false)
+    metricas.received(100, true)
+    metricas.received(100, true)
+    metricas.drawn(4, 2)
+
+    t.avancar(1_000)
+    metricas.flush()
+    expect(metricas.stats.receivedFps).toBe(3)
+    expect(metricas.stats.drawnFps).toBe(1)
+    expect(metricas.stats.droppedFps).toBe(2)
+    expect(metricas.stats.droppedFrames).toBe(2)
+  })
+
+  it('mede decode e desenho por quadro desenhado, nao por quadro recebido', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(100, false)
+    metricas.received(100, true)
+    metricas.drawn(10, 2)
+    metricas.drawn(20, 4)
+
+    t.avancar(1_000)
+    metricas.flush()
+    expect(metricas.stats.decodeMs).toBe(15)
+    expect(metricas.stats.drawMs).toBe(3)
+  })
+
+  it('a perda acumulada sobrevive ao fechamento da janela', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(100, true)
+    t.avancar(1_000)
+    metricas.flush()
+    metricas.received(100, true)
+    t.avancar(1_000)
+    metricas.flush()
+
+    // Por janela zera; o total da transmissao, nao.
+    expect(metricas.stats.droppedFps).toBe(1)
+    expect(metricas.stats.droppedFrames).toBe(2)
+    expect(metricas.stats.receivedFps).toBe(1)
+  })
+
+  it('janela sem quadro desenhado nao divide por zero', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(500, false)
+    t.avancar(1_000)
+    metricas.flush()
+    expect(metricas.stats.decodeMs).toBe(0)
+    expect(metricas.stats.drawMs).toBe(0)
+    expect(metricas.stats.drawnFps).toBe(0)
+  })
+})
