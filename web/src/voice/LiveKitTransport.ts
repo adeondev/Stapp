@@ -252,6 +252,7 @@ export class LiveKitTransport implements VoiceTransport {
           maxWidth: quality.width,
           maxHeight: quality.height,
           fps: quality.frameRate,
+          bitrate: quality.maxBitrate,
           includeAudio: includeAudio && this.config.screen_audio,
           contentHint,
         })

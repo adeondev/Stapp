@@ -363,7 +363,7 @@ describe('LiveKitTransport', () => {
     const room = sdk.Room.instances[0]
     expect(await transport.setScreenShareEnabled(true, { preset: 'balanced', sourceId: 'screen:7:0' })).toBe(true)
     expect(screenPlatform.start).toHaveBeenCalledWith({
-      sourceId: 'screen:7:0', maxWidth: 1920, maxHeight: 1080, fps: 30, includeAudio: true, contentHint: 'detail',
+      sourceId: 'screen:7:0', maxWidth: 1920, maxHeight: 1080, fps: 30, bitrate: 3500000, includeAudio: true, contentHint: 'detail',
     })
     expect(room.localParticipant.publishTrack).toHaveBeenCalledWith(
       screenPlatform.track,

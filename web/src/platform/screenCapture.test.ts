@@ -6,6 +6,7 @@ import {
   createIngestMetrics,
   extractH264CodecString,
   parseScreenCapturePacket,
+  requestScreenCaptureKeyframe,
   resetAudioExclusionValidationCache,
   startBrowserScreenCapture,
   startNativeScreenCapture,
@@ -372,5 +373,13 @@ describe('protocolo binario STAP e codec H.264', () => {
   it('retorna fallback seguro quando payload nao contem SPS', () => {
     const dummyPayload = new Uint8Array([0x01, 0x02, 0x03, 0x04])
     expect(extractH264CodecString(dummyPayload)).toBe('avc1.420028')
+  })
+})
+
+describe('solicitacao de keyframe sob demanda', () => {
+  it('ignora chamada silenciosamente fora do Tauri ou com captureId invalido', async () => {
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+    await expect(requestScreenCaptureKeyframe(0)).resolves.toBeUndefined()
+    await expect(requestScreenCaptureKeyframe(-1)).resolves.toBeUndefined()
   })
 })

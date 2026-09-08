@@ -56,6 +56,7 @@ fn captures() -> &'static Mutex<HashMap<u32, CaptureSession>> {
 
 struct CaptureSession {
     stop: Arc<AtomicBool>,
+    request_keyframe: Arc<AtomicBool>,
     threads: Vec<thread::JoinHandle<()>>,
 }
 
@@ -191,12 +192,33 @@ pub fn validate_screen_audio_exclusion(
     }
 }
 
+/// Heuristica adaptativa de bitrate alvo (bps) para codificacao de tela em H.264
+/// quando nenhum valor explicito for fornecido pelo preset.
+pub fn compute_default_bitrate(width: u32, height: u32, fps: u32) -> u32 {
+    let pixels = (width as u64) * (height as u64);
+    let pps = pixels * (fps.max(1) as u64);
+    let b = (pps as f64 * 0.035) as u32;
+    b.clamp(1_000_000, 12_000_000)
+}
+
+#[tauri::command]
+pub fn request_screen_capture_keyframe(capture_id: u32) -> Result<(), String> {
+    let captures_guard = captures()
+        .lock()
+        .map_err(|_| "estado de captura indisponivel".to_string())?;
+    if let Some(session) = captures_guard.get(&capture_id) {
+        session.request_keyframe.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn start_screen_capture(
     source_id: String,
     max_width: u32,
     max_height: u32,
     fps: u32,
+    bitrate: Option<u32>,
     include_audio: bool,
     channel: Channel<CaptureEvent>,
     frame_channel: Channel<Response>,
@@ -210,6 +232,8 @@ pub fn start_screen_capture(
     let capture_id = NEXT_CAPTURE_ID.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(AtomicBool::new(false));
     let worker_stop = Arc::clone(&stop);
+    let request_keyframe = Arc::new(AtomicBool::new(false));
+    let worker_request_keyframe = Arc::clone(&request_keyframe);
     let width = max_width.clamp(320, 3840);
     let height = max_height.clamp(180, 2160);
     // PROTOTYPE: JPEG por IPC mantem a captura dentro da casca Tauri e
@@ -230,9 +254,11 @@ pub fn start_screen_capture(
                 width,
                 height,
                 frames_per_second,
+                bitrate,
                 video_channel,
                 video_frame_channel,
                 worker_stop,
+                worker_request_keyframe,
             )
         })
         .map_err(|error| format!("nao foi possivel iniciar a captura: {error}"))?;
@@ -265,7 +291,7 @@ pub fn start_screen_capture(
     captures()
         .lock()
         .map_err(|_| "estado de captura indisponivel".to_string())?
-        .insert(capture_id, CaptureSession { stop, threads });
+        .insert(capture_id, CaptureSession { stop, request_keyframe, threads });
     Ok(capture_id)
 }
 
@@ -299,9 +325,11 @@ fn capture_loop(
     max_width: u32,
     max_height: u32,
     fps: u32,
+    bitrate: Option<u32>,
     channel: Channel<CaptureEvent>,
     frame_channel: Channel<Response>,
     stop: Arc<AtomicBool>,
+    request_keyframe: Arc<AtomicBool>,
 ) {
     let window_id = match locator {
         SourceLocator::Window(id) => Some(id),
@@ -347,6 +375,10 @@ fn capture_loop(
     let capture_started = Instant::now();
     let mut sequence = 0u32;
     let mut last_frame_time = Instant::now().checked_sub(interval).unwrap_or_else(Instant::now);
+
+    let target_bitrate = bitrate
+        .map(|b| b.clamp(500_000, 25_000_000))
+        .unwrap_or_else(|| compute_default_bitrate(max_width, max_height, fps));
 
     #[cfg(windows)]
     let mut h264_encoder: Option<encoder::H264Encoder> = None;
@@ -432,16 +464,17 @@ fn capture_loop(
                             target_w,
                             target_h,
                             fps,
-                            4_000_000,
+                            target_bitrate,
                         ) {
                             Ok(enc) => {
                                 log::info!(
-                                    "Encoder H.264 por hardware ativo: {} ({}), {}x{} @ {}fps",
+                                    "Encoder H.264 por hardware ativo: {} ({}), {}x{} @ {}fps, {} bps",
                                     enc.friendly_name(),
                                     enc.vendor_name(),
                                     target_w,
                                     target_h,
-                                    fps
+                                    fps,
+                                    target_bitrate
                                 );
                                 h264_encoder = Some(enc);
                             }
@@ -454,8 +487,9 @@ fn capture_loop(
                 }
 
                 if let Some(enc) = &mut h264_encoder {
+                    let force_keyframe = request_keyframe.swap(false, Ordering::Relaxed);
                     let mut timer = FrameTimer::start();
-                    let packets = match enc.encode_texture(&wgc_frame.nv12_texture, false) {
+                    let packets = match enc.encode_texture(&wgc_frame.nv12_texture, force_keyframe) {
                         Ok(pkts) => pkts,
                         Err(err) => {
                             log::error!("falha na codificacao H.264: {err}");
@@ -654,9 +688,17 @@ fn capture_loop(
         let window_elapsed = window_started.elapsed();
         if window_elapsed >= metrics::WINDOW {
             window_started = Instant::now();
+            #[cfg(windows)]
+            let encoder_name = match &h264_encoder {
+                Some(enc) => Some(format!("{} ({})", enc.friendly_name(), enc.vendor_name())),
+                None => Some("Software Fallback (JPEG)".to_string()),
+            };
+            #[cfg(not(windows))]
+            let encoder_name = Some("Software Fallback (JPEG)".to_string());
+
             let _ = channel.send(CaptureEvent::VideoStats {
                 capture_id,
-                stats: accumulator.snapshot(window_elapsed, fps),
+                stats: accumulator.snapshot_with_encoder(window_elapsed, fps, encoder_name),
             });
         }
     }

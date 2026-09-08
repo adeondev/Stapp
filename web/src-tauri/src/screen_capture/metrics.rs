@@ -71,7 +71,7 @@ pub struct FrameSample {
 ///
 /// Tudo em milissegundos *por quadro* (media da janela), menos `fps`,
 /// `bytes_per_second` e os contadores — que sao da janela inteira.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct CaptureStats {
     pub fps: f64,
     pub target_fps: u32,
@@ -88,6 +88,7 @@ pub struct CaptureStats {
     pub bytes_per_second: f64,
     pub width: u32,
     pub height: u32,
+    pub encoder_name: Option<String>,
 }
 
 /// Acumulador puro: so aritmetica, sem relogio proprio.
@@ -133,6 +134,16 @@ impl MetricsAccumulator {
 
     /// Fecha a janela: devolve o retrato e zera o acumulador.
     pub fn snapshot(&mut self, window: Duration, target_fps: u32) -> CaptureStats {
+        self.snapshot_with_encoder(window, target_fps, None)
+    }
+
+    /// Fecha a janela incluindo a identificacao do codificador de video ativo.
+    pub fn snapshot_with_encoder(
+        &mut self,
+        window: Duration,
+        target_fps: u32,
+        encoder_name: Option<String>,
+    ) -> CaptureStats {
         let seconds = window.as_secs_f64();
         let per_frame = |total: Duration| {
             if self.frames == 0 {
@@ -160,6 +171,7 @@ impl MetricsAccumulator {
             bytes_per_second: per_second(self.bytes as f64),
             width: self.width,
             height: self.height,
+            encoder_name,
         };
         *self = Self::default();
         stats

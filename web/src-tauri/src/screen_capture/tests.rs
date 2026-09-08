@@ -420,3 +420,26 @@ fn escalonador_lida_com_dimensoes_impares_de_janela() {
     let img = rgba.unwrap();
     assert_eq!(img.dimensions(), (dst_w, dst_h));
 }
+
+#[test]
+fn calculo_de_bitrate_adaptativo() {
+    use super::compute_default_bitrate;
+
+    let b_1080p60 = compute_default_bitrate(1920, 1080, 60);
+    assert!(b_1080p60 >= 3_500_000 && b_1080p60 <= 5_000_000);
+
+    let b_720p30 = compute_default_bitrate(1280, 720, 30);
+    assert_eq!(b_720p30, 1_000_000); // Clamped ao minimo de 1 Mbps
+
+    let b_4k60 = compute_default_bitrate(3840, 2160, 60);
+    assert_eq!(b_4k60, 12_000_000); // Clamped ao maximo de 12 Mbps
+}
+
+#[test]
+fn solicitacao_de_keyframe_para_sessao_inexistente_nao_entra_em_panico() {
+    use super::request_screen_capture_keyframe;
+
+    let res = request_screen_capture_keyframe(999_999);
+    assert!(res.is_ok());
+}
+

@@ -11,6 +11,7 @@ export interface ScreenSource {
 }
 
 export interface NativeScreenCapture {
+  captureId?: number
   stream: MediaStream
   track: MediaStreamTrack
   audioTrack?: MediaStreamTrack
@@ -21,6 +22,7 @@ export interface NativeScreenCapture {
   videoStats?: ScreenVideoStats
   ended: Promise<string>
   stop(): Promise<void>
+  requestKeyframe?(): Promise<void>
 }
 
 /**
@@ -42,6 +44,7 @@ export interface ScreenVideoNativeStats {
   bytes_per_second: number
   width: number
   height: number
+  encoder_name?: string | null
 }
 
 /**
@@ -535,11 +538,18 @@ function createCaptureCanvas(initialWidth: number, initialHeight: number): Captu
   }
 }
 
+export async function requestScreenCaptureKeyframe(captureId: number): Promise<void> {
+  if (!isTauriRuntime() || captureId <= 0) return
+  const { invoke } = await import('@tauri-apps/api/core')
+  await invoke('request_screen_capture_keyframe', { captureId })
+}
+
 export async function startNativeScreenCapture(options: {
   sourceId: string
   maxWidth: number
   maxHeight: number
   fps: number
+  bitrate?: number
   includeAudio: boolean
   contentHint?: 'detail' | 'motion'
 }): Promise<NativeScreenCapture> {
@@ -772,6 +782,7 @@ export async function startNativeScreenCapture(options: {
       maxWidth: options.maxWidth,
       maxHeight: options.maxHeight,
       fps: options.fps,
+      bitrate: options.bitrate,
       includeAudio: includeAudio && Boolean(audioPipeline),
       channel,
       frameChannel,
@@ -819,6 +830,7 @@ export async function startNativeScreenCapture(options: {
   if (audioTrack) stream.addTrack(audioTrack)
 
   return {
+    captureId,
     stream,
     track,
     audioTrack,
@@ -828,6 +840,9 @@ export async function startNativeScreenCapture(options: {
     audioPlaybackStats: audioPipeline?.stats,
     videoStats,
     ended,
+    async requestKeyframe() {
+      await requestScreenCaptureKeyframe(captureId)
+    },
     async stop() {
       if (stopped) return
       stopped = true
