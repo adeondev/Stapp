@@ -1,0 +1,123 @@
+/* Painel de medicao da transmissao.
+   Separacao por tom de fundo, como o resto do app: o bloco afunda em
+   `--bg-canvas` dentro do grupo, e nenhuma linha divisoria aparece. */
+.streammetrics {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border-radius: var(--radius);
+  background: var(--bg-canvas);
+}
+
+.streammetrics__topo {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-2);
+}
+
+.streammetrics__destaque {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.streammetrics__valor {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+/* Abaixo de 90% do alvo e alerta, nao erro: a transmissao continua de pe. */
+.streammetrics__valor.is-abaixo { color: var(--warning); }
+.streammetrics__valor.is-perda { color: var(--danger); }
+
+.streammetrics__rotulo {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.streammetrics__titulo {
+  margin: var(--space-4) 0 var(--space-1);
+  color: var(--text-dim);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.streammetrics__linha {
+  display: grid;
+  grid-template-columns: 1fr minmax(80px, 2fr) auto;
+  align-items: center;
+  gap: var(--space-5);
+  color: var(--text-soft);
+  font-size: var(--fs-sm);
+}
+
+.streammetrics__linha.is-forte { color: var(--text); font-weight: var(--fw-medium); }
+.streammetrics__linha.is-discreto { color: var(--text-faint); }
+
+.streammetrics__linha-rotulo {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.streammetrics__linha-valor {
+  color: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A barra e o orcamento do quadro: cheia = a etapa sozinha consome o quadro
+   inteiro. O trilho afundado dispensa borda. */
+.streammetrics__barra {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: var(--sunken);
+}
+
+.streammetrics__barra > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--dur-base) var(--motion-smooth);
+}
+
+.streammetrics__linha.is-discreto .streammetrics__barra > span { background: var(--text-faint); }
+.streammetrics__linha.is-estourado .streammetrics__barra > span { background: var(--danger); }
+.streammetrics__linha.is-estourado .streammetrics__linha-valor { color: var(--danger); }
+
+.streammetrics__rodape {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-4);
+  margin: var(--space-5) 0 0;
+}
+
+.streammetrics__rodape-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.streammetrics__rodape-item dt {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+}
+
+.streammetrics__rodape-item dd {
+  margin: 0;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}

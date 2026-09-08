@@ -183,7 +183,7 @@ vi.mock('livekit-client', () => {
   }
 })
 
-import { LiveKitTransport, mediaUrlForThisDevice } from './LiveKitTransport'
+import { LiveKitTransport, mediaUrlForThisDevice, resolveScreenPreset } from './LiveKitTransport'
 
 const config = {
   backend: 'livekit' as const, max_peers: 6, camera: true, screen_share: true, screen_audio: true,
@@ -363,7 +363,7 @@ describe('LiveKitTransport', () => {
     const room = sdk.Room.instances[0]
     expect(await transport.setScreenShareEnabled(true, { preset: 'balanced', sourceId: 'screen:7:0' })).toBe(true)
     expect(screenPlatform.start).toHaveBeenCalledWith({
-      sourceId: 'screen:7:0', maxWidth: 1920, maxHeight: 1080, fps: 30, includeAudio: true, contentHint: 'detail',
+      sourceId: 'screen:7:0', maxWidth: 1920, maxHeight: 1080, fps: 30, bitrate: 3500000, includeAudio: true, contentHint: 'detail',
     })
     expect(room.localParticipant.publishTrack).toHaveBeenCalledWith(
       screenPlatform.track,
@@ -975,4 +975,168 @@ describe('LiveKitTransport', () => {
       }
     })
   })
+
+  describe('resolveScreenPreset', () => {
+    it('resolve presets padrao com resolucao, framerate, bitrate e degradacao coerentes', () => {
+      expect(resolveScreenPreset('economy')).toEqual({
+        width: 1280,
+        height: 720,
+        frameRate: 15,
+        maxBitrate: 1_200_000,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+      })
+
+      expect(resolveScreenPreset('balanced')).toEqual({
+        width: 1920,
+        height: 1080,
+        frameRate: 30,
+        maxBitrate: 3_500_000,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+      })
+
+      expect(resolveScreenPreset('fluid')).toEqual({
+        width: 1280,
+        height: 720,
+        frameRate: 60,
+        maxBitrate: 3_000_000,
+        contentHint: 'motion',
+        degradationPreference: 'maintain-framerate',
+      })
+
+      expect(resolveScreenPreset('1080p60')).toEqual({
+        width: 1920,
+        height: 1080,
+        frameRate: 60,
+        maxBitrate: 6_000_000,
+        contentHint: 'motion',
+        degradationPreference: 'maintain-framerate',
+      })
+    })
+
+    it('resolve preset original sem fonte usando fallback 4K 60fps 8 Mbps', () => {
+      expect(resolveScreenPreset('original')).toEqual({
+        width: 3840,
+        height: 2160,
+        frameRate: 60,
+        maxBitrate: 8_000_000,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+      })
+
+      expect(resolveScreenPreset('original', null)).toEqual({
+        width: 3840,
+        height: 2160,
+        frameRate: 60,
+        maxBitrate: 8_000_000,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+      })
+    })
+
+    it('adapta resolucao e bitrate proporcionalmente no preset original com base na fonte real', () => {
+      // 1080p real (1920x1080): 1920 * 1080 * 60 * 0.035 = 4_354_560 bps
+      expect(resolveScreenPreset('original', { width: 1920, height: 1080 })).toEqual({
+        width: 1920,
+        height: 1080,
+        frameRate: 60,
+        maxBitrate: 4_354_560,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+      })
+
+      // 1440p real (2560x1440): 2560 * 1440 * 60 * 0.035 = 7_741_440 bps
+      expect(resolveScreenPreset('original', { width: 2560, height: 1440 })).toEqual({
+        width: 2560,
+        height: 1440,
+        frameRate: 60,
+        maxBitrate: 7_741_440,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+      })
+
+      // 4K real (3840x2160): calculado excede 8M, fixado no teto maxBitrate do preset base
+      expect(resolveScreenPreset('original', { width: 3840, height: 2160 })).toEqual({
+        width: 3840,
+        height: 2160,
+        frameRate: 60,
+        maxBitrate: 8_000_000,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+      })
+
+      // Baixa resolucao (640x360): calculado abaixo de 1.5M, fixado no piso de 1.5 Mbps
+      expect(resolveScreenPreset('original', { width: 640, height: 360 })).toEqual({
+        width: 640,
+        height: 360,
+        frameRate: 60,
+        maxBitrate: 1_500_000,
+        contentHint: 'detail',
+        degradationPreference: 'maintain-resolution',
+      })
+    })
+  })
+
+  it('publica tela em H.264 por hardware no desktop e navegador, enquanto camera permanece em VP9', async () => {
+    const transport = new LiveKitTransport(config, {
+      selfPeerId: 'self-peer', send: vi.fn(), onSpeaking: vi.fn(), onError: vi.fn(),
+    })
+    await transport.join('sala')
+    transport.handleServerMessage({
+      t: 'voice.grant', channel: 'sala', url: 'ws://sfu', token: 'jwt', expires_at: Date.now() + 60_000,
+    })
+    await vi.waitFor(() => expect(transport.snapshot().status).toBe('connected'))
+
+    const sdk = await import('livekit-client') as unknown as { Room: { instances: Array<any> } }
+    const room = sdk.Room.instances[0]
+
+    // 1. Camera usa VP9 com backup VP8 e simulcast
+    await transport.setCameraEnabled(true)
+    expect(room.localParticipant.setCameraEnabled).toHaveBeenCalledWith(
+      true,
+      expect.anything(),
+      expect.objectContaining({
+        videoCodec: 'vp9',
+        backupCodec: { codec: 'vp8' },
+        simulcast: true,
+      }),
+    )
+
+    // 2. Tela nativa no desktop publica em H.264 com preset 1080p60
+    screenPlatform.tauri = true
+    await transport.setScreenShareEnabled(true, { preset: '1080p60', sourceId: 'screen:0:0' })
+    expect(screenPlatform.start).toHaveBeenCalledWith(expect.objectContaining({
+      maxWidth: 1920,
+      maxHeight: 1080,
+      fps: 60,
+      bitrate: 6_000_000,
+      contentHint: 'motion',
+    }))
+    expect(room.localParticipant.publishTrack).toHaveBeenCalledWith(
+      screenPlatform.track,
+      expect.objectContaining({
+        videoCodec: 'h264',
+        backupCodec: { codec: 'vp8' },
+        simulcast: false,
+      }),
+    )
+
+    await transport.setScreenShareEnabled(false)
+
+    // 3. Tela no navegador tambem publica em H.264
+    screenPlatform.tauri = false
+    await transport.setScreenShareEnabled(true, { preset: 'economy' })
+    expect(room.localParticipant.publishTrack).toHaveBeenCalledWith(
+      screenPlatform.track,
+      expect.objectContaining({
+        videoCodec: 'h264',
+        backupCodec: { codec: 'vp8' },
+        simulcast: false,
+      }),
+    )
+
+    transport.destroy()
+  })
 })
+

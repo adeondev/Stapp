@@ -1,4 +1,14 @@
-use crate::screen_sources::{parse_source_id, scale_to_fit, SourceLocator};
+mod metrics;
+#[cfg(windows)]
+pub(crate) mod wgc;
+#[cfg(windows)]
+pub(crate) mod scaler;
+pub(crate) mod encoder;
+
+use crate::screen_sources::{parse_source_id, SourceLocator};
+#[cfg(not(windows))]
+use crate::screen_sources::scale_to_fit;
+use metrics::{CaptureStats, FrameSample, FrameTimer, MetricsAccumulator};
 use serde::Serialize;
 use std::{
     collections::HashMap,
@@ -46,6 +56,7 @@ fn captures() -> &'static Mutex<HashMap<u32, CaptureSession>> {
 
 struct CaptureSession {
     stop: Arc<AtomicBool>,
+    request_keyframe: Arc<AtomicBool>,
     threads: Vec<thread::JoinHandle<()>>,
 }
 
@@ -53,6 +64,10 @@ enum CaptureSource {
     Screen(xcap::Monitor),
     Window(xcap::Window),
 }
+
+// HMONITOR e HWND no Windows sao identificadores do sistema operacional (inteiros
+// encapsulados como `*mut c_void`), completamente seguros para transferencia entre threads.
+unsafe impl Send for CaptureSource {}
 
 #[allow(dead_code)]
 #[derive(Serialize, Clone)]
@@ -71,6 +86,15 @@ pub enum CaptureEvent {
     AudioUnavailable {
         capture_id: u32,
         reason: String,
+    },
+    /// Retrato de uma janela de medicao do laco de video.
+    ///
+    /// Vai pelo canal JSON de proposito: e um evento por segundo, nao por
+    /// quadro. O quadro em si continua saindo pelo canal binario — misturar os
+    /// dois inflaria de novo o IPC que o `frame_channel` existe para evitar.
+    VideoStats {
+        capture_id: u32,
+        stats: CaptureStats,
     },
     Ended {
         capture_id: u32,
@@ -172,33 +196,79 @@ pub fn validate_screen_audio_exclusion(
     }
 }
 
+/// Heuristica adaptativa de bitrate alvo (bps) para codificacao de tela em H.264
+/// quando nenhum valor explicito for fornecido pelo preset.
+pub fn compute_default_bitrate(width: u32, height: u32, fps: u32) -> u32 {
+    let pixels = (width as u64) * (height as u64);
+    let pps = pixels * (fps.max(1) as u64);
+    let b = (pps as f64 * 0.035) as u32;
+    b.clamp(1_000_000, 12_000_000)
+}
+
+/// Mapeia o bitrate alvo (bps) para um nivel coerente de qualidade JPEG (1-100)
+/// no caminho de fallback por software, evitando compressao excessiva em presets de alta taxa
+/// e desperdicio de banda em presets economicos.
+pub fn compute_jpeg_quality(bitrate: u32) -> u8 {
+    if bitrate <= 1_500_000 {
+        60
+    } else if bitrate <= 3_500_000 {
+        72
+    } else if bitrate <= 6_000_000 {
+        80
+    } else {
+        85
+    }
+}
+
+#[tauri::command]
+pub fn request_screen_capture_keyframe(capture_id: u32) -> Result<(), String> {
+    let captures_guard = captures()
+        .lock()
+        .map_err(|_| "estado de captura indisponivel".to_string())?;
+    if let Some(session) = captures_guard.get(&capture_id) {
+        session.request_keyframe.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn start_screen_capture(
     source_id: String,
     max_width: u32,
     max_height: u32,
     fps: u32,
+    bitrate: Option<u32>,
     include_audio: bool,
     channel: Channel<CaptureEvent>,
     frame_channel: Channel<Response>,
+    audio_channel: Channel<Response>,
 ) -> Result<u32, String> {
     let _ = include_audio;
     let locator = parse_source_id(&source_id)?;
-    if resolve_source(locator).is_none() {
-        return Err("a tela ou janela selecionada nao esta mais disponivel".to_string());
-    }
+    let source = resolve_source(locator)
+        .ok_or_else(|| "a tela ou janela selecionada nao esta mais disponivel".to_string())?;
 
     let capture_id = NEXT_CAPTURE_ID.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(AtomicBool::new(false));
     let worker_stop = Arc::clone(&stop);
+    let request_keyframe = Arc::new(AtomicBool::new(false));
+    let worker_request_keyframe = Arc::clone(&request_keyframe);
     let width = max_width.clamp(320, 3840);
     let height = max_height.clamp(180, 2160);
-    // PROTOTYPE: JPEG por IPC mantem a captura dentro da casca Tauri e
-    // elimina o seletor do navegador. A taxa e limitada pelo preset (ate 60 FPS no modo fluido).
-    // O invariante e nunca abrir o picker do WebView2 no executavel.
-    // FUTURE: trocar somente este produtor por frames nativos/WebCodecs;
-    // a interface MediaStream consumida pelo VoiceTransport permanece.
+    // PROTOTYPE: O pipeline atual (Arquitetura A) codifica em H.264 por hardware (MFT) na GPU
+    // e despacha pacotes binarios STAP via `frame_channel: Channel<Response>` para decodificacao
+    // no WebView2 via WebCodecs. A taxa vai ate 60 FPS (preset 1080p60 e original).
+    // FUTURE (Arquitetura B): Conectar o bitstream H.264 diretamente ao SDK Rust do LiveKit (livekit-rust),
+    // publicando a faixa de tela como participante nativo na sala SFU. Isso elimina o round-trip de
+    // decodificacao na WebView2 e re-codificacao no WebRTC do Chromium (modelo Parsec/Discord).
     let frames_per_second = fps.clamp(5, 60);
+
+    #[cfg(windows)]
+    let audio_target_result = if include_audio {
+        Some(audio_target_from_source(locator, &source))
+    } else {
+        None
+    };
 
     let video_channel = channel.clone();
     let video_frame_channel = frame_channel.clone();
@@ -208,12 +278,15 @@ pub fn start_screen_capture(
             capture_loop(
                 capture_id,
                 locator,
+                source,
                 width,
                 height,
                 frames_per_second,
+                bitrate,
                 video_channel,
                 video_frame_channel,
                 worker_stop,
+                worker_request_keyframe,
             )
         })
         .map_err(|error| format!("nao foi possivel iniciar a captura: {error}"))?;
@@ -221,13 +294,12 @@ pub fn start_screen_capture(
     #[allow(unused_mut)]
     let mut threads = vec![worker];
     #[cfg(windows)]
-    if include_audio {
+    if let Some(target) = audio_target_result {
         let audio_stop = Arc::clone(&stop);
-        let audio_channel = channel.clone();
-        let target = audio_target(locator);
+        let audio_event_channel = channel.clone();
         let audio_worker = thread::Builder::new()
             .name(format!("stapp-screen-audio-{capture_id}"))
-            .spawn(move || audio_capture_loop(capture_id, target, audio_channel, audio_stop));
+            .spawn(move || audio_capture_loop(capture_id, target, audio_event_channel, audio_channel, audio_stop));
         let audio_worker = match audio_worker {
             Ok(worker) => worker,
             Err(error) => {
@@ -246,7 +318,7 @@ pub fn start_screen_capture(
     captures()
         .lock()
         .map_err(|_| "estado de captura indisponivel".to_string())?
-        .insert(capture_id, CaptureSession { stop, threads });
+        .insert(capture_id, CaptureSession { stop, request_keyframe, threads });
     Ok(capture_id)
 }
 
@@ -268,30 +340,69 @@ pub fn stop_screen_capture(capture_id: u32) -> Result<(), String> {
     Ok(())
 }
 
+enum CaptureEngine {
+    #[cfg(windows)]
+    Wgc(wgc::WgcSession),
+    Gdi(CaptureSource),
+}
+
 fn capture_loop(
     capture_id: u32,
     locator: SourceLocator,
+    source: CaptureSource,
     max_width: u32,
     max_height: u32,
     fps: u32,
+    bitrate: Option<u32>,
     channel: Channel<CaptureEvent>,
     frame_channel: Channel<Response>,
     stop: Arc<AtomicBool>,
+    request_keyframe: Arc<AtomicBool>,
 ) {
     let window_id = match locator {
         SourceLocator::Window(id) => Some(id),
         SourceLocator::Screen(_) => None,
     };
-    let Some(source) = resolve_source(locator) else {
-        let _ = channel.send(CaptureEvent::Ended {
-            capture_id,
-            reason: "a fonte selecionada desapareceu".to_string(),
-        });
-        return;
+
+    #[cfg(windows)]
+    let mut engine = match wgc::WgcSession::new(locator) {
+        Ok(session) => {
+            log::info!("Captura iniciada via Windows Graphics Capture (WGC)");
+            CaptureEngine::Wgc(session)
+        }
+        Err(err) => {
+            log::warn!("WGC indisponivel ({err}), degradando para captura GDI");
+            CaptureEngine::Gdi(source)
+        }
     };
+
+    #[cfg(not(windows))]
+    let mut engine = CaptureEngine::Gdi(source);
+
     let interval = Duration::from_nanos(1_000_000_000 / u64::from(fps));
     let maximum_failures = fps.saturating_mul(2);
     let mut consecutive_failures = 0;
+    let mut accumulator = MetricsAccumulator::default();
+    let mut window_started = Instant::now();
+    let capture_started = Instant::now();
+    let mut sequence = 0u32;
+    let mut last_frame_time = Instant::now().checked_sub(interval).unwrap_or_else(Instant::now);
+
+    let target_bitrate = bitrate
+        .map(|b| b.clamp(500_000, 25_000_000))
+        .unwrap_or_else(|| compute_default_bitrate(max_width, max_height, fps));
+    let jpeg_quality = compute_jpeg_quality(target_bitrate);
+
+    #[cfg(windows)]
+    let mut h264_encoder: Option<encoder::H264Encoder> = None;
+    #[cfg(windows)]
+    let mut h264_disabled = std::env::var("STAPP_FORCE_JPEG_ENCODER")
+        .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    #[cfg(windows)]
+    if h264_disabled {
+        log::info!("STAPP_FORCE_JPEG_ENCODER ativo: utilizando fallback JPEG por software");
+    }
 
     while !stop.load(Ordering::Relaxed) {
         if let Some(win_id) = window_id {
@@ -303,83 +414,330 @@ fn capture_loop(
                 break;
             }
         }
-        let (origin_x, origin_y) = match &source {
-            CaptureSource::Screen(screen) => (screen.x().unwrap_or(0), screen.y().unwrap_or(0)),
-            CaptureSource::Window(window) => (window.x().unwrap_or(0), window.y().unwrap_or(0)),
-        };
-        let started = Instant::now();
-        let image = match &source {
-            CaptureSource::Screen(screen) => screen.capture_image(),
-            CaptureSource::Window(window) => window.capture_image(),
-        };
-        let mut image = match image {
-            Ok(image) => {
-                consecutive_failures = 0;
-                image
-            }
-            Err(_) => {
-                if let Some(win_id) = window_id {
-                    if !is_window_valid(win_id) {
-                        let _ = channel.send(CaptureEvent::Ended {
-                            capture_id,
-                            reason: "a janela foi fechada".to_string(),
-                        });
-                        break;
+
+        match &mut engine {
+            #[cfg(windows)]
+            CaptureEngine::Wgc(session) => {
+                let wait_timeout = Duration::from_millis(100);
+                let wait_start = Instant::now();
+                let frame_result = session.next_frame(wait_timeout, max_width, max_height, fps);
+                let idle_elapsed = wait_start.elapsed();
+
+                let wgc_frame = match frame_result {
+                    Ok(Some(frame)) => {
+                        let now = Instant::now();
+                        if now.saturating_duration_since(last_frame_time) + Duration::from_millis(1) < interval {
+                            // Frame chegou antes do proximo intervalo desejado (ex.: monitor 144Hz)
+                            continue;
+                        }
+                        last_frame_time = now;
+                        consecutive_failures = 0;
+                        frame
+                    }
+                    Ok(None) => {
+                        // Sem quadro novo nesta janela de espera (tela estatica)
+                        let window_elapsed = window_started.elapsed();
+                        if window_elapsed >= metrics::WINDOW {
+                            window_started = Instant::now();
+                            let _ = channel.send(CaptureEvent::VideoStats {
+                                capture_id,
+                                stats: accumulator.snapshot(window_elapsed, fps),
+                            });
+                        }
+                        continue;
+                    }
+                    Err(err) => {
+                        log::warn!("falha no quadro WGC: {err}");
+                        accumulator.record_failure();
+                        consecutive_failures += 1;
+                        if consecutive_failures >= maximum_failures {
+                            let _ = channel.send(CaptureEvent::Ended {
+                                capture_id,
+                                reason: "a tela ou janela deixou de responder".to_string(),
+                            });
+                            break;
+                        }
+                        thread::sleep(interval);
+                        continue;
+                    }
+                };
+
+                let target_w = wgc_frame.width;
+                let target_h = wgc_frame.height;
+                let capture_elapsed = wgc_frame.capture_duration;
+                let resize_elapsed = wgc_frame.resize_duration;
+
+                if !h264_disabled {
+                    if let Some(enc) = &h264_encoder {
+                        if enc.width() != target_w || enc.height() != target_h {
+                            log::info!(
+                                "Mudanca de resolucao detectada ({}x{}), reinicializando encoder H.264",
+                                target_w, target_h
+                            );
+                            h264_encoder = None;
+                        }
+                    }
+                    if h264_encoder.is_none() {
+                        let active_bitrate = bitrate
+                            .map(|b| b.clamp(500_000, 25_000_000))
+                            .unwrap_or_else(|| compute_default_bitrate(target_w, target_h, fps));
+                        match encoder::H264Encoder::new(
+                            session.d3d_device(),
+                            target_w,
+                            target_h,
+                            fps,
+                            active_bitrate,
+                        ) {
+                            Ok(enc) => {
+                                log::info!(
+                                    "Encoder H.264 por hardware ativo: {} ({}), {}x{} @ {}fps, {} bps",
+                                    enc.friendly_name(),
+                                    enc.vendor_name(),
+                                    target_w,
+                                    target_h,
+                                    fps,
+                                    active_bitrate
+                                );
+                                h264_encoder = Some(enc);
+                            }
+                            Err(err) => {
+                                log::warn!("Encoder H.264 indisponivel ({err}), mantendo fallback JPEG");
+                                h264_disabled = true;
+                            }
+                        }
                     }
                 }
-                consecutive_failures += 1;
-                if consecutive_failures >= maximum_failures {
-                    let _ = channel.send(CaptureEvent::Ended {
+
+                let mut encoded_h264 = false;
+                if let Some(enc) = &mut h264_encoder {
+                    let force_keyframe = request_keyframe.swap(false, Ordering::Relaxed);
+                    let mut timer = FrameTimer::start();
+                    match enc.encode_texture(&wgc_frame.nv12_texture, force_keyframe) {
+                        Ok(packets) => {
+                            let encode_elapsed = timer.lap();
+                            let timestamp_us = capture_started.elapsed().as_micros() as u64;
+
+                            let mut total_bytes = 0;
+                            let mut dispatch_elapsed = Duration::ZERO;
+                            for packet in packets {
+                                sequence = sequence.wrapping_add(1);
+                                let packed = encoder::pack_frame(
+                                    encoder::CODEC_H264,
+                                    packet.is_keyframe,
+                                    capture_id,
+                                    target_w,
+                                    target_h,
+                                    sequence,
+                                    timestamp_us,
+                                    &packet.data,
+                                );
+                                total_bytes += packed.len();
+                                let d_timer = Instant::now();
+                                if frame_channel.send(Response::new(packed)).is_err() {
+                                    return;
+                                }
+                                dispatch_elapsed += d_timer.elapsed();
+                            }
+
+                            accumulator.record(FrameSample {
+                                capture: capture_elapsed,
+                                cursor: Duration::ZERO,
+                                resize: resize_elapsed,
+                                encode: encode_elapsed,
+                                dispatch: dispatch_elapsed,
+                                idle: idle_elapsed,
+                                bytes: total_bytes,
+                                width: target_w,
+                                height: target_h,
+                            });
+                            encoded_h264 = true;
+                        }
+                        Err(err) => {
+                            log::warn!("falha na codificacao H.264 ({err}), degradando para fallback JPEG");
+                            h264_encoder = None;
+                            h264_disabled = true;
+                        }
+                    }
+                }
+
+                if !encoded_h264 {
+                    let image = match session.read_to_rgba() {
+                        Ok(img) => img,
+                        Err(err) => {
+                            log::warn!("falha no readback RGBA da textura WGC: {err}");
+                            accumulator.record_failure();
+                            continue;
+                        }
+                    };
+
+                    let mut timer = FrameTimer::start();
+                    let mut jpeg_bytes = Vec::with_capacity(32 * 1024);
+                    if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, jpeg_quality)
+                        .encode_image(&image)
+                        .is_err()
+                    {
+                        accumulator.record_failure();
+                        continue;
+                    }
+                    let encode_elapsed = timer.lap();
+                    sequence = sequence.wrapping_add(1);
+                    let timestamp_us = capture_started.elapsed().as_micros() as u64;
+                    let packet = encoder::pack_frame(
+                        encoder::CODEC_JPEG,
+                        true,
                         capture_id,
-                        reason: "a tela ou janela deixou de responder".to_string(),
+                        target_w,
+                        target_h,
+                        sequence,
+                        timestamp_us,
+                        &jpeg_bytes,
+                    );
+                    let bytes = packet.len();
+                    if frame_channel.send(Response::new(packet)).is_err() {
+                        break;
+                    }
+                    let dispatch_elapsed = timer.lap();
+
+                    accumulator.record(FrameSample {
+                        capture: capture_elapsed,
+                        cursor: Duration::ZERO,
+                        resize: resize_elapsed,
+                        encode: encode_elapsed,
+                        dispatch: dispatch_elapsed,
+                        idle: idle_elapsed,
+                        bytes,
+                        width: target_w,
+                        height: target_h,
                     });
+                }
+            }
+            CaptureEngine::Gdi(source) => {
+                let mut timer = FrameTimer::start();
+                let image = match source {
+                    CaptureSource::Screen(screen) => screen.capture_image(),
+                    CaptureSource::Window(window) => window.capture_image(),
+                };
+                let capture_elapsed = timer.lap();
+                let image = match image {
+                    Ok(image) => {
+                        consecutive_failures = 0;
+                        image
+                    }
+                    Err(_) => {
+                        accumulator.record_failure();
+                        if let Some(win_id) = window_id {
+                            if !is_window_valid(win_id) {
+                                let _ = channel.send(CaptureEvent::Ended {
+                                    capture_id,
+                                    reason: "a janela foi fechada".to_string(),
+                                });
+                                break;
+                            }
+                        }
+                        consecutive_failures += 1;
+                        if consecutive_failures >= maximum_failures {
+                            let _ = channel.send(CaptureEvent::Ended {
+                                capture_id,
+                                reason: "a tela ou janela deixou de responder".to_string(),
+                            });
+                            break;
+                        }
+                        thread::sleep(interval);
+                        continue;
+                    }
+                };
+
+                let (width, height) = image.dimensions();
+                #[cfg(windows)]
+                let (target_w, target_h) =
+                    scaler::calculate_aligned_destination(width, height, max_width, max_height);
+                #[cfg(not(windows))]
+                let (target_w, target_h) = scale_to_fit(width, height, max_width, max_height);
+                let mut resize_timer = FrameTimer::start();
+                let image = if (width, height) == (target_w, target_h) {
+                    image
+                } else {
+                    simple_resize_rgba(&image, target_w, target_h)
+                };
+                let resize_elapsed = resize_timer.lap();
+
+                let elapsed = timer.total();
+                let idle_elapsed = if elapsed < interval {
+                    thread::sleep(interval - elapsed);
+                    timer.lap()
+                } else {
+                    thread::yield_now();
+                    Duration::ZERO
+                };
+
+                let mut timer = FrameTimer::start();
+                let mut jpeg_bytes = Vec::with_capacity(32 * 1024);
+                if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg_bytes, jpeg_quality)
+                    .encode_image(&image)
+                    .is_err()
+                {
+                    accumulator.record_failure();
+                    continue;
+                }
+                let encode_elapsed = timer.lap();
+                sequence = sequence.wrapping_add(1);
+                let timestamp_us = capture_started.elapsed().as_micros() as u64;
+                let packet = encoder::pack_frame(
+                    encoder::CODEC_JPEG,
+                    true,
+                    capture_id,
+                    target_w,
+                    target_h,
+                    sequence,
+                    timestamp_us,
+                    &jpeg_bytes,
+                );
+                let bytes = packet.len();
+                if frame_channel.send(Response::new(packet)).is_err() {
                     break;
                 }
-                thread::sleep(interval);
-                continue;
+                let dispatch_elapsed = timer.lap();
+
+                accumulator.record(FrameSample {
+                    capture: capture_elapsed,
+                    cursor: Duration::ZERO,
+                    resize: resize_elapsed,
+                    encode: encode_elapsed,
+                    dispatch: dispatch_elapsed,
+                    idle: idle_elapsed,
+                    bytes,
+                    width: target_w,
+                    height: target_h,
+                });
             }
-        };
-
-        overlay_mouse_cursor(&mut image, origin_x, origin_y);
-
-        let (width, height) = image.dimensions();
-        let (target_width, target_height) = scale_to_fit(width, height, max_width, max_height);
-        let image = if (width, height) == (target_width, target_height) {
-            image
-        } else {
-            parallel_resize_rgba(&image, target_width, target_height)
-        };
-        let mut packet = Vec::with_capacity(12 + (target_width * target_height) as usize);
-        packet.extend_from_slice(&target_width.to_le_bytes());
-        packet.extend_from_slice(&target_height.to_le_bytes());
-        packet.extend_from_slice(&capture_id.to_le_bytes());
-        if image::codecs::jpeg::JpegEncoder::new_with_quality(&mut packet, 72)
-            .encode_image(&image)
-            .is_err()
-        {
-            continue;
         }
 
-        if frame_channel.send(Response::new(packet)).is_err() {
-            break;
-        }
+        let window_elapsed = window_started.elapsed();
+        if window_elapsed >= metrics::WINDOW {
+            window_started = Instant::now();
+            #[cfg(windows)]
+            let encoder_name = match &h264_encoder {
+                Some(enc) => Some(format!("{} ({})", enc.friendly_name(), enc.vendor_name())),
+                None => Some("Software Fallback (JPEG)".to_string()),
+            };
+            #[cfg(not(windows))]
+            let encoder_name = Some("Software Fallback (JPEG)".to_string());
 
-        let elapsed = started.elapsed();
-        if elapsed < interval {
-            thread::sleep(interval - elapsed);
-        } else {
-            thread::yield_now();
+            let _ = channel.send(CaptureEvent::VideoStats {
+                capture_id,
+                stats: accumulator.snapshot_with_encoder(window_elapsed, fps, encoder_name),
+            });
         }
     }
 }
 
-fn parallel_resize_rgba(
+/// Redimensionamento simples em CPU por vizinho-mais-proximo, sem paralelismo ou dependencias extras.
+/// Usado exclusivamente como fallback quando a sessao WGC/GPU nao esta disponivel.
+fn simple_resize_rgba(
     src: &image::RgbaImage,
     target_width: u32,
     target_height: u32,
 ) -> image::RgbaImage {
-    use rayon::prelude::*;
-
     let (src_width, src_height) = src.dimensions();
     if target_width == 0 || target_height == 0 || src_width == 0 || src_height == 0 {
         return image::RgbaImage::new(target_width, target_height);
@@ -387,319 +745,24 @@ fn parallel_resize_rgba(
     let src_raw = src.as_raw();
     let mut dest_raw = vec![0u8; (target_width as usize) * (target_height as usize) * 4];
 
-    dest_raw
-        .par_chunks_exact_mut((target_width as usize) * 4)
-        .enumerate()
-        .for_each(|(target_y, row)| {
-            let src_y = ((target_y as u64 * src_height as u64) / target_height as u64) as u32;
-            let src_row_offset = (src_y as usize) * (src_width as usize) * 4;
-            let src_row = &src_raw[src_row_offset..src_row_offset + (src_width as usize) * 4];
+    for target_y in 0..target_height {
+        let src_y = ((target_y as u64 * src_height as u64) / target_height as u64) as u32;
+        let src_row_offset = (src_y as usize) * (src_width as usize) * 4;
+        let src_row = &src_raw[src_row_offset..src_row_offset + (src_width as usize) * 4];
+        let dst_row_offset = (target_y as usize) * (target_width as usize) * 4;
+        let dst_row = &mut dest_raw[dst_row_offset..dst_row_offset + (target_width as usize) * 4];
 
-            for target_x in 0..target_width {
-                let src_x = ((target_x as u64 * src_width as u64) / target_width as u64) as usize;
-                let src_idx = src_x * 4;
-                let dst_idx = (target_x as usize) * 4;
-                row[dst_idx..dst_idx + 4].copy_from_slice(&src_row[src_idx..src_idx + 4]);
-            }
-        });
+        for target_x in 0..target_width {
+            let src_x = ((target_x as u64 * src_width as u64) / target_width as u64) as usize;
+            let src_idx = src_x * 4;
+            let dst_idx = (target_x as usize) * 4;
+            dst_row[dst_idx..dst_idx + 4].copy_from_slice(&src_row[src_idx..src_idx + 4]);
+        }
+    }
 
     image::RgbaImage::from_raw(target_width, target_height, dest_raw)
         .unwrap_or_else(|| image::RgbaImage::new(target_width, target_height))
 }
-
-#[cfg(windows)]
-fn overlay_mouse_cursor(image: &mut image::RgbaImage, origin_x: i32, origin_y: i32) {
-    use windows::Win32::{
-        Graphics::Gdi::{
-            CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDIBits, GetObjectW,
-            SelectObject, BITMAP, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC,
-            HGDIOBJ,
-        },
-        UI::WindowsAndMessaging::{
-            DrawIconEx, GetCursorInfo, GetIconInfo, GetSystemMetrics, CURSORINFO, CURSOR_SHOWING,
-            DI_NORMAL, HICON, ICONINFO, SM_CXCURSOR, SM_CYCURSOR,
-        },
-    };
-
-    let mut ci = CURSORINFO {
-        cbSize: std::mem::size_of::<CURSORINFO>() as u32,
-        ..Default::default()
-    };
-    if unsafe { GetCursorInfo(&mut ci) }.is_err() {
-        return;
-    }
-    if (ci.flags.0 & CURSOR_SHOWING.0) == 0 || ci.hCursor.is_invalid() {
-        return;
-    }
-
-    let mut ii = ICONINFO::default();
-    if unsafe { GetIconInfo(HICON(ci.hCursor.0), &mut ii) }.is_err() {
-        return;
-    }
-
-    struct IconInfoGuard(ICONINFO);
-    impl Drop for IconInfoGuard {
-        fn drop(&mut self) {
-            unsafe {
-                if !self.0.hbmMask.is_invalid() {
-                    let _ = DeleteObject(HGDIOBJ(self.0.hbmMask.0));
-                }
-                if !self.0.hbmColor.is_invalid() {
-                    let _ = DeleteObject(HGDIOBJ(self.0.hbmColor.0));
-                }
-            }
-        }
-    }
-    let _guard = IconInfoGuard(ii);
-
-    let hotspot_x = ii.xHotspot as i32;
-    let hotspot_y = ii.yHotspot as i32;
-
-    let mut cursor_width = unsafe { GetSystemMetrics(SM_CXCURSOR) }.max(32);
-    let mut cursor_height = unsafe { GetSystemMetrics(SM_CYCURSOR) }.max(32);
-
-    if !ii.hbmColor.is_invalid() {
-        let mut bm = BITMAP::default();
-        if unsafe {
-            GetObjectW(
-                HGDIOBJ(ii.hbmColor.0),
-                std::mem::size_of::<BITMAP>() as i32,
-                Some(&mut bm as *mut _ as *mut _),
-            )
-        } > 0
-        {
-            if bm.bmWidth > 0 && bm.bmHeight > 0 {
-                cursor_width = bm.bmWidth;
-                cursor_height = bm.bmHeight;
-            }
-        }
-    } else if !ii.hbmMask.is_invalid() {
-        let mut bm = BITMAP::default();
-        if unsafe {
-            GetObjectW(
-                HGDIOBJ(ii.hbmMask.0),
-                std::mem::size_of::<BITMAP>() as i32,
-                Some(&mut bm as *mut _ as *mut _),
-            )
-        } > 0
-        {
-            if bm.bmWidth > 0 && bm.bmHeight > 0 {
-                cursor_width = bm.bmWidth;
-                cursor_height = bm.bmHeight / 2;
-            }
-        }
-    }
-
-    let image_width = image.width() as i32;
-    let image_height = image.height() as i32;
-
-    let cursor_x = ci.ptScreenPos.x - origin_x;
-    let cursor_y = ci.ptScreenPos.y - origin_y;
-
-    let draw_x = cursor_x - hotspot_x;
-    let draw_y = cursor_y - hotspot_y;
-
-    if draw_x + cursor_width <= 0
-        || draw_x >= image_width
-        || draw_y + cursor_height <= 0
-        || draw_y >= image_height
-    {
-        return;
-    }
-
-    let hdc = unsafe { CreateCompatibleDC(None) };
-    if hdc.is_invalid() {
-        return;
-    }
-
-    struct DcGuard(HDC);
-    impl Drop for DcGuard {
-        fn drop(&mut self) {
-            unsafe {
-                let _ = DeleteDC(self.0);
-            }
-        }
-    }
-    let _dc_guard = DcGuard(hdc);
-
-    let bmi = BITMAPINFO {
-        bmiHeader: BITMAPINFOHEADER {
-            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-            biWidth: cursor_width,
-            biHeight: -cursor_height,
-            biPlanes: 1,
-            biBitCount: 32,
-            biCompression: BI_RGB.0,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-
-    let mut bits_ptr: *mut std::ffi::c_void = std::ptr::null_mut();
-    let hbitmap = unsafe {
-        CreateDIBSection(
-            Some(hdc),
-            &bmi,
-            DIB_RGB_COLORS,
-            &mut bits_ptr,
-            None,
-            0,
-        )
-    };
-
-    let hbitmap = match hbitmap {
-        Ok(bm) if !bm.is_invalid() => bm,
-        _ => return,
-    };
-
-    struct BitmapGuard(HDC, HBITMAP, HGDIOBJ);
-    impl Drop for BitmapGuard {
-        fn drop(&mut self) {
-            unsafe {
-                let _ = SelectObject(self.0, self.2);
-                let _ = DeleteObject(HGDIOBJ(self.1.0));
-            }
-        }
-    }
-
-    let old_obj = unsafe { SelectObject(hdc, HGDIOBJ(hbitmap.0)) };
-    let _bm_guard = BitmapGuard(hdc, hbitmap, old_obj);
-
-    if bits_ptr.is_null() {
-        return;
-    }
-
-    let num_pixels = (cursor_width as usize) * (cursor_height as usize);
-    unsafe {
-        std::ptr::write_bytes(bits_ptr as *mut u8, 0, num_pixels * 4);
-    }
-
-    let drawn = unsafe {
-        DrawIconEx(
-            hdc,
-            0,
-            0,
-            HICON(ci.hCursor.0),
-            cursor_width,
-            cursor_height,
-            0,
-            None,
-            DI_NORMAL,
-        )
-    };
-    if drawn.is_err() {
-        return;
-    }
-
-    let dib_slice = unsafe { std::slice::from_raw_parts(bits_ptr as *const u8, num_pixels * 4) };
-
-    // Check if alpha channel was written
-    let mut has_alpha = false;
-    for i in 0..num_pixels {
-        if dib_slice[i * 4 + 3] > 0 {
-            has_alpha = true;
-            break;
-        }
-    }
-
-    // If no alpha was written (e.g. monochrome or legacy color cursor), use hbmMask as alpha/transparency guide
-    let mask_bits = if !has_alpha && !ii.hbmMask.is_invalid() {
-        let mut mask_data = vec![0u8; num_pixels * 4];
-        let mut mask_bmi = BITMAPINFO {
-            bmiHeader: BITMAPINFOHEADER {
-                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
-                biWidth: cursor_width,
-                biHeight: -cursor_height,
-                biPlanes: 1,
-                biBitCount: 32,
-                biCompression: BI_RGB.0,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let lines = unsafe {
-            GetDIBits(
-                hdc,
-                ii.hbmMask,
-                0,
-                cursor_height as u32,
-                Some(mask_data.as_mut_ptr() as *mut _),
-                &mut mask_bmi,
-                DIB_RGB_COLORS,
-            )
-        };
-        if lines > 0 {
-            Some(mask_data)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    for cy in 0..cursor_height {
-        let dst_y = draw_y + cy;
-        if dst_y < 0 || dst_y >= image_height {
-            continue;
-        }
-
-        for cx in 0..cursor_width {
-            let dst_x = draw_x + cx;
-            if dst_x < 0 || dst_x >= image_width {
-                continue;
-            }
-
-            let p_idx = ((cy as usize) * (cursor_width as usize) + (cx as usize)) * 4;
-            let b = dib_slice[p_idx];
-            let g = dib_slice[p_idx + 1];
-            let r = dib_slice[p_idx + 2];
-            let mut a = dib_slice[p_idx + 3];
-
-            let mut is_xor = false;
-
-            if !has_alpha {
-                if let Some(ref mask) = mask_bits {
-                    let mask_val = mask[p_idx];
-                    if mask_val == 0 {
-                        // AND mask is 0 -> pixel is opaque
-                        a = 255;
-                    } else if r > 0 || g > 0 || b > 0 {
-                        // AND mask is 1 and color is non-zero -> XOR pixel (inverting cursor)
-                        is_xor = true;
-                        a = 0;
-                    } else {
-                        // AND mask is 1 and color is 0 -> transparent
-                        a = 0;
-                    }
-                } else if r > 0 || g > 0 || b > 0 {
-                    a = 255;
-                }
-            }
-
-            if is_xor {
-                let pixel = image.get_pixel_mut(dst_x as u32, dst_y as u32);
-                pixel[0] ^= 255;
-                pixel[1] ^= 255;
-                pixel[2] ^= 255;
-            } else if a == 255 {
-                let pixel = image.get_pixel_mut(dst_x as u32, dst_y as u32);
-                pixel[0] = r;
-                pixel[1] = g;
-                pixel[2] = b;
-            } else if a > 0 {
-                let pixel = image.get_pixel_mut(dst_x as u32, dst_y as u32);
-                let alpha = a as u32;
-                let inv_alpha = 255 - alpha;
-                pixel[0] = ((r as u32 * alpha + pixel[0] as u32 * inv_alpha) / 255) as u8;
-                pixel[1] = ((g as u32 * alpha + pixel[1] as u32 * inv_alpha) / 255) as u8;
-                pixel[2] = ((b as u32 * alpha + pixel[2] as u32 * inv_alpha) / 255) as u8;
-            }
-        }
-    }
-}
-
-#[cfg(not(windows))]
-fn overlay_mouse_cursor(_image: &mut image::RgbaImage, _origin_x: i32, _origin_y: i32) {}
 
 #[cfg(windows)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -709,20 +772,18 @@ struct AudioTarget {
 }
 
 #[cfg(windows)]
-fn audio_target(locator: SourceLocator) -> Result<AudioTarget, String> {
-    let selected_process_id = match locator {
-        SourceLocator::Screen(_) => None,
-        SourceLocator::Window(id) => Some(
-            xcap::Window::all()
-                .map_err(|error| error.to_string())?
-                .into_iter()
-                .find(|window| window.id().ok() == Some(id))
-                .and_then(|window| window.pid().ok())
-                .ok_or_else(|| "a janela selecionada desapareceu".to_string())?,
-        ),
+fn audio_target_from_source(locator: SourceLocator, source: &CaptureSource) -> Result<AudioTarget, String> {
+    let selected_process_id = match source {
+        CaptureSource::Screen(_) => None,
+        CaptureSource::Window(window) => window
+            .pid()
+            .ok()
+            .ok_or_else(|| "a janela selecionada desapareceu".to_string())
+            .map(Some)?,
     };
     make_audio_target(locator, selected_process_id, get_exclusion_process_id())
 }
+
 
 #[cfg(windows)]
 fn make_audio_target(
@@ -765,10 +826,12 @@ fn audio_capture_loop(
     capture_id: u32,
     target: Result<AudioTarget, String>,
     channel: Channel<CaptureEvent>,
+    audio_channel: Channel<Response>,
     stop: Arc<AtomicBool>,
 ) {
-    let result =
-        target.and_then(|target| capture_process_audio(capture_id, target, &channel, &stop));
+    let result = target.and_then(|target| {
+        capture_process_audio(capture_id, target, &channel, &audio_channel, &stop)
+    });
     deinitialize();
     if let Err(reason) = result {
         let _ = channel.send(CaptureEvent::AudioUnavailable { capture_id, reason });
@@ -780,6 +843,7 @@ fn capture_process_audio(
     capture_id: u32,
     target: AudioTarget,
     channel: &Channel<CaptureEvent>,
+    audio_channel: &Channel<Response>,
     stop: &AtomicBool,
 ) -> Result<(), String> {
     initialize_mta()
@@ -822,6 +886,8 @@ fn capture_process_audio(
     // 10 ms packets doubled WebView messages and could build a delayed backlog.
     let chunk_bytes = bytes_per_frame * 960;
     let mut samples = VecDeque::with_capacity(chunk_bytes * 4);
+    let mut sequence: u32 = 0;
+    let capture_started = Instant::now();
     while !stop.load(Ordering::Relaxed) {
         let frames = capture
             .get_next_packet_size()
@@ -834,13 +900,18 @@ fn capture_process_audio(
                 .map_err(|error| format!("falha copiando o audio: {error}"))?;
         }
         while let Some(chunk) = take_pcm_chunk(&mut samples, chunk_bytes) {
-            if channel
-                .send(CaptureEvent::AudioChunk {
-                    capture_id,
-                    pcm: chunk,
-                })
-                .is_err()
-            {
+            sequence = sequence.wrapping_add(1);
+            let timestamp_us = capture_started.elapsed().as_micros() as u64;
+
+            let packet = encoder::pack_audio_frame(
+                capture_id,
+                48_000,
+                2,
+                sequence,
+                timestamp_us,
+                &chunk,
+            );
+            if audio_channel.send(Response::new(packet)).is_err() {
                 let _ = client.stop_stream();
                 return Ok(());
             }

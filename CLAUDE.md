@@ -231,17 +231,24 @@ onde `<video src>` e `<img src>` funcionam. Isso já derrubou o player de áudio
 A UI **nunca** importa `RTCPeerConnection` ou qualquer API de WebRTC direto. Ela consome só
 [`web/src/voice/VoiceTransport.ts`](web/src/voice/VoiceTransport.ts).
 
-Hoje quem implementa é `MeshTransport` (P2P direto, o servidor só repassa sinalização). Isso
-**trava acima de ~6 pessoas** na call, e é sabido — a migração para um SFU (LiveKit) já está
-costurada em três pontos:
+Hoje quem implementa são `LiveKitTransport` (padrão via SFU LiveKit WebRTC) e `MeshTransport` (fallback P2P).
+A escolha do transporte é feita **em runtime** pelo cliente lendo o campo `backend` do `VoiceConfig` entregue no `welcome`.
 
-1. `VoiceTransport` — a interface. Amanhã ganha um `LiveKitTransport` ao lado do `MeshTransport`.
-2. [`server/src/voice.rs`](server/src/voice.rs) — isola o backend de voz. `ws.rs` só delega.
-3. `VoiceConfig`, entregue ao cliente dentro do `welcome`, tem um campo `backend`. O cliente
-   escolhe o transporte **em runtime**, lendo esse campo. Trocar de mesh para SFU é config de
-   servidor, não alteração de código de UI.
+### Costura Futura: Publicação nativa via SDK Rust do LiveKit (Arquitetura B)
 
-Não fure essas costuras por conveniência.
+No pipeline de tela atual (Arquitetura A), a captura (WGC) e a codificação (MFT H.264) rodam em GPU na casca nativa em Rust,
+o bitstream é despachado via IPC binário (`Channel<Response>`), a WebView2 decodifica via WebCodecs (`VideoDecoder`), entrega
+o `VideoFrame` a um `MediaStreamTrackGenerator` e o publica na sala SFU via WebRTC do Chromium (`LiveKitTransport`).
+
+Embora isso tenha eliminado completamente o consumo massivo de CPU e a alocação de canvas no host (sustentando 1080p60 fluido
+com uso residual de CPU), ainda restam duas passagens de codec por hardware no cliente: decode no WebView2 + re-encode no WebRTC.
+
+O estado da arte (o que aplicações como Parsec e Discord fazem) é a **Arquitetura B**:
+- A casca Rust entra na sala do LiveKit como participante direto ou publicador sidecar usando o SDK nativo `livekit-rust`.
+- O bitstream H.264 gerado pelo MFT por hardware é publicado diretamente nos tracks RTP do SFU em Rust, zerando o envolvimento da WebView2.
+- A WebView2 deixa de decodificar e re-codificar a tela localmente; recebe apenas o feedback de status e controle da UI.
+- Esta costura deve ser modelada como uma nova implementação de `VoiceTransport` (ex: `NativeLiveKitTransport`), preservando a regra
+  dura de isolamento e mantendo o fallback web puro intacto. Merece sua própria release dedicada.
 
 ### Regra dura: Tauri é só a casca
 
@@ -324,12 +331,28 @@ Antes da primeira entrada, crie uma conta com `docker compose exec stapp-server 
   rotear as tracks remotas através do `PlaybackGraph` (`MediaStreamAudioSourceNode -> GainNode -> AudioContext.destination`),
   onde o `GainNode` suporta multiplicadores até `2.0`. Mantenha sempre referências vivas aos nós e ao `AudioContext`,
   caso contrário o GC do V8 coleta os objetos intermediários e o áudio é mutado silenciosamente.
-- **Transmissão de tela no Tauri v2 exige buffer binário bruto no IPC:** Jamais envie frames de vídeo
-  ou capturas de tela serializadas como arrays numéricos ou JSON através do IPC do Tauri. A serialização
-  infla a carga em ~4x e destrói o framerate da transmissão. Use sempre `tauri::ipc::Response` com payload
-  binário cru (`Vec<u8>`) e consuma no frontend com `invoke<ArrayBuffer>('capture_screen_frame_raw')`. No Windows,
-  a sobreposição do ponteiro do mouse é composta nativamente via Win32 GDI (`GetCursorInfo`, `DrawIconEx`)
-  antes do redimensionamento multithread com `rayon`.
+- **Captura de tela nunca volta para GDI:** No Windows, o Windows Graphics Capture (WGC via `Direct3D11CaptureFramePool`)
+  é a única fonte primária de captura de tela e de janelas. O backend GDI (`xcap::capture_image()` / `BitBlt`) é estritamente um
+  fallback degradado para quando a API WGC for recusada pelo sistema operacional. GDI bloqueia o DWM do Windows, rouba
+  10–25ms por quadro e causa engasgos severos em jogos executados em tela cheia. Nunca reverta a captura para GDI.
+- **O quadro não desce para a CPU:** O ciclo de vida do quadro de vídeo opera 100% em memória de vídeo (VRAM): textura WGC
+  (`ID3D11Texture2D`) → `D3D11VideoScaler` via `ID3D11VideoProcessor` (escala bilinear de alta qualidade e conversão BGRA→NV12 em
+  passada única na GPU em ~0.1ms) → MFT de hardware (NVIDIA NVENC, AMD AMF ou Intel QuickSync) → bitstream H.264 despachado via canal
+  binário `Channel<Response>`. A CPU não toca na memória de pixels: `rayon`, `parallel_resize_rgba` e cópias para RAM foram
+  completamente eliminados. Jamais desça o quadro para a CPU nem "simplifique" o pipeline com buffers em RAM.
+- **VP9 não tem encoder de hardware no WebView2:** No Chromium/WebView2 em ambiente Windows, a codificação de tela em VP9 roda
+  estritamente em software na CPU, consumindo de 40% a 70% do processador do host ao transmitir a 1080p60. A transmissão de tela
+  deve ser publicada obrigatoriamente em `video/H264` (perfil baseline/constrained via `videoCodec: 'h264'`) com fallback em VP8
+  (`backupCodec: { codec: 'vp8' }`). A câmera continua em VP9.
+- **Ingestão de vídeo no frontend sem canvas nem Blob:** O bitstream H.264 do canal binário alimenta diretamente a WebCodecs API
+  (`VideoDecoder` com aceleração de hardware) e entrega o `VideoFrame` direto a um `MediaStreamTrackGenerator`, contornando
+  `Blob`, `createImageBitmap`, `canvas.getContext('2d')` e `canvas.captureStream()`. Isso elimina o padrão em dente de serra do
+  Garbage Collector do V8 e estabiliza o framerate no relógio do produtor nativo.
+- **IPC de vídeo e áudio 100% binário:** Quadros de vídeo usam pacotes STAP de 32 bytes (`MAGIC_STAP`) e áudio PCM usa pacotes
+  SAUD de 32 bytes (`MAGIC_SAUD`), despachados por canais dedicados `Channel<Response>` do Tauri. Jamais trafegue mídia por JSON.
+- **Contrapressão explícita na fila de decodificação:** O tamanho de fila do `VideoDecoder` (`maxQueueSize = 4`) limita o atraso
+  acumulado a ~66ms a 60fps. Ao atingir o limite, descarta o quadro e solicita imediatamente um IDR keyframe via IPC, preservando
+  baixa latência sem congelar a reprodução.
 - **Navegação de links externos na WebView2 (plugin opener):** Na WebView2 (Windows), tags `<a target="_blank">`
   não abrem o navegador padrão confiavelmente e podem quebrar a janela do app se não interceptadas.
   Use sempre a abstração `openExternalLink(url)` de [`web/src/platform/externalLink.ts`](web/src/platform/externalLink.ts),

@@ -1,7 +1,7 @@
 export type NoiseMode = 'off' | 'standard' | 'enhanced'
 export type InputMode = 'voice_activity' | 'push_to_talk'
 export type CameraQuality = '720p' | '1080p'
-export type ScreenPreset = 'economy' | 'balanced' | 'fluid' | 'original'
+export type ScreenPreset = 'economy' | 'balanced' | 'fluid' | '1080p60' | 'original'
 
 export interface VoicePreferences {
   inputDeviceId: string
@@ -103,7 +103,7 @@ function sanitize(value: VoicePreferences): VoicePreferences {
     mirrorPreview: booleanValue(value.mirrorPreview, true),
     showSelf: booleanValue(value.showSelf, true),
     showVideoOffParticipants: booleanValue(value.showVideoOffParticipants, true),
-    screenPreset: oneOf(value.screenPreset, ['economy', 'balanced', 'fluid', 'original'], DEFAULT_VOICE_PREFERENCES.screenPreset),
+    screenPreset: oneOf(value.screenPreset, ['economy', 'balanced', 'fluid', '1080p60', 'original'], DEFAULT_VOICE_PREFERENCES.screenPreset),
     shareAudio: booleanValue(value.shareAudio, true),
     monitorMic: booleanValue(value.monitorMic, true),
     monitorVolume: clamp(value.monitorVolume, 0, 100),

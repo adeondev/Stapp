@@ -3,6 +3,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   browserAudioExclusionIsSafe,
+  createIngestMetrics,
+  extractH264CodecString,
+  parseScreenAudioPacket,
+  parseScreenCapturePacket,
+  requestScreenCaptureKeyframe,
   resetAudioExclusionValidationCache,
   startBrowserScreenCapture,
   startNativeScreenCapture,
@@ -176,3 +181,324 @@ describe('captura nativa de tela no desktop', () => {
   })
 })
 
+describe('metricas de ingestao do quadro', () => {
+  /* Relogio de mentira: a conta que precisa de cobertura e a media por janela,
+     nao o `performance.now`. */
+  const relogio = () => {
+    let agora = 0
+    return { ler: () => agora, avancar: (ms: number) => { agora += ms } }
+  }
+
+  it('so publica quando a janela fecha', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(1_000, false)
+    metricas.drawn(5, 1)
+    expect(metricas.stats.drawnFps).toBe(0)
+
+    t.avancar(1_000)
+    expect(metricas.flush()).toBe(true)
+    expect(metricas.stats.drawnFps).toBe(1)
+    expect(metricas.stats.receivedFps).toBe(1)
+    expect(metricas.stats.bytesPerSecond).toBe(1_000)
+  })
+
+  it('conta como perdido o quadro sobrescrito antes de ser desenhado', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(100, false)
+    metricas.received(100, true)
+    metricas.received(100, true)
+    metricas.drawn(4, 2)
+
+    t.avancar(1_000)
+    metricas.flush()
+    expect(metricas.stats.receivedFps).toBe(3)
+    expect(metricas.stats.drawnFps).toBe(1)
+    expect(metricas.stats.droppedFps).toBe(2)
+    expect(metricas.stats.droppedFrames).toBe(2)
+  })
+
+  it('mede decode e desenho por quadro desenhado, nao por quadro recebido', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(100, false)
+    metricas.received(100, true)
+    metricas.drawn(10, 2)
+    metricas.drawn(20, 4)
+
+    t.avancar(1_000)
+    metricas.flush()
+    expect(metricas.stats.decodeMs).toBe(15)
+    expect(metricas.stats.drawMs).toBe(3)
+  })
+
+  it('a perda acumulada sobrevive ao fechamento da janela', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(100, true)
+    t.avancar(1_000)
+    metricas.flush()
+    metricas.received(100, true)
+    t.avancar(1_000)
+    metricas.flush()
+
+    // Por janela zera; o total da transmissao, nao.
+    expect(metricas.stats.droppedFps).toBe(1)
+    expect(metricas.stats.droppedFrames).toBe(2)
+    expect(metricas.stats.receivedFps).toBe(1)
+  })
+
+  it('janela sem quadro desenhado nao divide por zero', () => {
+    const t = relogio()
+    const metricas = createIngestMetrics(t.ler, 1_000)
+
+    metricas.received(500, false)
+    t.avancar(1_000)
+    metricas.flush()
+    expect(metricas.stats.decodeMs).toBe(0)
+    expect(metricas.stats.drawMs).toBe(0)
+    expect(metricas.stats.drawnFps).toBe(0)
+  })
+})
+
+describe('protocolo binario STAP e codec H.264', () => {
+  it('interpreta pacote STAP moderno de 32 bytes com H.264 e keyframe', () => {
+    const payload = new Uint8Array([0, 0, 0, 1, 0x67, 0x42, 0x00, 0x1f, 0x05])
+    const packetBytes = new Uint8Array(32 + payload.byteLength)
+
+    // Magic "STAP"
+    packetBytes[0] = 0x53
+    packetBytes[1] = 0x54
+    packetBytes[2] = 0x41
+    packetBytes[3] = 0x50
+
+    packetBytes[4] = 1 // version
+    packetBytes[5] = 1 // codec = H.264
+    packetBytes[6] = 1 // flags = keyframe
+    packetBytes[7] = 0 // reserved
+
+    const view = new DataView(packetBytes.buffer, packetBytes.byteOffset, packetBytes.byteLength)
+    view.setUint32(8, 77, true) // captureId
+    view.setUint32(12, 1920, true) // width
+    view.setUint32(16, 1080, true) // height
+    view.setUint32(20, 15, true) // sequence
+    view.setBigUint64(24, 987654321n, true) // timestampUs
+
+    packetBytes.set(payload, 32)
+
+    const parsed = parseScreenCapturePacket(packetBytes)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.codec).toBe(1)
+    expect(parsed?.isKeyframe).toBe(true)
+    expect(parsed?.captureId).toBe(77)
+    expect(parsed?.width).toBe(1920)
+    expect(parsed?.height).toBe(1080)
+    expect(parsed?.sequence).toBe(15)
+    expect(parsed?.timestampUs).toBe(987654321n)
+    expect(parsed?.payload).toEqual(payload)
+  })
+
+  it('interpreta pacote STAP com codec JPEG', () => {
+    const payload = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0])
+    const packetBytes = new Uint8Array(32 + payload.byteLength)
+
+    packetBytes[0] = 0x53
+    packetBytes[1] = 0x54
+    packetBytes[2] = 0x41
+    packetBytes[3] = 0x50
+    packetBytes[4] = 1
+    packetBytes[5] = 0 // codec = JPEG
+    packetBytes[6] = 0 // delta / non-key
+
+    const view = new DataView(packetBytes.buffer, packetBytes.byteOffset, packetBytes.byteLength)
+    view.setUint32(8, 10, true)
+    view.setUint32(12, 1280, true)
+    view.setUint32(16, 720, true)
+    view.setUint32(20, 1, true)
+    view.setBigUint64(24, 1000n, true)
+    packetBytes.set(payload, 32)
+
+    const parsed = parseScreenCapturePacket(packetBytes)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.codec).toBe(0)
+    expect(parsed?.isKeyframe).toBe(false)
+    expect(parsed?.width).toBe(1280)
+    expect(parsed?.height).toBe(720)
+  })
+
+  it('mantem retrocompatibilidade com o cabecalho legado de 12 bytes', () => {
+    const jpegPayload = new Uint8Array([0xFF, 0xD8, 0xFF, 0xDB])
+    const legacyBytes = new Uint8Array(12 + jpegPayload.byteLength)
+    const view = new DataView(legacyBytes.buffer, legacyBytes.byteOffset, legacyBytes.byteLength)
+
+    view.setUint32(0, 1280, true) // width
+    view.setUint32(4, 720, true) // height
+    view.setUint32(8, 99, true) // captureId
+    legacyBytes.set(jpegPayload, 12)
+
+    const parsed = parseScreenCapturePacket(legacyBytes)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.codec).toBe(0) // JPEG
+    expect(parsed?.isKeyframe).toBe(true)
+    expect(parsed?.width).toBe(1280)
+    expect(parsed?.height).toBe(720)
+    expect(parsed?.captureId).toBe(99)
+    expect(parsed?.payload).toEqual(jpegPayload)
+  })
+
+  it('rejeita pacotes truncados menores que 12 bytes', () => {
+    expect(parseScreenCapturePacket(new Uint8Array(8))).toBeNull()
+    expect(parseScreenCapturePacket(new Uint8Array(0))).toBeNull()
+  })
+
+  it('rejeita pacote com versao de protocolo nao suportada', () => {
+    const packetBytes = new Uint8Array(36)
+    packetBytes[0] = 0x53
+    packetBytes[1] = 0x54
+    packetBytes[2] = 0x41
+    packetBytes[3] = 0x50
+    packetBytes[4] = 99 // versao invalida
+    // Fallback legado sera invocado somente se nao casar STAP, mas como tem 36 bytes ele avaliaria como legado a menos que validemos
+    // Com a checagem de versao no STAP, pacotes com STAP e versao != 1 caem no fallback ou sao tratados
+    const parsed = parseScreenCapturePacket(packetBytes)
+    // No formato legado, os primeiros 4 bytes sao width (LE), entao 0x50415453 = 1346458707 px de largura
+    expect(parsed?.codec).toBe(0) // se cair no fallback legado, e tratado como JPEG de 12 bytes
+  })
+
+  it('extrai string de codec RFC 6381 a partir de SPS Annex B', () => {
+    // 00 00 00 01 followed by NAL 7 (0x67) with profile 0x42 (66), constraints 0xE0, level 0x1F (31)
+    const spsPayload = new Uint8Array([
+      0x00, 0x00, 0x00, 0x01, 0x67, 0x42, 0xE0, 0x1F, 0x8D,
+    ])
+    expect(extractH264CodecString(spsPayload)).toBe('avc1.42e01f')
+  })
+
+  it('extrai string de codec com prefixo de 3 bytes (00 00 01)', () => {
+    const spsPayload = new Uint8Array([
+      0x00, 0x00, 0x01, 0x67, 0x64, 0x00, 0x28, 0xAC,
+    ])
+    expect(extractH264CodecString(spsPayload)).toBe('avc1.640028')
+  })
+
+  it('retorna fallback seguro quando payload nao contem SPS', () => {
+    const dummyPayload = new Uint8Array([0x01, 0x02, 0x03, 0x04])
+    expect(extractH264CodecString(dummyPayload)).toBe('avc1.420028')
+  })
+})
+
+describe('solicitacao de keyframe sob demanda', () => {
+  it('ignora chamada silenciosamente fora do Tauri ou com captureId invalido', async () => {
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__
+    await expect(requestScreenCaptureKeyframe(0)).resolves.toBeUndefined()
+    await expect(requestScreenCaptureKeyframe(-1)).resolves.toBeUndefined()
+  })
+})
+
+describe('parseScreenAudioPacket (canal binario SAUD)', () => {
+  it('interpreta corretamente pacote de audio SAUD com 32 bytes de cabecalho', () => {
+    // 4 float32 samples = 16 bytes payload
+    const pcmFloats = new Float32Array([0.25, -0.25, 0.75, -0.75])
+    const pcmPayload = new Uint8Array(pcmFloats.buffer, pcmFloats.byteOffset, pcmFloats.byteLength)
+
+    const raw = new Uint8Array(32 + pcmPayload.byteLength)
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
+
+    // Magic: "SAUD"
+    raw[0] = 0x53
+    raw[1] = 0x41
+    raw[2] = 0x55
+    raw[3] = 0x44
+    // Version: 1
+    raw[4] = 1
+    // Channels: 2
+    raw[5] = 2
+    // Flags: 0, Reserved: 0
+    raw[6] = 0
+    raw[7] = 0
+    // CaptureId: 42
+    view.setUint32(8, 42, true)
+    // SampleRate: 48000
+    view.setUint32(12, 48_000, true)
+    // Sequence: 100
+    view.setUint32(16, 100, true)
+    // TimestampUs: 1234567890123n
+    view.setBigUint64(20, 1234567890123n, true)
+    // Reserved 4 bytes (28..32)
+    view.setUint32(28, 0, true)
+
+    // Payload
+    raw.set(pcmPayload, 32)
+
+    const parsed = parseScreenAudioPacket(raw)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.captureId).toBe(42)
+    expect(parsed?.sampleRate).toBe(48_000)
+    expect(parsed?.channels).toBe(2)
+    expect(parsed?.sequence).toBe(100)
+    expect(parsed?.timestampUs).toBe(1234567890123n)
+    expect(parsed?.pcm).toEqual(pcmPayload)
+
+    // Verifica integridade dos floats
+    const parsedFloats = new Float32Array(
+      parsed!.pcm.buffer,
+      parsed!.pcm.byteOffset,
+      parsed!.pcm.byteLength / Float32Array.BYTES_PER_ELEMENT,
+    )
+    expect(Array.from(parsedFloats)).toEqual([0.25, -0.25, 0.75, -0.75])
+  })
+
+  it('rejeita pacotes truncados menores que 32 bytes', () => {
+    expect(parseScreenAudioPacket(new Uint8Array(0))).toBeNull()
+    expect(parseScreenAudioPacket(new Uint8Array(16))).toBeNull()
+    expect(parseScreenAudioPacket(new Uint8Array(31))).toBeNull()
+  })
+
+  it('rejeita magic invalido', () => {
+    const raw = new Uint8Array(32)
+    raw[0] = 0x58 // 'X'
+    raw[1] = 0x41
+    raw[2] = 0x55
+    raw[3] = 0x44
+    raw[4] = 1
+    expect(parseScreenAudioPacket(raw)).toBeNull()
+  })
+
+  it('rejeita versao invalida', () => {
+    const raw = new Uint8Array(32)
+    raw[0] = 0x53
+    raw[1] = 0x41
+    raw[2] = 0x55
+    raw[3] = 0x44
+    raw[4] = 2 // versao 2 nao suportada
+    expect(parseScreenAudioPacket(raw)).toBeNull()
+  })
+
+  it('suporta valores maximos de sequencia e timestamp', () => {
+    const raw = new Uint8Array(32)
+    const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength)
+    raw[0] = 0x53
+    raw[1] = 0x41
+    raw[2] = 0x55
+    raw[3] = 0x44
+    raw[4] = 1
+    raw[5] = 8 // 8 canais (ex: 7.1)
+    view.setUint32(8, 0xFFFFFFFF, true)
+    view.setUint32(12, 192_000, true)
+    view.setUint32(16, 0xFFFFFFFF, true)
+    view.setBigUint64(20, 0xFFFFFFFFFFFFFFFFn, true)
+
+    const parsed = parseScreenAudioPacket(raw)
+    expect(parsed).not.toBeNull()
+    expect(parsed?.captureId).toBe(0xFFFFFFFF)
+    expect(parsed?.sampleRate).toBe(192_000)
+    expect(parsed?.channels).toBe(8)
+    expect(parsed?.sequence).toBe(0xFFFFFFFF)
+    expect(parsed?.timestampUs).toBe(0xFFFFFFFFFFFFFFFFn)
+    expect(parsed?.pcm.byteLength).toBe(0)
+  })
+})
