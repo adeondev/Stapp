@@ -48,6 +48,19 @@ export class DesktopUpdater implements UpdaterService {
       customEndpoint = await resolveUpdateEndpoint(activeChannel)
       if (customEndpoint) {
         console.info(`[DesktopUpdater] Endpoint resolvido para ${activeChannel}:`, customEndpoint)
+      } else {
+        // PROTOTYPE: o endpoint estatico do tauri.conf.json aponta para
+        // /releases/latest/download/latest.json, e o "latest" do GitHub ignora
+        // pre-releases: num repositorio que so publica pre-release ele responde 404.
+        // Ou seja, a resolucao dinamica acima e hoje o unico caminho que funciona, e
+        // nao ha rede de protecao atras dela. FUTURE: quando sair a primeira release
+        // estavel, o endpoint estatico volta a resolver sozinho e vira fallback de
+        // verdade; ate la, falhar aqui em silencio vira "nenhuma atualizacao".
+        console.warn(
+          '[DesktopUpdater] Nao consegui resolver o endpoint pela API do GitHub. '
+            + 'O fallback estatico do tauri.conf.json nao funciona enquanto todas as '
+            + 'releases forem pre-release, entao a checagem provavelmente vai falhar.',
+        )
       }
     } catch (err) {
       console.warn('[DesktopUpdater] Falha ao consultar endpoint dinâmico do GitHub:', err)
