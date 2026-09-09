@@ -22,7 +22,10 @@ use image::RgbaImage;
 use windows::{
     Foundation::TypedEventHandler,
     Graphics::{
-        Capture::{Direct3D11CaptureFramePool, GraphicsCaptureItem, GraphicsCaptureSession},
+        Capture::{
+            Direct3D11CaptureFramePool, GraphicsCaptureAccess, GraphicsCaptureAccessKind,
+            GraphicsCaptureItem, GraphicsCaptureSession,
+        },
         DirectX::{Direct3D11::IDirect3DDevice, DirectXPixelFormat},
         SizeInt32,
     },
@@ -79,6 +82,47 @@ pub struct WgcSession {
     current_size: SizeInt32,
     scaler: Option<super::scaler::D3D11VideoScaler>,
     closed: bool,
+}
+
+/// Pede ao Windows o acesso "Borderless" da captura, uma unica vez por processo.
+///
+/// A borda amarela em volta do que esta sendo capturado e desenhada pelo proprio
+/// Windows. `SetIsBorderRequired(false)` sozinho NAO basta: medido nesta maquina
+/// (Windows 11 25H2, build 26200) o setter retorna `Ok` e o `IsBorderRequired` le
+/// `false` de volta mesmo sem nenhum acesso concedido — ou seja, ele nunca
+/// denunciou o problema. O que falta e a capacidade em si, que para um app
+/// desktop nao empacotado se obtem por `RequestAccessAsync(Borderless)`.
+///
+/// PROTOTYPE: o resultado e apenas registrado, nunca fatal. Sem a concessao a
+/// transmissao continua funcionando; o que muda e a borda ficar na tela de quem
+/// compartilha. Invariante: isto jamais pode impedir uma captura de comecar.
+///
+/// FUTURE: se algum dia o app for empacotado (MSIX), a via passa a ser a
+/// capacidade restrita `graphicsCaptureWithoutBorder` no manifesto, e esta
+/// chamada vira redundante.
+fn garantir_acesso_sem_borda() {
+    static ACESSO: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    ACESSO.get_or_init(|| {
+        let operacao =
+            match GraphicsCaptureAccess::RequestAccessAsync(GraphicsCaptureAccessKind::Borderless) {
+                Ok(operacao) => operacao,
+                Err(e) => {
+                    log::warn!("RequestAccessAsync(Borderless) nao pode ser chamada: {e}");
+                    return;
+                }
+            };
+
+        // A operacao resolve na hora nesta maquina, mas o contrato e assincrono.
+        // Espera limitada: a captura nao pode ficar refem de uma permissao.
+        for _ in 0..50 {
+            if let Ok(status) = operacao.GetResults() {
+                log::info!("acesso Borderless da WGC: {status:?} (4 = Allowed)");
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        log::warn!("acesso Borderless da WGC nao respondeu em 1s; a borda amarela pode aparecer");
+    });
 }
 
 impl WgcSession {
@@ -171,9 +215,18 @@ impl WgcSession {
             log::debug!("SetIsCursorCaptureEnabled(true) nao suportado: {e}");
         }
 
-        // Remocao da borda amarela (suportado no Windows 11 / Windows 10 2004+).
+        // Remocao da borda amarela que o Windows desenha em volta do alvo capturado.
+        // A ordem importa: a capacidade tem que estar concedida antes de a propriedade
+        // valer. O setter sozinho sempre respondeu Ok, e por isso o problema passou
+        // despercebido — nunca houve erro para logar.
+        garantir_acesso_sem_borda();
         if let Err(e) = session.SetIsBorderRequired(false) {
-            log::debug!("SetIsBorderRequired(false) nao suportado: {e}");
+            log::warn!("SetIsBorderRequired(false) recusado: {e}");
+        } else {
+            log::info!(
+                "borda da captura desligada (IsBorderRequired={:?})",
+                session.IsBorderRequired(),
+            );
         }
 
         // Garante suporte ao pipeline de processamento de video D3D11

@@ -57,6 +57,7 @@ windows = { version = "0.62", features = [
     "Win32_System_WinRT_Graphics_Capture",
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",
+    "Security_Authorization_AppCapabilityAccess",
 ] }
 
 [profile.release]
