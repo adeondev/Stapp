@@ -1,4 +1,5 @@
 import type { UpdateChannel } from './types'
+import { compareSemver } from './semver'
 
 export interface GitHubReleaseAsset {
   name: string
@@ -18,22 +19,41 @@ export interface GitHubReleaseItem {
 export const GITHUB_RELEASES_URL = 'https://api.github.com/repos/adeondev/Stapp/releases'
 
 /**
- * Filtra e seleciona a URL do manifesto `latest.json` correspondente ao canal desejado.
+ * Escolhe o manifesto `latest.json` da MAIOR versao entre as releases elegiveis.
+ *
+ * Antes esta funcao devolvia a primeira release que a API tivesse listado,
+ * confiando que a ordem viesse sempre da mais nova para a mais velha. Essa ordem
+ * nao e garantida, e quebrou de verdade: a API listou a v0.1.0-beta.9 antes da
+ * v0.1.0-beta.10, criada cinco horas depois. Todo mundo ficava preso na beta.9,
+ * porque o app pedia o manifesto dela e concluia que ja estava atualizado — e
+ * quem ja estava na beta.10 via uma versao MENOR e tambem nao fazia nada.
+ *
+ * O canal `stable` so enxerga releases finais. O canal `beta` enxerga tambem as
+ * pre-releases, inclusive uma final mais nova: pelo semver, 0.1.0 e maior que
+ * 0.1.0-beta.3, e para quem esta numa beta antiga isso e legitimamente a
+ * atualizacao a oferecer.
  */
 export function selectReleaseEndpoint(
   releases: GitHubReleaseItem[],
   channel: UpdateChannel,
 ): string | null {
+  let escolhida: { tag: string; url: string } | null = null
+
   for (const rel of releases) {
     if (rel.draft) continue
     if (channel === 'stable' && rel.prerelease) continue
 
     const updaterAsset = rel.assets.find((a) => a.name === 'latest.json')
-    if (updaterAsset?.browser_download_url) {
-      return updaterAsset.browser_download_url
+    if (!updaterAsset?.browser_download_url) continue
+
+    // compareSemver poe qualquer tag ilegivel abaixo de uma legivel, entao uma tag
+    // fora do padrao so vence se nao houver nenhuma outra candidata.
+    if (!escolhida || compareSemver(rel.tag_name, escolhida.tag) > 0) {
+      escolhida = { tag: rel.tag_name, url: updaterAsset.browser_download_url }
     }
   }
-  return null
+
+  return escolhida?.url ?? null
 }
 
 /**
