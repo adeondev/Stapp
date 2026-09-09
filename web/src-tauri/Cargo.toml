@@ -1,6 +1,6 @@
 [package]
 name = "stapp-desktop"
-version = "0.1.0-beta.10"
+version = "0.1.0-beta.11"
 description = "Cliente desktop privado do Stapp"
 authors = ["Stapp"]
 license = ""
